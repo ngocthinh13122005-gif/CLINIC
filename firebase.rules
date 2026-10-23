@@ -1,0 +1,41 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /ohio_conversations/{conversationId} {
+      function canReadConversation() {
+        return request.auth != null && (
+          request.auth.token.role in ['manager', 'sysadmin'] ||
+          request.auth.uid in resource.data.allowedUids
+        );
+      }
+      allow read: if canReadConversation();
+      allow write: if false;
+
+      match /messages/{messageId} {
+        allow read: if request.auth != null && (
+          request.auth.token.role in ['manager', 'sysadmin'] ||
+          request.auth.uid in get(/databases/$(database)/documents/ohio_conversations/$(conversationId)).data.allowedUids
+        );
+        allow write: if false;
+      }
+    }
+
+    match /ohio_notifications/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+      match /items/{notificationId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+    }
+
+    match /ohio_events/{channel} {
+      allow read: if request.auth != null && request.auth.token.role in ['manager', 'sysadmin'];
+      allow write: if false;
+      match /items/{eventId} {
+        allow read: if request.auth != null && request.auth.token.role in ['manager', 'sysadmin'];
+        allow write: if false;
+      }
+    }
+  }
+}

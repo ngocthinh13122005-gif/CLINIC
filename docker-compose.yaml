@@ -1,0 +1,97 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ohio_spa
+      MYSQL_USER: ohio
+      MYSQL_PASSWORD: ohio_dev_password
+      MYSQL_ROOT_PASSWORD: ohio_root_password
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  backend:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_ENGINE: mysql
+      DB_HOST: mysql
+      CELERY_TASK_ALWAYS_EAGER: 0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      FRONTEND_BASE_URL: http://localhost:8080
+      SITE_BASE_URL: http://localhost:8080
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    command: sh -c "python manage.py migrate && python manage.py seed && gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 90"
+    ports:
+      - "8000:8000"
+    volumes:
+      - media_data:/app/media
+
+  celery:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_ENGINE: mysql
+      DB_HOST: mysql
+      CELERY_TASK_ALWAYS_EAGER: 0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_started
+    command: celery -A config worker -l info
+    volumes:
+      - media_data:/app/media
+
+  celery-beat:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_ENGINE: mysql
+      DB_HOST: mysql
+      CELERY_TASK_ALWAYS_EAGER: 0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_started
+    command: celery -A config beat -l info
+
+  frontend:
+    build: ../ohio-spa-web-app
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "8080:80"
+
+volumes:
+  mysql_data:
+  redis_data:
+  media_data:
