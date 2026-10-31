@@ -171,7 +171,7 @@
 .cl-nowline{position:absolute;left:0;right:0;border-top:2px dashed #e5484d;z-index:4;pointer-events:none}
 .cl-dl{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:0 0 14px}.cl-dl dt{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.cl-dl dd{margin:2px 0 0;font-weight:600}.cl-dl .span2{grid-column:1/-1}
 .cl-booking-history{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}.cl-booking-history h3{font-size:14px;margin:0 0 8px}.cl-booking-history ol{display:grid;gap:8px;margin:0;padding-left:18px}.cl-booking-history li{padding-left:3px}.cl-booking-history li span,.cl-booking-history li small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
-.cl-view-tabs{display:flex;gap:4px;width:max-content;max-width:100%;margin:0 0 16px;padding:4px;background:#f1f5f7;border:1px solid var(--line);border-radius:10px}
+.cl-view-tabs{display:flex;gap:4px;width:max-content;max-width:100%;margin:0 0 12px;padding:4px;background:#f1f5f7;border:1px solid var(--line);border-radius:10px}
 .cl-view-tabs button{height:36px;border:0;border-radius:7px;background:transparent;padding:0 16px;color:var(--ink2);font:inherit;font-weight:600;cursor:pointer}
 .cl-view-tabs button.on{background:#fff;color:var(--pri-ink);box-shadow:0 1px 3px rgba(16,37,58,.12)}
 .cl-booking-list{background:#fff;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden}
@@ -183,6 +183,11 @@
 .cl-booking-status-tabs button{height:34px;flex:0 0 auto;padding:0 12px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--ink2);font:inherit;font-size:13px;font-weight:600;white-space:nowrap;cursor:pointer}
 .cl-booking-status-tabs button:hover{background:#f5f8f9}
 .cl-booking-status-tabs button.on{border-color:#b9dce1;background:var(--pri-soft);color:var(--pri-ink)}
+/* Lịch hẹn: dùng các tab trạng thái gọn, tránh lặp dashboard KPI trong trang vận hành. */
+.cl-booking-status-tabs{gap:5px;padding:10px 14px}
+.cl-booking-status-tabs button{border:1px solid var(--line);border-radius:8px;height:32px;padding:0 11px}
+.cl-booking-list-filters{padding:12px 14px}
+.cl-booking-status-tabs button:focus-visible,.cl-view-tabs button:focus-visible{outline:2px solid var(--pri);outline-offset:2px}
 .cl-booking-list-summary{padding:12px 16px 0;color:var(--muted);font-size:13px}
 .cl-booking-list-rows{display:flex;flex-direction:column}
 .cl-booking-list-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line2)}
