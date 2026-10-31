@@ -81,7 +81,7 @@ export default function ReceptionPage() {
             <div className="cl-row-actions">
               {role === 'doctor' && <Link className="cl-btn primary sm" to={`/kham/${v.id}`}>{v.record_id ? 'Tiếp tục khám' : 'Vào khám'}</Link>}
               {canReception && !v.doctor && <button className="cl-link" onClick={() => setCalling({ ...v, assignOnly: true })}>Chỉ định BS</button>}
-              {canReception && <Btn size="sm" icon={<CheckRounded />} onClick={() => complete(v)}>Kết thúc</Btn>}</div></div>
+              {role === 'doctor' && v.doctor === user.id && <Btn size="sm" icon={<CheckRounded />} onClick={() => complete(v)}>Kết thúc</Btn>}</div></div>
           {v.record_status === 'draft' && <p className="cl-note-line">Bệnh án đang soạn, chưa ký.</p>}
         </VisitCard>)}
         {!d.in_consult.length && <Empty title="Chưa có ca nào đang khám" />}
