@@ -3,7 +3,7 @@ from django.test import override_settings
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from .models import Invoice, Medicine, Patient, Visit
+from .models import CashierShift, DebtFollowUp, Invoice, Medicine, Patient, Payment, Refund, Visit
 
 User = get_user_model()
 
@@ -70,7 +70,7 @@ class PharmacyBillingTests(APITestCase):
         self.assertEqual((p['status'], p['balance']), ('partial', 100000))
         self.assertEqual(self.client.post(f"/api/clinic/invoices/{inv['id']}/pay/", {'amount': 999999}, format='json').status_code, 400)
         self.assertEqual(self.client.patch(f"/api/clinic/invoices/{inv['id']}/", {'items': [{'kind': 'other', 'name': 'a', 'quantity': 1, 'unit_price': 5}]}, format='json').status_code, 400)
-        p = self.client.post(f"/api/clinic/invoices/{inv['id']}/pay/", {'amount': 100000}, format='json').json()
+        p = self.client.post(f"/api/clinic/invoices/{inv['id']}/pay/", {'amount': 100000, 'method': 'transfer'}, format='json').json()
         self.assertEqual((p['status'], p['paid']), ('paid', 175000))
         # CSKH không hủy; đã thu tiền thì manager cũng không hủy
         self.assertEqual(self.client.post(f"/api/clinic/invoices/{inv['id']}/void/", {'reason': 'nhầm hóa đơn'}, format='json').status_code, 403)
@@ -105,3 +105,52 @@ class PharmacyBillingTests(APITestCase):
         self.assertIn('month_revenue', self.client.get('/api/clinic/invoices/summary/').json())
         self.auth(self.nurse)
         self.assertEqual(self.client.get('/api/clinic/invoices/').status_code, 403)
+
+    def test_invoice_terms_and_debt_follow_up(self):
+        self.auth(self.cskh)
+        r = self.client.post('/api/clinic/invoices/', {'patient': self.patient.pk, 'payment_term': '7d',
+                             'items': [{'kind': 'other', 'name': 'Phí khám', 'quantity': 1, 'unit_price': 100000}]}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        inv = r.json()
+        self.assertEqual(inv['payment_term'], '7d')
+        self.assertTrue(inv['due_date'])
+        follow = self.client.post('/api/clinic/debt-followups/', {'invoice': inv['id'], 'action': 'call',
+                                  'note': 'Khách hẹn thanh toán vào tuần tới', 'next_follow_up': inv['due_date']}, format='json')
+        self.assertEqual(follow.status_code, 201, follow.content)
+        self.assertEqual(DebtFollowUp.objects.filter(invoice_id=inv['id']).count(), 1)
+        detail = self.client.get(f"/api/clinic/invoices/{inv['id']}/").json()
+        self.assertEqual(detail['followups'][0]['action'], 'call')
+
+    def test_cashier_shift_reconciliation_and_refund_approval(self):
+        self.auth(self.cskh)
+        inv = self.client.post('/api/clinic/invoices/', {'patient': self.patient.pk,
+                               'items': [{'kind': 'other', 'name': 'Dịch vụ', 'quantity': 1, 'unit_price': 200000}]}, format='json').json()
+        cash = self.client.post(f"/api/clinic/invoices/{inv['id']}/pay/", {'amount': 200000, 'method': 'cash'}, format='json')
+        self.assertEqual(cash.status_code, 400)
+        shift = self.client.post('/api/clinic/cashier-shifts/open/', {'opening_cash': 500000}, format='json')
+        self.assertEqual(shift.status_code, 201, shift.content)
+        paid = self.client.post(f"/api/clinic/invoices/{inv['id']}/pay/", {'amount': 200000, 'method': 'cash'}, format='json')
+        self.assertEqual(paid.status_code, 200, paid.content)
+        payment = Payment.objects.get(invoice_id=inv['id'])
+        self.assertEqual(payment.reconciliation_status, Payment.PENDING)
+        closed = self.client.post(f"/api/clinic/cashier-shifts/{shift.json()['id']}/close/", {'counted_cash': 700000}, format='json')
+        self.assertEqual(closed.status_code, 200, closed.content)
+        self.assertEqual((closed.json()['expected_cash'], closed.json()['difference']), (700000, 0))
+        payment.refresh_from_db()
+        self.assertEqual(payment.reconciliation_status, Payment.RECONCILED)
+
+        refund = self.client.post('/api/clinic/refunds/', {'invoice': inv['id'], 'amount': 50000, 'method': 'cash',
+                                  'reason': 'Khách đổi dịch vụ'}, format='json')
+        self.assertEqual(refund.status_code, 201, refund.content)
+        self.assertEqual(self.client.post(f"/api/clinic/refunds/{refund.json()['id']}/approve/").status_code, 403)
+        self.auth(self.manager)
+        self.assertEqual(self.client.post(f"/api/clinic/refunds/{refund.json()['id']}/approve/").status_code, 200)
+        self.auth(self.cskh)
+        self.assertEqual(self.client.post(f"/api/clinic/refunds/{refund.json()['id']}/complete/").status_code, 400)
+        second = self.client.post('/api/clinic/cashier-shifts/open/', {'opening_cash': 100000}, format='json')
+        self.assertEqual(second.status_code, 201)
+        completed = self.client.post(f"/api/clinic/refunds/{refund.json()['id']}/complete/", {}, format='json')
+        self.assertEqual(completed.status_code, 200, completed.content)
+        self.assertEqual(completed.json()['status'], Refund.COMPLETED)
+        refreshed = self.client.get(f"/api/clinic/invoices/{inv['id']}/").json()
+        self.assertEqual((refreshed['paid'], refreshed['balance']), (150000, 50000))

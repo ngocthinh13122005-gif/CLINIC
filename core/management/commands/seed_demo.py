@@ -271,10 +271,12 @@ class Command(BaseCommand):
                 roll = R.random()
                 paid = inv.total if roll < .84 else inv.total // 2 if roll < .95 else 0
                 if paid:
-                    Payment.objects.create(invoice=inv, amount=paid, method=R.choice(METHODS), received_by=cskh)
+                    Payment.objects.create(invoice=inv, amount=paid, method=R.choice(METHODS), received_by=cskh,
+                                           reconciliation_status=Payment.RECONCILED, reconciled_by=cskh)
                     inv.recalc()
                 Invoice.objects.filter(pk=inv.pk).update(created_at=v.finished_at)
-                Payment.objects.filter(invoice=inv).update(paid_at=v.finished_at + timedelta(minutes=R.randint(0, 30)))
+                paid_at = v.finished_at + timedelta(minutes=R.randint(0, 30))
+                Payment.objects.filter(invoice=inv).update(paid_at=paid_at, reconciled_at=paid_at)
                 StockMovement.objects.filter(reference=inv.code).update(created_at=v.finished_at)
                 # việc chăm sóc quá khứ (đã làm) để báo cáo có số liệu
                 if back > 8 and R.random() < .8:

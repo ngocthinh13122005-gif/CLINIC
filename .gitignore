@@ -12,3 +12,10 @@ tmp/firebase-config.json
 .vscode/
 .pytest_cache/
 .DS_Store
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+frontend/npm-debug.log*

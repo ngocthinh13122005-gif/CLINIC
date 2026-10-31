@@ -1,0 +1,28 @@
+from django.conf import settings
+from django.db import migrations, models
+import django.db.models.deletion
+import django.utils.timezone
+
+
+def backfill_due_dates(apps, schema_editor):
+    Invoice = apps.get_model('clinic', 'Invoice')
+    for invoice in Invoice.objects.filter(due_date__isnull=True).iterator():
+        invoice.due_date = invoice.created_at.date()
+        invoice.save(update_fields=['due_date'])
+
+
+class Migration(migrations.Migration):
+    dependencies = [('clinic', '0006_relax_legacy_patient_image_metadata'), migrations.swappable_dependency(settings.AUTH_USER_MODEL)]
+
+    operations = [
+        migrations.AddField(model_name='invoice', name='payment_term', field=models.CharField(choices=[('immediate', 'Thanh toán ngay'), ('7d', 'Trong 7 ngày'), ('15d', 'Trong 15 ngày'), ('30d', 'Trong 30 ngày'), ('custom', 'Tùy chỉnh')], default='immediate', max_length=12, verbose_name='Điều khoản thanh toán')),
+        migrations.AddField(model_name='invoice', name='due_date', field=models.DateField(blank=True, db_index=True, null=True, verbose_name='Ngày đến hạn')),
+        migrations.CreateModel(name='CashierShift', fields=[('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')), ('status', models.CharField(choices=[('open', 'Đang mở'), ('closed', 'Đã đóng')], db_index=True, default='open', max_length=8)), ('opening_cash', models.PositiveIntegerField(default=0, verbose_name='Tiền đầu ca')), ('expected_cash', models.PositiveIntegerField(default=0, verbose_name='Tiền theo hệ thống')), ('counted_cash', models.PositiveIntegerField(default=0, verbose_name='Tiền kiểm đếm')), ('difference', models.IntegerField(default=0, verbose_name='Chênh lệch')), ('note', models.CharField(blank=True, max_length=255)), ('opened_at', models.DateTimeField(default=django.utils.timezone.now)), ('closed_at', models.DateTimeField(blank=True, null=True)), ('cashier', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='cashier_shifts', to=settings.AUTH_USER_MODEL)), ('closed_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to=settings.AUTH_USER_MODEL))], options={'ordering': ['-opened_at', '-id']}),
+        migrations.AddField(model_name='payment', name='reconciliation_status', field=models.CharField(choices=[('pending', 'Chờ đối soát'), ('reconciled', 'Đã đối soát')], db_index=True, default='pending', max_length=12, verbose_name='Đối soát')),
+        migrations.AddField(model_name='payment', name='reconciled_at', field=models.DateTimeField(blank=True, null=True)),
+        migrations.AddField(model_name='payment', name='reconciled_by', field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to=settings.AUTH_USER_MODEL)),
+        migrations.AddField(model_name='payment', name='shift', field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='payments', to='clinic.cashiershift')),
+        migrations.CreateModel(name='Refund', fields=[('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')), ('amount', models.PositiveIntegerField(verbose_name='Số tiền hoàn')), ('method', models.CharField(choices=[('cash', 'Tiền mặt'), ('transfer', 'Chuyển khoản'), ('card', 'Quẹt thẻ'), ('ewallet', 'Ví điện tử')], default='cash', max_length=10)), ('reason', models.CharField(max_length=255)), ('status', models.CharField(choices=[('pending', 'Chờ duyệt'), ('approved', 'Đã duyệt'), ('rejected', 'Từ chối'), ('completed', 'Đã hoàn tiền')], db_index=True, default='pending', max_length=12)), ('reference', models.CharField(blank=True, max_length=60, verbose_name='Mã giao dịch')), ('created_at', models.DateTimeField(default=django.utils.timezone.now)), ('approved_at', models.DateTimeField(blank=True, null=True)), ('completed_at', models.DateTimeField(blank=True, null=True)), ('approved_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to=settings.AUTH_USER_MODEL)), ('completed_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to=settings.AUTH_USER_MODEL)), ('invoice', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='refunds', to='clinic.invoice')), ('requested_by', models.ForeignKey(null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to=settings.AUTH_USER_MODEL)), ('shift', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='refunds', to='clinic.cashiershift'))], options={'ordering': ['-created_at', '-id']}),
+        migrations.CreateModel(name='DebtFollowUp', fields=[('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')), ('action', models.CharField(choices=[('note', 'Ghi chú'), ('call', 'Gọi điện'), ('sms', 'SMS'), ('zalo', 'Zalo'), ('email', 'Email'), ('promise', 'Khách hẹn thanh toán')], default='note', max_length=10)), ('note', models.CharField(max_length=500)), ('promised_date', models.DateField(blank=True, null=True)), ('next_follow_up', models.DateField(blank=True, null=True)), ('created_at', models.DateTimeField(default=django.utils.timezone.now)), ('created_by', models.ForeignKey(null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to=settings.AUTH_USER_MODEL)), ('invoice', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='followups', to='clinic.invoice'))], options={'ordering': ['-created_at', '-id']}),
+        migrations.RunPython(backfill_due_dates, migrations.RunPython.noop),
+    ]

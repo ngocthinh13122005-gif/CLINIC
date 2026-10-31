@@ -276,6 +276,11 @@ class TreatmentSession(models.Model):
 
     plan = models.ForeignKey(TreatmentPlan, on_delete=models.CASCADE, related_name='sessions')
     number = models.PositiveSmallIntegerField('Buổi số')
+    allow_staff_delegation = models.BooleanField(
+        'Cho phép giao nhân sự đủ điều kiện thực hiện',
+        default=False,
+        help_text='Bác sĩ phụ trách quyết định cho từng buổi; mặc định bác sĩ phải trực tiếp thực hiện.',
+    )
     planned_date = models.DateField('Ngày dự kiến', null=True, blank=True)
     performed_at = models.DateTimeField('Thực hiện lúc', null=True, blank=True)
     performed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
@@ -436,6 +441,11 @@ class Invoice(models.Model):
     discount = models.PositiveIntegerField('Giảm giá', default=0)
     total = models.PositiveIntegerField(default=0)
     paid = models.PositiveIntegerField('Đã thu', default=0)
+    TERM_IMMEDIATE, TERM_7, TERM_15, TERM_30, TERM_CUSTOM = 'immediate', '7d', '15d', '30d', 'custom'
+    PAYMENT_TERMS = [(TERM_IMMEDIATE, 'Thanh toán ngay'), (TERM_7, 'Trong 7 ngày'),
+                     (TERM_15, 'Trong 15 ngày'), (TERM_30, 'Trong 30 ngày'), (TERM_CUSTOM, 'Tùy chỉnh')]
+    payment_term = models.CharField('Điều khoản thanh toán', max_length=12, choices=PAYMENT_TERMS, default=TERM_IMMEDIATE)
+    due_date = models.DateField('Ngày đến hạn', null=True, blank=True, db_index=True)
     note = models.CharField(max_length=255, blank=True)
     void_reason = models.CharField(max_length=255, blank=True)
     # Thông tin người mua (khi khách yêu cầu xuất hóa đơn điện tử có MST)
@@ -462,6 +472,18 @@ class Invoice(models.Model):
     def balance(self):
         return max(self.total - self.paid, 0)
 
+    @property
+    def overdue_days(self):
+        if not self.due_date or not self.balance or self.status == self.VOID:
+            return 0
+        return max((timezone.localdate() - self.due_date).days, 0)
+
+    @property
+    def due_status(self):
+        if self.status in {self.PAID, self.VOID} or not self.balance:
+            return 'settled'
+        return 'overdue' if self.overdue_days else 'due'
+
     def save(self, *args, **kwargs):
         if not self.code:
             self.code = _next_code(Invoice, 'HD')
@@ -471,7 +493,9 @@ class Invoice(models.Model):
         self.subtotal = sum(i.quantity * i.unit_price for i in self.items.all())
         self.discount = min(self.discount, self.subtotal)
         self.total = self.subtotal - self.discount
-        self.paid = sum(p.amount for p in self.payments.all())
+        collected = sum(p.amount for p in self.payments.all())
+        refunded = sum(r.amount for r in self.refunds.filter(status='completed'))
+        self.paid = max(collected - refunded, 0)
         if self.status != self.VOID:
             self.status = self.PAID if self.paid >= self.total and self.total > 0 else (
                 self.PARTIAL if self.paid > 0 else self.UNPAID)
@@ -505,11 +529,77 @@ class Payment(models.Model):
     method = models.CharField(max_length=10, choices=METHODS, default=CASH)
     reference = models.CharField('Mã giao dịch', max_length=60, blank=True)
     note = models.CharField(max_length=255, blank=True)
+    PENDING, RECONCILED = 'pending', 'reconciled'
+    RECONCILIATION = [(PENDING, 'Chờ đối soát'), (RECONCILED, 'Đã đối soát')]
+    reconciliation_status = models.CharField('Đối soát', max_length=12, choices=RECONCILIATION, default=PENDING, db_index=True)
+    reconciled_at = models.DateTimeField(null=True, blank=True)
+    reconciled_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    shift = models.ForeignKey('CashierShift', on_delete=models.SET_NULL, null=True, blank=True, related_name='payments')
     received_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     paid_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         ordering = ['paid_at', 'id']
+
+
+class CashierShift(models.Model):
+    OPEN, CLOSED = 'open', 'closed'
+    STATUS = [(OPEN, 'Đang mở'), (CLOSED, 'Đã đóng')]
+    cashier = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='cashier_shifts')
+    status = models.CharField(max_length=8, choices=STATUS, default=OPEN, db_index=True)
+    opening_cash = models.PositiveIntegerField('Tiền đầu ca', default=0)
+    expected_cash = models.PositiveIntegerField('Tiền theo hệ thống', default=0)
+    counted_cash = models.PositiveIntegerField('Tiền kiểm đếm', default=0)
+    difference = models.IntegerField('Chênh lệch', default=0)
+    note = models.CharField(max_length=255, blank=True)
+    opened_at = models.DateTimeField(default=timezone.now)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    closed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+
+    class Meta:
+        ordering = ['-opened_at', '-id']
+
+    def cash_total(self):
+        received = self.payments.filter(method=Payment.CASH).aggregate(v=models.Sum('amount'))['v'] or 0
+        refunded = self.refunds.filter(method=Payment.CASH, status=Refund.COMPLETED).aggregate(v=models.Sum('amount'))['v'] or 0
+        return received - refunded
+
+
+class Refund(models.Model):
+    PENDING, APPROVED, REJECTED, COMPLETED = 'pending', 'approved', 'rejected', 'completed'
+    STATUS = [(PENDING, 'Chờ duyệt'), (APPROVED, 'Đã duyệt'), (REJECTED, 'Từ chối'), (COMPLETED, 'Đã hoàn tiền')]
+    invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name='refunds')
+    amount = models.PositiveIntegerField('Số tiền hoàn')
+    method = models.CharField(max_length=10, choices=Payment.METHODS, default=Payment.CASH)
+    reason = models.CharField(max_length=255)
+    status = models.CharField(max_length=12, choices=STATUS, default=PENDING, db_index=True)
+    reference = models.CharField('Mã giao dịch', max_length=60, blank=True)
+    shift = models.ForeignKey(CashierShift, on_delete=models.SET_NULL, null=True, blank=True, related_name='refunds')
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    completed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(default=timezone.now)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+
+
+class DebtFollowUp(models.Model):
+    NOTE, CALL, SMS, ZALO, EMAIL, PROMISE = 'note', 'call', 'sms', 'zalo', 'email', 'promise'
+    ACTIONS = [(NOTE, 'Ghi chú'), (CALL, 'Gọi điện'), (SMS, 'SMS'), (ZALO, 'Zalo'),
+               (EMAIL, 'Email'), (PROMISE, 'Khách hẹn thanh toán')]
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='followups')
+    action = models.CharField(max_length=10, choices=ACTIONS, default=NOTE)
+    note = models.CharField(max_length=500)
+    promised_date = models.DateField(null=True, blank=True)
+    next_follow_up = models.DateField(null=True, blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
 
 
 # =========================================================================== v3: kho theo lô, nhập hàng, kiểm kho
@@ -661,26 +751,53 @@ class CareTask(models.Model):
     POST_CARE, REVISIT, SESSION, PAYMENT, OTHER = 'post_care', 'revisit', 'session', 'payment', 'other'
     KINDS = [(POST_CARE, 'Hỏi thăm sau điều trị'), (REVISIT, 'Nhắc tái khám'), (SESSION, 'Nhắc buổi liệu trình'),
              (PAYMENT, 'Nhắc công nợ'), (OTHER, 'Khác')]
-    PENDING, DONE, SKIPPED = 'pending', 'done', 'skipped'
-    STATUS = [(PENDING, 'Cần làm'), (DONE, 'Đã xong'), (SKIPPED, 'Bỏ qua')]
+    PENDING, ESCALATED, DONE, SKIPPED = 'pending', 'escalated', 'done', 'skipped'
+    STATUS = [(PENDING, 'Cần làm'), (ESCALATED, 'Chờ bác sĩ'), (DONE, 'Đã xong'), (SKIPPED, 'Bỏ qua')]
+    NORMAL, HIGH, URGENT = 'normal', 'high', 'urgent'
+    PRIORITIES = [(NORMAL, 'Bình thường'), (HIGH, 'Ưu tiên cao'), (URGENT, 'Khẩn cấp')]
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='care_tasks')
     visit = models.ForeignKey(Visit, on_delete=models.SET_NULL, null=True, blank=True, related_name='care_tasks')
     plan = models.ForeignKey(TreatmentPlan, on_delete=models.SET_NULL, null=True, blank=True, related_name='care_tasks')
     kind = models.CharField(max_length=10, choices=KINDS, default=POST_CARE)
     title = models.CharField(max_length=200)
     due_date = models.DateField('Hạn', default=timezone.localdate)
-    status = models.CharField(max_length=8, choices=STATUS, default=PENDING, db_index=True)
+    status = models.CharField(max_length=10, choices=STATUS, default=PENDING, db_index=True)
+    priority = models.CharField(max_length=8, choices=PRIORITIES, default=NORMAL, db_index=True)
     assigned_to = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='care_tasks')
     outcome = models.CharField('Kết quả liên hệ', max_length=255, blank=True)
     auto = models.BooleanField('Tự tạo', default=False)
+    source_key = models.CharField('Khóa nguồn tự động', max_length=120, null=True, blank=True, unique=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     completed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    escalation_reason = models.CharField('Lý do chuyển bác sĩ', max_length=500, blank=True)
+    escalated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         verbose_name = 'Việc chăm sóc'
         verbose_name_plural = 'Việc chăm sóc'
         ordering = ['status', 'due_date', 'id']
+
+
+class CareContactLog(models.Model):
+    """Nhật ký từng lần liên hệ, tương tự chatter/activity của CRM."""
+    CALL, ZALO, MESSENGER, SMS, EMAIL, IN_PERSON = 'call', 'zalo', 'messenger', 'sms', 'email', 'in_person'
+    CHANNELS = [(CALL, 'Điện thoại'), (ZALO, 'Zalo'), (MESSENGER, 'Messenger'), (SMS, 'SMS'),
+                (EMAIL, 'Email'), (IN_PERSON, 'Tại phòng khám')]
+    CONTACTED, NO_ANSWER, RESCHEDULED, NEEDS_DOCTOR, COMPLETED = 'contacted', 'no_answer', 'rescheduled', 'needs_doctor', 'completed'
+    RESULTS = [(CONTACTED, 'Đã liên hệ'), (NO_ANSWER, 'Không nghe máy / chưa phản hồi'),
+               (RESCHEDULED, 'Hẹn liên hệ lại'), (NEEDS_DOCTOR, 'Cần bác sĩ đánh giá'), (COMPLETED, 'Hoàn tất chăm sóc')]
+    task = models.ForeignKey(CareTask, on_delete=models.CASCADE, related_name='contact_logs')
+    channel = models.CharField(max_length=12, choices=CHANNELS, default=CALL)
+    result = models.CharField(max_length=16, choices=RESULTS, default=CONTACTED)
+    note = models.TextField('Nội dung trao đổi', max_length=2000)
+    next_contact_at = models.DateTimeField(null=True, blank=True)
+    clinical_alert = models.BooleanField('Có dấu hiệu cần chuyên môn', default=False)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
 
 
 class ConsentForm(models.Model):
@@ -797,3 +914,60 @@ class BackupLog(models.Model):
 
     class Meta:
         ordering = ['-created_at', '-id']
+
+
+# =========================================================================== email marketing
+class MarketingContact(models.Model):
+    """Địa chỉ nhận tin quảng bá. Tách khỏi hồ sơ y tế và chỉ kích hoạt khi có đồng ý rõ ràng."""
+    ACTIVE, UNSUBSCRIBED, BLACKLISTED = 'active', 'unsubscribed', 'blacklisted'
+    STATUSES = [(ACTIVE, 'Đang nhận tin'), (UNSUBSCRIBED, 'Đã hủy đăng ký'), (BLACKLISTED, 'Danh sách chặn')]
+    SOURCES = [('patient', 'Hồ sơ bệnh nhân có đồng ý'), ('website', 'Đăng ký trên website'),
+               ('manual', 'Nhập thủ công có xác nhận'), ('import', 'Nhập từ tệp có xác nhận')]
+
+    email = models.EmailField(unique=True, db_index=True)
+    full_name = models.CharField(max_length=120, blank=True)
+    patient = models.ForeignKey(Patient, on_delete=models.SET_NULL, null=True, blank=True, related_name='marketing_contacts')
+    source = models.CharField(max_length=12, choices=SOURCES, default='manual')
+    status = models.CharField(max_length=14, choices=STATUSES, default=ACTIVE, db_index=True)
+    consent_at = models.DateTimeField(default=timezone.now)
+    consent_note = models.CharField(max_length=255, blank=True)
+    unsubscribed_at = models.DateTimeField(null=True, blank=True)
+    unsubscribe_token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+
+class MailingList(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    description = models.CharField(max_length=255, blank=True)
+    is_active = models.BooleanField(default=True)
+    contacts = models.ManyToManyField(MarketingContact, related_name='mailing_lists', blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+
+class EmailCampaign(models.Model):
+    DRAFT, SCHEDULED, SENT, CANCELLED = 'draft', 'scheduled', 'sent', 'cancelled'
+    STATUSES = [(DRAFT, 'Bản nháp'), (SCHEDULED, 'Đã lên lịch'), (SENT, 'Đã gửi'), (CANCELLED, 'Đã hủy')]
+    name = models.CharField(max_length=160)
+    subject = models.CharField(max_length=180)
+    preview_text = models.CharField(max_length=180, blank=True)
+    body_html = models.TextField(blank=True)
+    mailing_list = models.ForeignKey(MailingList, on_delete=models.PROTECT, related_name='campaigns')
+    status = models.CharField(max_length=12, choices=STATUSES, default=DRAFT, db_index=True)
+    scheduled_at = models.DateTimeField(null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    recipient_count = models.PositiveIntegerField(default=0)
+    sent_count = models.PositiveIntegerField(default=0)
+    failed_count = models.PositiveIntegerField(default=0)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']

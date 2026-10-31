@@ -1,5 +1,5 @@
 import re
-from datetime import timedelta
+from datetime import date, timedelta
 
 from django.db import transaction
 from django.db.models import F, Q, Sum
@@ -10,11 +10,12 @@ from rest_framework.response import Response
 
 from core.models import Service
 from .audit import audit
-from .models import (Invoice, InvoiceItem, Medicine, Patient, Payment, Prescription, PrescriptionItem, StockMovement, Visit)
+from .models import (CashierShift, DebtFollowUp, Invoice, InvoiceItem, Medicine, Patient, Payment, Prescription,
+                     PrescriptionItem, Refund, StockMovement, Visit)
 from .permissions import CanReadClinical, CanWriteClinical, IsClinicStaff, role_of
 from .serializers import uname
-from .serializers_v2 import (InvoiceSerializer, MedicineSerializer, PaymentSerializer, PrescriptionSerializer,
-                             StockMovementSerializer)
+from .serializers_v2 import (CashierShiftSerializer, DebtFollowUpSerializer, InvoiceSerializer, MedicineSerializer,
+                             PaymentSerializer, PrescriptionSerializer, RefundSerializer, StockMovementSerializer)
 from .views import deny
 
 BILLING = {'consultant', 'manager'}          # lập hóa đơn, thu tiền
@@ -305,7 +306,8 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         return [perm(BILLING)]
 
     def get_queryset(self):
-        qs = Invoice.objects.select_related('patient', 'created_by').prefetch_related('items', 'payments__received_by')
+        qs = Invoice.objects.select_related('patient', 'created_by').prefetch_related(
+            'items', 'payments__received_by', 'refunds__requested_by', 'refunds__approved_by', 'followups__created_by')
         p = self.request.query_params
         if p.get('status'):
             qs = qs.filter(status__in=p['status'].split(','))
@@ -317,6 +319,8 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
             qs = qs.filter(einvoice_status=p['einvoice'])
         if p.get('date'):
             qs = qs.filter(created_at__date=p['date'])
+        if p.get('due') == 'overdue':
+            qs = qs.filter(status__in=[Invoice.UNPAID, Invoice.PARTIAL], due_date__lt=timezone.localdate())
         if p.get('q'):
             qs = qs.filter(Q(code__icontains=p['q']) | Q(patient__full_name__icontains=p['q']) | Q(patient__phone__icontains=p['q']))
         return qs[:300] if self.action == 'list' else qs
@@ -342,6 +346,7 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
     @transaction.atomic
     def _save(self, request, invoice=None):
         d = request.data
+        creating = invoice is None
         if invoice is None:
             patient = Patient.objects.filter(pk=d.get('patient'), is_active=True).first()
             if not patient:
@@ -364,6 +369,19 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
                 raise serializers.ValidationError({'detail': 'Giảm giá không hợp lệ.'})
         if 'note' in d:
             invoice.note = (d.get('note') or '')[:255]
+        if creating or 'payment_term' in d or 'due_date' in d:
+            term = d.get('payment_term') or Invoice.TERM_IMMEDIATE
+            days = {Invoice.TERM_IMMEDIATE: 0, Invoice.TERM_7: 7, Invoice.TERM_15: 15, Invoice.TERM_30: 30}
+            if term == Invoice.TERM_CUSTOM:
+                try:
+                    due = date.fromisoformat(str(d.get('due_date') or ''))
+                except ValueError:
+                    raise serializers.ValidationError({'detail': 'Chọn ngày đến hạn cho điều khoản tùy chỉnh.'})
+            elif term in days:
+                due = timezone.localdate() + timedelta(days=days[term])
+            else:
+                raise serializers.ValidationError({'detail': 'Điều khoản thanh toán không hợp lệ.'})
+            invoice.payment_term, invoice.due_date = term, due
         invoice.save()
         invoice.recalc()
         _sync_stock(invoice, request.user)
@@ -396,8 +414,11 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         if amount > inv.balance:
             return deny(f'Số tiền vượt quá số còn nợ ({inv.balance:,}đ).'.replace(',', '.'), 400)
         method = request.data.get('method') if request.data.get('method') in dict(Payment.METHODS) else Payment.CASH
+        shift = CashierShift.objects.filter(cashier=request.user, status=CashierShift.OPEN).first()
+        if method == Payment.CASH and not shift:
+            return deny('Cần mở ca thu ngân trước khi nhận tiền mặt.', 400)
         Payment.objects.create(invoice=inv, amount=amount, method=method, reference=(request.data.get('reference') or '')[:60],
-                               note=(request.data.get('note') or '')[:255], received_by=request.user)
+                               note=(request.data.get('note') or '')[:255], received_by=request.user, shift=shift)
         inv.recalc()
         audit(request.user, 'invoice.pay', f'{inv.code} {amount}')
         return Response(self.get_serializer(Invoice.objects.get(pk=inv.pk)).data)
@@ -459,18 +480,206 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         today = timezone.localdate()
         month_start = today.replace(day=1)
         pays = Payment.objects.filter(invoice__status__in=[Invoice.PAID, Invoice.PARTIAL, Invoice.UNPAID])
+        refunds = Refund.objects.filter(status=Refund.COMPLETED)
 
         def total(qs):
             return qs.aggregate(s=Sum('amount'))['s'] or 0
-        by_method = {m: total(pays.filter(paid_at__date=today, method=m)) for m, _ in Payment.METHODS}
+
+        def net_for(day_filter, method=None):
+            payment_qs = pays.filter(**{f'paid_at__date{day_filter[0]}': day_filter[1]})
+            refund_qs = refunds.filter(**{f'completed_at__date{day_filter[0]}': day_filter[1]})
+            if method:
+                payment_qs, refund_qs = payment_qs.filter(method=method), refund_qs.filter(method=method)
+            return total(payment_qs) - total(refund_qs)
+
+        by_method = {m: net_for(('', today), m) for m, _ in Payment.METHODS}
         debt = Invoice.objects.filter(status__in=[Invoice.UNPAID, Invoice.PARTIAL])
         debt_total = sum(i.balance for i in debt)
-        out = {'today_revenue': total(pays.filter(paid_at__date=today)), 'by_method': by_method,
+        overdue = debt.filter(due_date__lt=today)
+        out = {'today_revenue': net_for(('', today)), 'today_refunds': total(refunds.filter(completed_at__date=today)),
+               'by_method': by_method,
                'today_invoices': Invoice.objects.filter(created_at__date=today).exclude(status=Invoice.VOID).count(),
-               'debt_total': debt_total, 'debt_count': debt.count()}
+               'debt_total': debt_total, 'debt_count': debt.count(), 'overdue_count': overdue.count(),
+               'overdue_total': sum(i.balance for i in overdue),
+               'pending_reconciliation': pays.filter(reconciliation_status=Payment.PENDING).count()}
         if role_of(request) == 'manager':
-            out['month_revenue'] = total(pays.filter(paid_at__date__gte=month_start))
+            out['month_revenue'] = net_for(('__gte', month_start))
             out['series_14d'] = [{'label': (today - timedelta(days=i)).strftime('%d/%m'),
-                                  'amount': total(pays.filter(paid_at__date=today - timedelta(days=i)))} for i in range(13, -1, -1)]
+                                  'amount': net_for(('', today - timedelta(days=i)))} for i in range(13, -1, -1)]
             out['low_stock'] = Medicine.objects.filter(is_active=True, stock__lte=F('min_stock')).count()
         return Response(out)
+
+
+class CashierShiftViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    serializer_class = CashierShiftSerializer
+
+    def get_permissions(self):
+        return [perm(BILLING)]
+
+    def get_queryset(self):
+        qs = CashierShift.objects.select_related('cashier', 'closed_by').prefetch_related('payments', 'refunds')
+        if role_of(self.request) != 'manager':
+            qs = qs.filter(cashier=self.request.user)
+        return qs[:100] if self.action == 'list' else qs
+
+    @action(detail=False, methods=['get'])
+    def current(self, request):
+        shift = CashierShift.objects.filter(cashier=request.user, status=CashierShift.OPEN).first()
+        return Response(self.get_serializer(shift).data if shift else None)
+
+    @action(detail=False, methods=['post'])
+    @transaction.atomic
+    def open(self, request):
+        if CashierShift.objects.filter(cashier=request.user, status=CashierShift.OPEN).exists():
+            return deny('Bạn đang có một ca thu ngân chưa đóng.', 400)
+        try:
+            opening = max(int(request.data.get('opening_cash') or 0), 0)
+        except (TypeError, ValueError):
+            return deny('Tiền đầu ca không hợp lệ.', 400)
+        shift = CashierShift.objects.create(cashier=request.user, opening_cash=opening)
+        audit(request.user, 'cashier_shift.open', f'Ca #{shift.pk}: {opening}')
+        return Response(self.get_serializer(shift).data, status=201)
+
+    @action(detail=True, methods=['post'])
+    @transaction.atomic
+    def close(self, request, pk=None):
+        shift = CashierShift.objects.select_for_update().get(pk=self.get_object().pk)
+        if shift.status == CashierShift.CLOSED:
+            return deny('Ca thu ngân đã đóng.', 400)
+        if shift.cashier_id != request.user.id and role_of(request) != 'manager':
+            return deny('Bạn không được đóng ca của người khác.', 403)
+        try:
+            counted = max(int(request.data.get('counted_cash') or 0), 0)
+        except (TypeError, ValueError):
+            return deny('Tiền kiểm đếm không hợp lệ.', 400)
+        shift.expected_cash = max(shift.opening_cash + shift.cash_total(), 0)
+        shift.counted_cash, shift.difference = counted, counted - shift.expected_cash
+        shift.note = (request.data.get('note') or '')[:255]
+        shift.status, shift.closed_at, shift.closed_by = CashierShift.CLOSED, timezone.now(), request.user
+        shift.save()
+        shift.payments.filter(method=Payment.CASH, reconciliation_status=Payment.PENDING).update(
+            reconciliation_status=Payment.RECONCILED, reconciled_at=timezone.now(), reconciled_by=request.user)
+        audit(request.user, 'cashier_shift.close', f'Ca #{shift.pk}: lệch {shift.difference}')
+        return Response(self.get_serializer(shift).data)
+
+
+class PaymentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    serializer_class = PaymentSerializer
+
+    def get_permissions(self):
+        return [perm(MANAGER if self.action == 'reconcile' else BILLING)]
+
+    def get_queryset(self):
+        qs = Payment.objects.select_related('invoice__patient', 'received_by', 'shift')
+        if self.request.query_params.get('reconciliation'):
+            qs = qs.filter(reconciliation_status=self.request.query_params['reconciliation'])
+        qs = qs.order_by('-paid_at', '-id')
+        return qs[:200] if self.action == 'list' else qs
+
+    @action(detail=True, methods=['post'])
+    def reconcile(self, request, pk=None):
+        payment = self.get_object()
+        payment.reconciliation_status, payment.reconciled_at, payment.reconciled_by = Payment.RECONCILED, timezone.now(), request.user
+        payment.save(update_fields=['reconciliation_status', 'reconciled_at', 'reconciled_by'])
+        audit(request.user, 'payment.reconcile', f'{payment.invoice.code}: {payment.amount}')
+        return Response(self.get_serializer(payment).data)
+
+
+class RefundViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    serializer_class = RefundSerializer
+
+    def get_permissions(self):
+        if self.action in {'approve', 'reject'}:
+            return [perm(MANAGER)]
+        return [perm(BILLING)]
+
+    def get_queryset(self):
+        qs = Refund.objects.select_related('invoice__patient', 'requested_by', 'approved_by', 'completed_by')
+        if self.request.query_params.get('invoice'):
+            qs = qs.filter(invoice_id=self.request.query_params['invoice'])
+        return qs[:200] if self.action == 'list' else qs
+
+    @transaction.atomic
+    def create(self, request):
+        inv = Invoice.objects.select_for_update().filter(pk=request.data.get('invoice')).first()
+        if not inv or inv.status == Invoice.VOID:
+            return deny('Không tìm thấy hóa đơn hợp lệ.', 404)
+        try:
+            amount = int(request.data.get('amount'))
+        except (TypeError, ValueError):
+            return deny('Số tiền hoàn không hợp lệ.', 400)
+        pending = inv.refunds.filter(status__in=[Refund.PENDING, Refund.APPROVED]).aggregate(v=Sum('amount'))['v'] or 0
+        if amount <= 0 or amount > inv.paid - pending:
+            return deny('Số tiền hoàn vượt quá số tiền có thể hoàn.', 400)
+        reason = (request.data.get('reason') or '').strip()
+        if len(reason) < 5:
+            return deny('Nhập lý do hoàn tiền (tối thiểu 5 ký tự).', 400)
+        method = request.data.get('method') if request.data.get('method') in dict(Payment.METHODS) else Payment.CASH
+        refund = Refund.objects.create(invoice=inv, amount=amount, method=method, reason=reason[:255], requested_by=request.user)
+        audit(request.user, 'refund.request', f'{inv.code}: {amount}')
+        return Response(self.get_serializer(refund).data, status=201)
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        refund = self.get_object()
+        if refund.status != Refund.PENDING:
+            return deny('Yêu cầu không còn ở trạng thái chờ duyệt.', 400)
+        refund.status, refund.approved_by, refund.approved_at = Refund.APPROVED, request.user, timezone.now()
+        refund.save(update_fields=['status', 'approved_by', 'approved_at'])
+        audit(request.user, 'refund.approve', f'{refund.invoice.code}: {refund.amount}')
+        return Response(self.get_serializer(refund).data)
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        refund = self.get_object()
+        if refund.status != Refund.PENDING:
+            return deny('Yêu cầu không còn ở trạng thái chờ duyệt.', 400)
+        refund.status, refund.approved_by, refund.approved_at = Refund.REJECTED, request.user, timezone.now()
+        refund.save(update_fields=['status', 'approved_by', 'approved_at'])
+        audit(request.user, 'refund.reject', f'{refund.invoice.code}: {refund.amount}')
+        return Response(self.get_serializer(refund).data)
+
+    @action(detail=True, methods=['post'])
+    @transaction.atomic
+    def complete(self, request, pk=None):
+        refund = Refund.objects.select_for_update().get(pk=self.get_object().pk)
+        if refund.status != Refund.APPROVED:
+            return deny('Yêu cầu hoàn tiền chưa được quản lý duyệt.', 400)
+        shift = CashierShift.objects.filter(cashier=request.user, status=CashierShift.OPEN).first()
+        if refund.method == Payment.CASH and not shift:
+            return deny('Cần mở ca thu ngân trước khi hoàn tiền mặt.', 400)
+        refund.status, refund.completed_by, refund.completed_at = Refund.COMPLETED, request.user, timezone.now()
+        refund.reference, refund.shift = (request.data.get('reference') or '')[:60], shift
+        refund.save()
+        refund.invoice.recalc()
+        audit(request.user, 'refund.complete', f'{refund.invoice.code}: {refund.amount}')
+        return Response(self.get_serializer(refund).data)
+
+
+class DebtFollowUpViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
+    serializer_class = DebtFollowUpSerializer
+
+    def get_permissions(self):
+        return [perm(BILLING)]
+
+    def get_queryset(self):
+        qs = DebtFollowUp.objects.select_related('invoice__patient', 'created_by')
+        if self.request.query_params.get('invoice'):
+            qs = qs.filter(invoice_id=self.request.query_params['invoice'])
+        if self.request.query_params.get('next_date'):
+            qs = qs.filter(next_follow_up__lte=self.request.query_params['next_date'])
+        return qs[:300]
+
+    def create(self, request):
+        inv = Invoice.objects.filter(pk=request.data.get('invoice'), status__in=[Invoice.UNPAID, Invoice.PARTIAL]).first()
+        if not inv or not inv.balance:
+            return deny('Hóa đơn không còn công nợ.', 400)
+        note = (request.data.get('note') or '').strip()
+        if len(note) < 3:
+            return deny('Nhập nội dung chăm sóc công nợ.', 400)
+        action_name = request.data.get('action') if request.data.get('action') in dict(DebtFollowUp.ACTIONS) else DebtFollowUp.NOTE
+        follow = DebtFollowUp.objects.create(invoice=inv, action=action_name, note=note[:500],
+            promised_date=request.data.get('promised_date') or None, next_follow_up=request.data.get('next_follow_up') or None,
+            created_by=request.user)
+        audit(request.user, 'debt.followup', f'{inv.code}: {action_name}')
+        return Response(self.get_serializer(follow).data, status=201)

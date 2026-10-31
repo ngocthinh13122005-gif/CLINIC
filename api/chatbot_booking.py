@@ -1,4 +1,4 @@
-"""Quy trình đặt lịch nhiều bước + các ý định cần tài khoản của Trợ lý OHIO.
+"""Quy trình đặt lịch nhiều bước + các ý định cần tài khoản của Trợ lý AkinaClinic.
 
 Nguyên tắc: AI KHÔNG tự sửa dữ liệu. Mọi giờ trống, nhân viên, giá đều lấy từ backend
 (core.availability) và chỉ khi khách bấm [Xác nhận] mới tạo Booking qua BookingSerializer
@@ -73,12 +73,18 @@ def is_booking_action(action):
 
 # ---------------------------------------------------------------- dữ liệu thật
 def _staff_for(service):
+    if service.booking_policy != Service.BOOKING_DIRECT:
+        return list(
+            Staff.objects.filter(is_active=True, user__role='doctor')
+            .prefetch_related('working_hours')
+        )
     return list(qualified_staff(Staff.objects.all(), [service.id]).prefetch_related('working_hours'))
 
 
 def _slots_by_staff(service, day, staff_list=None):
     staff_list = staff_list if staff_list is not None else _staff_for(service)
-    return {s.id: available_slots(s, day, service.duration or 60) for s in staff_list}
+    duration = service.duration or 60 if service.booking_policy == Service.BOOKING_DIRECT else 60
+    return {s.id: available_slots(s, day, duration) for s in staff_list}
 
 
 def _free_days(service, staff_list):
@@ -86,7 +92,8 @@ def _free_days(service, staff_list):
     out = []
     for i in range(LOOKAHEAD_DAYS):
         d = today + timedelta(days=i)
-        if any(available_slots(s, d, service.duration or 60) for s in staff_list):
+        duration = service.duration or 60 if service.booking_policy == Service.BOOKING_DIRECT else 60
+        if any(available_slots(s, d, duration) for s in staff_list):
             out.append(d)
             if len(out) >= MAX_DAYS:
                 break
@@ -95,7 +102,7 @@ def _free_days(service, staff_list):
 
 def _pick_staff(service, start, staff_id=0):
     """Trả về Staff còn rảnh đúng giờ `start` (staff_id=0: bất kỳ), hoặc None."""
-    dur = service.duration or 60
+    dur = service.duration or 60 if service.booking_policy == Service.BOOKING_DIRECT else 60
     pool = _staff_for(service)
     if staff_id:
         pool = [s for s in pool if s.id == staff_id]
@@ -115,7 +122,7 @@ def _fmt_time(dt):
 
 # ---------------------------------------------------------------- các bước
 def step_services(session, head=None):
-    rows = [s for s in Service.objects.filter(is_active=True).order_by('name')[:12] if qualified_staff(Staff.objects.all(), [s.id]).exists()][:8]
+    rows = [s for s in Service.objects.filter(is_active=True).order_by('name')[:12] if _staff_for(s)][:8]
     if not rows:
         return 'Hiện chưa có dịch vụ nào nhận đặt lịch trực tuyến. Bạn có thể gặp tư vấn viên để được hỗ trợ.\n\n' + choice('human', 'Gặp tư vấn viên')
     save_state(session, {'flow': 'booking'})
@@ -134,7 +141,8 @@ def step_dates(session, st, head=None):
                 'Bạn có thể chọn dịch vụ khác hoặc gặp tư vấn viên để được sắp xếp.\n\n'
                 + choice('bk:edit', 'Chọn dịch vụ khác') + '\n' + choice('human', 'Gặp tư vấn viên'))
     save_state(session, {'flow': 'booking', 'service_id': service.id})
-    lines = [head or f'Bạn muốn đến vào ngày nào cho dịch vụ "{service.name}" ({service.duration} phút)?', '']
+    duration = service.duration if service.booking_policy == Service.BOOKING_DIRECT else 60
+    lines = [head or f'Bạn muốn đến vào ngày nào để {("thực hiện" if service.booking_policy == Service.BOOKING_DIRECT else "được tư vấn về")} "{service.name}" ({duration} phút)?', '']
     lines += [choice(f'bk:date:{d.isoformat()}', day_label(d)) for d in days]
     lines += ['', choice('bk:cancel', 'Hủy đặt lịch')]
     return '\n'.join(lines)
@@ -196,7 +204,11 @@ def step_confirm(session, st):
         f'Ngày: {timezone.localtime(start):%d/%m/%Y}',
         f'Giờ: {_fmt_time(start)}',
         f'Chuyên viên: {staff.name}',
-        f'Giá: {money(service.price)}', '',
+        (
+            f'Giá: {money(service.price)}'
+            if service.booking_policy == Service.BOOKING_DIRECT
+            else 'Chi phí: Phòng khám xác nhận sau khi bác sĩ tư vấn'
+        ), '',
         choice('bk:confirm', 'Xác nhận'), choice('bk:edit', 'Chỉnh sửa'), choice('bk:cancel', 'Hủy'),
     ]
     return '\n'.join(lines)
@@ -225,14 +237,19 @@ def do_confirm(request, session):
         return 'Phiên đặt lịch đã hết hạn. Mình bắt đầu lại nhé.\n\n' + step_services(session)
     if not user or user.role != 'customer':
         return ('Bạn cần đăng nhập tài khoản khách hàng để xác nhận lịch hẹn. Thông tin bạn đã chọn vẫn được giữ lại, '
-                'đăng nhập xong hãy mở lại Trợ lý OHIO và bấm Xác nhận.\n\n'
+                'đăng nhập xong hãy mở lại Trợ lý AkinaClinic và bấm Xác nhận.\n\n'
                 + link('/login', 'Đăng nhập') + '\n' + link('/signup', 'Tạo tài khoản') + '\n' + choice('bk:confirm', 'Xác nhận'))
     from rest_framework.exceptions import ValidationError
     from .serializers import BookingSerializer
     from . import views
     ser = BookingSerializer(data={
         'appointment': start.isoformat(), 'service_ids': [service.id], 'staff': st['staff_id'],
-        'note': 'Đặt lịch qua Trợ lý OHIO',
+        'appointment_type': (
+            Booking.APPOINTMENT_TYPE_PROCEDURE
+            if service.booking_policy == Service.BOOKING_DIRECT
+            else Booking.APPOINTMENT_TYPE_CONSULT
+        ),
+        'note': 'Đặt lịch qua Trợ lý AkinaClinic',
     }, context={'request': request})
     try:
         ser.is_valid(raise_exception=True)
@@ -471,4 +488,4 @@ def is_medical(text):
 
 
 MEDICAL_REPLY = ('Vấn đề này cần chuyên môn của bác sĩ/chuyên viên, nên mình không đưa ra chẩn đoán hay hướng dẫn điều trị qua chatbot để đảm bảo an toàn cho bạn. '
-                 'Mình có thể chuyển bạn cho tư vấn viên OHIO để được hỗ trợ trực tiếp.\n\n' + choice('human', 'Gặp tư vấn viên'))
+                 'Mình có thể chuyển bạn cho tư vấn viên AkinaClinic để được hỗ trợ trực tiếp.\n\n' + choice('human', 'Gặp tư vấn viên'))

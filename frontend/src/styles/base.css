@@ -1,0 +1,15 @@
+/* Thang chữ và font dùng chung toàn hệ thống: mọi nơi dùng các biến này, không đặt cỡ chữ tùy ý. */
+:root{
+  --font:"Inter","Segoe UI",Roboto,Arial,sans-serif;
+  --fs-xs:12px;   /* nhãn phụ, thời gian, badge */
+  --fs-sm:13px;   /* mô tả, bảng, nút nhỏ */
+  --fs-base:14px; /* nội dung chính */
+  --fs-md:16px;   /* tiêu đề khối */
+  --fs-lg:20px;   /* tiêu đề trang */
+  --fs-xl:28px;   /* số liệu / hero nhỏ */
+  --fs-2xl:40px;  /* hero */
+}
+html,body{font-family:var(--font);font-size:var(--fs-base);line-height:1.5}
+button,input,select,textarea,optgroup{font-family:inherit;font-size:inherit;color:inherit}
+h1,h2,h3,h4{font-family:var(--font)}
+.brand-text-mark,.public-brand,.public-hero h1,.public-page-title{font-family:var(--font)!important}

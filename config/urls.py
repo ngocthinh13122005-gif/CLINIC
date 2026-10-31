@@ -8,9 +8,9 @@ from rest_framework import permissions
 
 schema_view = get_schema_view(
     openapi.Info(
-        title='OHIO SPA API',
+        title='AkinaClinic SPA API',
         default_version='v2',
-        description='REST API cho hệ thống quản lý OHIO Spa/Clinic.',
+        description='REST API cho hệ thống quản lý AkinaClinic Spa/Clinic.',
     ),
     public=True,
     permission_classes=[permissions.AllowAny],

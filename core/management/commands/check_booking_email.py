@@ -4,7 +4,7 @@ from django.core.management.base import BaseCommand
 
 
 class Command(BaseCommand):
-    help = 'Kiểm tra cấu hình Gmail SMTP dùng để gửi vé đặt lịch OHIO.'
+    help = 'Kiểm tra cấu hình Gmail SMTP dùng để gửi vé đặt lịch AkinaClinic.'
 
     def add_arguments(self, parser):
         parser.add_argument('--send-to', dest='send_to', help='Gửi một email test tới địa chỉ này.')
@@ -22,8 +22,8 @@ class Command(BaseCommand):
         target = options.get('send_to')
         if target:
             send_mail(
-                'OHIO — Kiểm tra email đặt lịch',
-                'Nếu bạn nhận được email này, Gmail SMTP của OHIO đã hoạt động.',
+                'AkinaClinic — Kiểm tra email đặt lịch',
+                'Nếu bạn nhận được email này, Gmail SMTP của AkinaClinic đã hoạt động.',
                 None,
                 [target],
                 fail_silently=False,

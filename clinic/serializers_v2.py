@@ -2,7 +2,8 @@ import re
 
 from rest_framework import serializers
 
-from .models import (Invoice, InvoiceItem, Medicine, Payment, Prescription, PrescriptionItem, StockMovement)
+from .models import (CashierShift, DebtFollowUp, Invoice, InvoiceItem, Medicine, Payment, Prescription,
+                     PrescriptionItem, Refund, StockMovement)
 from .serializers import uname
 
 
@@ -99,14 +100,78 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
 
 class PaymentSerializer(serializers.ModelSerializer):
     method_label = serializers.CharField(source='get_method_display', read_only=True)
+    reconciliation_label = serializers.CharField(source='get_reconciliation_status_display', read_only=True)
     received_by_name = serializers.SerializerMethodField()
+    invoice_code = serializers.CharField(source='invoice.code', read_only=True)
+    patient_name = serializers.CharField(source='invoice.patient.full_name', read_only=True)
 
     class Meta:
         model = Payment
-        fields = ('id', 'amount', 'method', 'method_label', 'reference', 'note', 'received_by_name', 'paid_at')
+        fields = ('id', 'invoice_code', 'patient_name', 'amount', 'method', 'method_label', 'reference', 'note',
+                  'received_by_name', 'paid_at', 'shift', 'reconciliation_status', 'reconciliation_label', 'reconciled_at')
 
     def get_received_by_name(self, o):
         return uname(o.received_by)
+
+
+class RefundSerializer(serializers.ModelSerializer):
+    method_label = serializers.CharField(source='get_method_display', read_only=True)
+    status_label = serializers.CharField(source='get_status_display', read_only=True)
+    requested_by_name = serializers.SerializerMethodField()
+    approved_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Refund
+        fields = ('id', 'invoice', 'amount', 'method', 'method_label', 'reason', 'status', 'status_label',
+                  'reference', 'requested_by_name', 'approved_by_name', 'created_at', 'approved_at', 'completed_at')
+
+    def get_requested_by_name(self, o):
+        return uname(o.requested_by)
+
+    def get_approved_by_name(self, o):
+        return uname(o.approved_by)
+
+
+class DebtFollowUpSerializer(serializers.ModelSerializer):
+    action_label = serializers.CharField(source='get_action_display', read_only=True)
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DebtFollowUp
+        fields = ('id', 'invoice', 'action', 'action_label', 'note', 'promised_date', 'next_follow_up',
+                  'created_by_name', 'created_at')
+
+    def get_created_by_name(self, o):
+        return uname(o.created_by)
+
+
+class CashierShiftSerializer(serializers.ModelSerializer):
+    cashier_name = serializers.SerializerMethodField()
+    closed_by_name = serializers.SerializerMethodField()
+    cash_received = serializers.SerializerMethodField()
+    cash_refunded = serializers.SerializerMethodField()
+    current_expected = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CashierShift
+        fields = ('id', 'cashier', 'cashier_name', 'status', 'opening_cash', 'expected_cash', 'counted_cash',
+                  'difference', 'note', 'opened_at', 'closed_at', 'closed_by_name', 'cash_received', 'cash_refunded',
+                  'current_expected')
+
+    def get_cashier_name(self, o):
+        return uname(o.cashier)
+
+    def get_closed_by_name(self, o):
+        return uname(o.closed_by)
+
+    def get_cash_received(self, o):
+        return sum(p.amount for p in o.payments.all() if p.method == Payment.CASH)
+
+    def get_cash_refunded(self, o):
+        return sum(r.amount for r in o.refunds.all() if r.method == Payment.CASH and r.status == Refund.COMPLETED)
+
+    def get_current_expected(self, o):
+        return max(o.opening_cash + self.get_cash_received(o) - self.get_cash_refunded(o), 0)
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
@@ -118,13 +183,23 @@ class InvoiceSerializer(serializers.ModelSerializer):
     status_label = serializers.CharField(source='get_status_display', read_only=True)
     balance = serializers.IntegerField(read_only=True)
     created_by_name = serializers.SerializerMethodField()
+    payment_term_label = serializers.CharField(source='get_payment_term_display', read_only=True)
+    due_status = serializers.CharField(read_only=True)
+    overdue_days = serializers.IntegerField(read_only=True)
+    refunds = RefundSerializer(many=True, read_only=True)
+    followups = DebtFollowUpSerializer(many=True, read_only=True)
+    refunded = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
         fields = ('id', 'code', 'patient', 'patient_name', 'patient_code', 'patient_phone', 'visit', 'status', 'status_label',
-                  'subtotal', 'discount', 'total', 'paid', 'balance', 'note', 'void_reason', 'created_by_name', 'created_at',
+                  'subtotal', 'discount', 'total', 'paid', 'balance', 'payment_term', 'payment_term_label', 'due_date',
+                  'due_status', 'overdue_days', 'note', 'void_reason', 'created_by_name', 'created_at',
                   'items', 'payments', 'buyer_name', 'buyer_tax_code', 'buyer_address', 'buyer_email', 'einvoice_status',
-                  'einvoice_symbol', 'einvoice_no', 'einvoice_lookup', 'einvoice_at')
+                  'einvoice_symbol', 'einvoice_no', 'einvoice_lookup', 'einvoice_at', 'refunds', 'followups', 'refunded')
 
     def get_created_by_name(self, o):
         return uname(o.created_by)
+
+    def get_refunded(self, o):
+        return sum(r.amount for r in o.refunds.all() if r.status == Refund.COMPLETED)

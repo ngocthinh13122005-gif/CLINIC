@@ -1,7 +1,7 @@
 """v3: kho theo lô / nhập hàng / kiểm kho, phòng, chăm sóc, cam kết ký điện tử, nhật ký, báo cáo."""
 import hashlib
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.db import transaction
 from django.db.models import Count, F, Q, Sum
@@ -14,7 +14,7 @@ from rest_framework.response import Response
 from accounts.models import ActivityLog
 from . import inventory, reports
 from .audit import audit
-from .models import (CareTask, ConsentForm, Invoice, Medicine, Patient, PurchaseOrder, PurchaseOrderLine, Room, StockCount,
+from .models import (CareContactLog, CareTask, ConsentForm, Invoice, Medicine, Patient, PurchaseOrder, PurchaseOrderLine, Room, StockCount,
                      StockCountLine, StockLot, StockMovement, Supplier, TreatmentPlan, TreatmentSession, Visit, MedicalRecord)
 from .permissions import IsClinicStaff, role_of
 from .serializers import uname
@@ -380,28 +380,39 @@ def ensure_auto_tasks():
     today = timezone.localdate()
     made = 0
     for v in Visit.objects.filter(status=Visit.COMPLETED, finished_at__date__gte=today - timedelta(days=7)).select_related('patient'):
-        if not CareTask.objects.filter(visit=v, kind=CareTask.POST_CARE).exists():
-            CareTask.objects.create(patient=v.patient, visit=v, kind=CareTask.POST_CARE, auto=True,
-                                    title=f'Gọi hỏi thăm sau lượt khám #{v.pk} — tình trạng da, phản ứng sau điều trị',
-                                    due_date=timezone.localtime(v.finished_at).date() + timedelta(days=1))
+        _, created = CareTask.objects.get_or_create(source_key=f'visit:post_care:{v.pk}', defaults={
+            'patient': v.patient, 'visit': v, 'kind': CareTask.POST_CARE, 'auto': True,
+            'title': f'Gọi hỏi thăm sau lượt khám #{v.pk} — tình trạng da, phản ứng sau điều trị',
+            'due_date': timezone.localtime(v.finished_at).date() + timedelta(days=1),
+        })
+        if created:
             made += 1
     for r in MedicalRecord.objects.filter(status=MedicalRecord.SIGNED, follow_up_date__isnull=False, follow_up_date__gte=today - timedelta(days=7)).select_related('patient'):
-        if not CareTask.objects.filter(patient=r.patient, kind=CareTask.REVISIT, title__contains=r.code).exists():
-            CareTask.objects.create(patient=r.patient, visit=r.visit, kind=CareTask.REVISIT, auto=True,
-                                    title=f'Nhắc tái khám ngày {r.follow_up_date:%d/%m/%Y} (bệnh án {r.code})',
-                                    due_date=max(r.follow_up_date - timedelta(days=2), today))
+        _, created = CareTask.objects.get_or_create(source_key=f'record:revisit:{r.pk}', defaults={
+            'patient': r.patient, 'visit': r.visit, 'kind': CareTask.REVISIT, 'auto': True,
+            'title': f'Nhắc tái khám ngày {r.follow_up_date:%d/%m/%Y} (bệnh án {r.code})',
+            'due_date': max(r.follow_up_date - timedelta(days=2), today),
+        })
+        if created:
             made += 1
     for s in TreatmentSession.objects.filter(status=TreatmentSession.PENDING, plan__status=TreatmentPlan.ACTIVE, planned_date__isnull=False,
                                              planned_date__lte=today + timedelta(days=7)).select_related('plan__patient'):
         tag = f'buổi {s.number} · liệu trình #{s.plan_id}'
-        if not CareTask.objects.filter(plan=s.plan, kind=CareTask.SESSION, title__contains=tag).exists():
-            CareTask.objects.create(patient=s.plan.patient, plan=s.plan, kind=CareTask.SESSION, auto=True,
-                                    title=f'Nhắc lịch {tag} ({s.plan.title}) ngày {s.planned_date:%d/%m/%Y}', due_date=max(s.planned_date - timedelta(days=1), today))
+        _, created = CareTask.objects.get_or_create(source_key=f'session:{s.pk}', defaults={
+            'patient': s.plan.patient, 'plan': s.plan, 'kind': CareTask.SESSION, 'auto': True,
+            'title': f'Nhắc lịch {tag} ({s.plan.title}) ngày {s.planned_date:%d/%m/%Y}',
+            'due_date': max(s.planned_date - timedelta(days=1), today),
+        })
+        if created:
             made += 1
     for i in Invoice.objects.filter(status__in=[Invoice.UNPAID, Invoice.PARTIAL], created_at__date__lte=today - timedelta(days=7)).select_related('patient'):
-        if i.total > i.paid and not CareTask.objects.filter(patient=i.patient, kind=CareTask.PAYMENT, title__contains=i.code).exists():
-            CareTask.objects.create(patient=i.patient, kind=CareTask.PAYMENT, auto=True, due_date=today,
-                                    title=f'Nhắc thanh toán hóa đơn {i.code} — còn nợ {i.total - i.paid:,}đ'.replace(',', '.'))
+        if i.total <= i.paid:
+            continue
+        _, created = CareTask.objects.get_or_create(source_key=f'invoice:payment:{i.pk}', defaults={
+            'patient': i.patient, 'kind': CareTask.PAYMENT, 'auto': True, 'due_date': today,
+            'title': f'Nhắc thanh toán hóa đơn {i.code} — còn nợ {i.total - i.paid:,}đ'.replace(',', '.'),
+        })
+        if created:
             made += 1
     return made
 
@@ -413,11 +424,16 @@ class CareSerializer(serializers.ModelSerializer):
     kind_label = serializers.CharField(source='get_kind_display', read_only=True)
     assigned_name = serializers.SerializerMethodField()
     overdue = serializers.SerializerMethodField()
+    priority_label = serializers.CharField(source='get_priority_display', read_only=True)
+    contact_count = serializers.IntegerField(read_only=True)
+    last_contact = serializers.SerializerMethodField()
+    contact_history = serializers.SerializerMethodField()
 
     class Meta:
         model = CareTask
-        fields = ('id', 'patient', 'patient_name', 'patient_code', 'patient_phone', 'kind', 'kind_label', 'title', 'due_date', 'status', 'assigned_to',
-                  'assigned_name', 'outcome', 'auto', 'overdue', 'completed_at', 'created_at')
+        fields = ('id', 'patient', 'patient_name', 'patient_code', 'patient_phone', 'kind', 'kind_label', 'title', 'due_date', 'status', 'priority',
+                  'priority_label', 'assigned_to', 'assigned_name', 'outcome', 'auto', 'overdue', 'contact_count', 'last_contact',
+                  'contact_history', 'escalation_reason', 'escalated_at', 'completed_at', 'created_at')
         read_only_fields = ('status', 'completed_at', 'auto')
 
     def get_patient_phone(self, o):
@@ -430,16 +446,41 @@ class CareSerializer(serializers.ModelSerializer):
     def get_overdue(self, o):
         return o.status == CareTask.PENDING and o.due_date < timezone.localdate()
 
+    def get_last_contact(self, o):
+        log = o.contact_logs.first()
+        if not log:
+            return None
+        return {'id': log.id, 'channel': log.channel, 'channel_label': log.get_channel_display(),
+                'result': log.result, 'result_label': log.get_result_display(), 'note': log.note,
+                'next_contact_at': log.next_contact_at, 'clinical_alert': log.clinical_alert,
+                'created_by': uname(log.created_by), 'created_at': log.created_at}
+
+    def get_contact_history(self, o):
+        return [{
+            'id': log.id,
+            'channel': log.channel,
+            'channel_label': log.get_channel_display(),
+            'result': log.result,
+            'result_label': log.get_result_display(),
+            'note': log.note,
+            'next_contact_at': log.next_contact_at,
+            'clinical_alert': log.clinical_alert,
+            'created_by': uname(log.created_by),
+            'created_at': log.created_at,
+        } for log in o.contact_logs.all()]
+
 
 class CareTaskViewSet(viewsets.ModelViewSet):
     serializer_class = CareSerializer
     http_method_names = ['get', 'post', 'patch', 'head', 'options']
 
     def get_permissions(self):
-        return [perm({'manager', 'consultant', 'doctor'})] if self.action in {'list', 'retrieve', 'summary'} else [perm(FRONT)]
+        if self.action in {'list', 'retrieve', 'summary', 'contact', 'done', 'reopen'}:
+            return [perm(CLINICAL_ROLES)]
+        return [perm(FRONT)]
 
     def get_queryset(self):
-        qs = CareTask.objects.select_related('patient', 'assigned_to')
+        qs = CareTask.objects.select_related('patient', 'assigned_to').prefetch_related('contact_logs__created_by').annotate(contact_count=Count('contact_logs'))
         p = self.request.query_params
         if p.get('status'):
             qs = qs.filter(status=p['status'])
@@ -447,6 +488,11 @@ class CareTaskViewSet(viewsets.ModelViewSet):
             qs = qs.filter(patient_id=p['patient'])
         if p.get('kind'):
             qs = qs.filter(kind=p['kind'])
+        if p.get('priority'):
+            qs = qs.filter(priority=p['priority'])
+        if p.get('q'):
+            q = p['q'].strip()
+            qs = qs.filter(Q(patient__full_name__icontains=q) | Q(patient__code__icontains=q) | Q(patient__phone__icontains=q) | Q(title__icontains=q))
         if p.get('mine') == '1':
             qs = qs.filter(Q(assigned_to=self.request.user) | Q(assigned_to__isnull=True))
         return qs
@@ -459,6 +505,31 @@ class CareTaskViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(assigned_to=serializer.validated_data.get('assigned_to') or self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def contact(self, request, pk=None):
+        t = self.get_object()
+        note = (request.data.get('note') or '').strip()
+        if not note:
+            return deny('Nhập nội dung trao đổi hoặc tình trạng bệnh nhân.', 400)
+        channel = request.data.get('channel', CareContactLog.CALL)
+        result = request.data.get('result', CareContactLog.CONTACTED)
+        if channel not in dict(CareContactLog.CHANNELS) or result not in dict(CareContactLog.RESULTS):
+            return deny('Kênh liên hệ hoặc kết quả không hợp lệ.', 400)
+        next_at = request.data.get('next_contact_at') or None
+        clinical = bool(request.data.get('clinical_alert')) or result == CareContactLog.NEEDS_DOCTOR
+        CareContactLog.objects.create(task=t, channel=channel, result=result, note=note, next_contact_at=next_at,
+                                      clinical_alert=clinical, created_by=request.user)
+        t.outcome = note[:255]
+        if clinical:
+            t.status, t.priority, t.escalation_reason, t.escalated_at = CareTask.ESCALATED, CareTask.URGENT, note[:500], timezone.now()
+        elif result == CareContactLog.COMPLETED:
+            t.status, t.completed_at, t.completed_by = CareTask.DONE, timezone.now(), request.user
+        elif next_at:
+            t.due_date = datetime.fromisoformat(next_at.replace('Z', '+00:00')).date()
+        t.save()
+        audit(request.user, 'care.contact', f'#{t.pk} · {result}')
+        return Response(self.get_serializer(self.get_queryset().get(pk=t.pk)).data)
 
     @action(detail=True, methods=['post'])
     def done(self, request, pk=None):
@@ -474,7 +545,7 @@ class CareTaskViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def reopen(self, request, pk=None):
         t = self.get_object()
-        t.status, t.completed_at, t.completed_by = CareTask.PENDING, None, None
+        t.status, t.completed_at, t.completed_by, t.escalated_at = CareTask.PENDING, None, None, None
         t.save()
         return Response(self.get_serializer(t).data)
 
@@ -484,6 +555,7 @@ class CareTaskViewSet(viewsets.ModelViewSet):
         today = timezone.localdate()
         pend = CareTask.objects.filter(status=CareTask.PENDING)
         return Response({'pending': pend.count(), 'overdue': pend.filter(due_date__lt=today).count(), 'today': pend.filter(due_date=today).count(),
+                         'escalated': CareTask.objects.filter(status=CareTask.ESCALATED).count(),
                          'done_week': CareTask.objects.filter(status=CareTask.DONE, completed_at__date__gte=today - timedelta(days=7)).count()})
 
 

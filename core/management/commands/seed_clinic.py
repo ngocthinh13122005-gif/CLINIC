@@ -192,10 +192,12 @@ class Command(BaseCommand):
             inv.recalc()
             _sync_stock(inv, cskh)
             if paid:
-                Payment.objects.create(invoice=inv, amount=paid, method=method, received_by=cskh)
+                Payment.objects.create(invoice=inv, amount=paid, method=method, received_by=cskh,
+                                       reconciliation_status=Payment.RECONCILED, reconciled_by=cskh)
                 inv.recalc()
             Invoice.objects.filter(pk=inv.pk).update(created_at=visit.finished_at or visit.check_in_at)
-            Payment.objects.filter(invoice=inv).update(paid_at=visit.finished_at or visit.check_in_at)
+            paid_at = visit.finished_at or visit.check_in_at
+            Payment.objects.filter(invoice=inv).update(paid_at=paid_at, reconciled_at=paid_at)
             return inv
 
         done = list(Visit.objects.filter(status=Visit.COMPLETED).select_related('patient').order_by('check_in_at'))

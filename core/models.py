@@ -2,6 +2,7 @@ import datetime
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 class Category(models.Model):
     name = models.CharField('Tên danh mục', max_length=100)
@@ -10,11 +11,28 @@ class Category(models.Model):
     def __str__(self): return self.name
 
 class Service(models.Model):
+    BOOKING_DIRECT = 'direct'
+    BOOKING_ASSESSMENT = 'assessment'
+    BOOKING_INDICATED = 'indicated'
+    BOOKING_PLAN_ONLY = 'plan_only'
+    BOOKING_POLICIES = [
+        (BOOKING_DIRECT, 'Có thể yêu cầu đặt trực tiếp'),
+        (BOOKING_ASSESSMENT, 'Cần bác sĩ tư vấn hoặc đánh giá trước'),
+        (BOOKING_INDICATED, 'Chỉ thực hiện khi đã có chỉ định'),
+        (BOOKING_PLAN_ONLY, 'Chỉ đặt trong liệu trình hiện có'),
+    ]
+
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name='services', verbose_name='Danh mục')
     name = models.CharField('Tên dịch vụ', max_length=150)
     description = models.TextField('Mô tả', blank=True)
     price = models.PositiveIntegerField('Giá (VNĐ)')
     duration = models.PositiveIntegerField('Thời lượng (phút)', default=60)
+    booking_policy = models.CharField(
+        'Chính sách đặt lịch',
+        max_length=12,
+        choices=BOOKING_POLICIES,
+        default=BOOKING_ASSESSMENT,
+    )
     image = models.ImageField('Ảnh', upload_to='services/', blank=True, null=True)
     is_active = models.BooleanField('Đang hoạt động', default=True)
     class Meta:
@@ -34,6 +52,10 @@ class Staff(models.Model):
     rating = models.DecimalField('Điểm đánh giá', max_digits=2, decimal_places=1, default=5.0)
     experience_years = models.PositiveSmallIntegerField('Số năm kinh nghiệm', default=0)
     base_salary = models.PositiveIntegerField('Lương cơ bản', default=6000000)
+    commission_rate = models.DecimalField(
+        'Tỷ lệ hoa hồng (%)', max_digits=5, decimal_places=2, default=8.00,
+        help_text='Tỷ lệ áp dụng trên doanh thu lịch hẹn đã hoàn thành.'
+    )
     bonus = models.PositiveIntegerField('Thưởng', default=0)
     manual_deduction = models.PositiveIntegerField('Khấu trừ thủ công', default=0)
     payroll_status = models.CharField('Trạng thái lương', max_length=12, choices=[('draft','Nháp'),('approved','Đã duyệt'),('paid','Đã thanh toán')], default='draft')
@@ -77,9 +99,29 @@ class RosterShift(models.Model):
 
 
 class Booking(models.Model):
-    PENDING, CONFIRMED, COMPLETED, CANCELLED = 'pending', 'confirmed', 'completed', 'cancelled'
-    STATUS = [(PENDING, 'Chờ xác nhận'), (CONFIRMED, 'Đã xác nhận'),
-              (COMPLETED, 'Hoàn thành'), (CANCELLED, 'Đã hủy')]
+    PENDING, CONFIRMED, CHECKED_IN, IN_PROGRESS, COMPLETED, CANCELLED, NO_SHOW = (
+        'pending', 'confirmed', 'checked_in', 'in_progress', 'completed', 'cancelled', 'no_show',
+    )
+    STATUS = [
+        (PENDING, 'Chờ xác nhận'),
+        (CONFIRMED, 'Đã xác nhận'),
+        (CHECKED_IN, 'Đã check-in'),
+        (IN_PROGRESS, 'Đang phục vụ'),
+        (COMPLETED, 'Hoàn thành'),
+        (CANCELLED, 'Đã hủy'),
+        (NO_SHOW, 'Không đến'),
+    ]
+    ACTIVE_STATUSES = (PENDING, CONFIRMED, CHECKED_IN, IN_PROGRESS)
+    APPOINTMENT_TYPE_CONSULT = 'consult'
+    APPOINTMENT_TYPE_FOLLOW_UP = 'follow_up'
+    APPOINTMENT_TYPE_PROCEDURE = 'procedure'
+    APPOINTMENT_TYPE_SESSION = 'session'
+    APPOINTMENT_TYPES = [
+        (APPOINTMENT_TYPE_CONSULT, 'Khám / tư vấn'),
+        (APPOINTMENT_TYPE_FOLLOW_UP, 'Tái khám'),
+        (APPOINTMENT_TYPE_PROCEDURE, 'Thủ thuật'),
+        (APPOINTMENT_TYPE_SESSION, 'Buổi liệu trình'),
+    ]
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                               related_name='bookings', verbose_name='Khách hàng')
     # Đặt lịch không cần đăng nhập (guest checkout): dùng khi user=None.
@@ -88,9 +130,31 @@ class Booking(models.Model):
     guest_email = models.EmailField('Email (khách vãng lai)', blank=True)
     patient = models.ForeignKey('clinic.Patient', on_delete=models.SET_NULL, null=True, blank=True,
                                 related_name='bookings', verbose_name='Hồ sơ bệnh nhân')
-    appointment_type = models.CharField('Loại lịch hẹn', max_length=10, default='consult', choices=[
-        ('consult', 'Khám / tư vấn'), ('follow_up', 'Tái khám'), ('procedure', 'Thủ thuật'), ('session', 'Buổi liệu trình')])
+    follow_up_visit = models.ForeignKey(
+        'clinic.Visit',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='follow_up_bookings',
+        verbose_name='Lượt khám cần tái khám',
+    )
+    treatment_session = models.ForeignKey(
+        'clinic.TreatmentSession',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='bookings',
+        verbose_name='Buổi liệu trình',
+    )
+    appointment_type = models.CharField(
+        'Loại lịch hẹn',
+        max_length=10,
+        default=APPOINTMENT_TYPE_CONSULT,
+        choices=APPOINTMENT_TYPES,
+    )
     confirm_code = models.CharField('Mã xác nhận', max_length=16, unique=True, blank=True)
+    idempotency_key = models.CharField(max_length=128, unique=True, null=True, blank=True)
+    idempotency_fingerprint = models.CharField(max_length=64, blank=True)
     staff = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='Nhân viên')
     services = models.ManyToManyField(Service, through='BookingItem', verbose_name='Dịch vụ')
     appointment = models.DateTimeField('Thời gian hẹn')
@@ -114,7 +178,15 @@ class Booking(models.Model):
 
     @property
     def badge(self):
-        return {'pending': 'warning text-dark', 'confirmed': 'primary', 'completed': 'success', 'cancelled': 'secondary'}[self.status]
+        return {
+            self.PENDING: 'warning text-dark',
+            self.CONFIRMED: 'primary',
+            self.CHECKED_IN: 'info',
+            self.IN_PROGRESS: 'info',
+            self.COMPLETED: 'success',
+            self.CANCELLED: 'secondary',
+            self.NO_SHOW: 'secondary',
+        }[self.status]
 
     @property
     def duration_minutes(self):
@@ -146,6 +218,28 @@ class BookingItem(models.Model):
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='items')
     service = models.ForeignKey(Service, on_delete=models.PROTECT)
     price = models.PositiveIntegerField('Giá lúc đặt')
+
+
+class BookingHistory(models.Model):
+    booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='history')
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
+    event = models.CharField(max_length=24)
+    old_status = models.CharField(max_length=12, blank=True)
+    new_status = models.CharField(max_length=12, blank=True)
+    old_appointment = models.DateTimeField(null=True, blank=True)
+    new_appointment = models.DateTimeField(null=True, blank=True)
+    reason = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'pk']
+
 
 class Review(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
@@ -266,9 +360,11 @@ class ChatSetting(models.Model):
     business_end = models.TimeField('Giờ đóng cửa hỗ trợ', default=datetime.time(21, 0))
     sla_minutes = models.PositiveIntegerField('Ngưỡng SLA (phút)', default=15)
     greeting_message = models.CharField('Lời chào', max_length=255,
-                                         default='Xin chào! Đội ngũ OHIO có thể giúp gì cho bạn?')
+                                         default='Xin chào! Đội ngũ AkinaClinic có thể giúp gì cho bạn?')
     offline_message = models.CharField('Thông báo ngoài giờ', max_length=255,
                                         default='Ngoài giờ hỗ trợ trực tiếp. Tin nhắn của bạn vẫn được lưu, CSKH sẽ phản hồi sớm nhất.')
+    auto_csat_enabled = models.BooleanField('Tự gửi mời đánh giá khi hoàn tất', default=True)
+    auto_close_daily = models.BooleanField('Tự kết thúc phiên cuối ngày', default=True)
 
     class Meta:
         verbose_name = 'Cấu hình chat'; verbose_name_plural = 'Cấu hình chat'
@@ -288,9 +384,14 @@ class Conversation(models.Model):
     STATUS_CHOICES = [(OPEN, 'Đang mở'), (ESCALATED, 'Đã chuyển bác sĩ'), (CLOSED, 'Đã đóng')]
     NORMAL, URGENT = 'normal', 'urgent'
     PRIORITY_CHOICES = [(NORMAL, 'Bình thường'), (URGENT, 'Khẩn cấp')]
+    WEB, FACEBOOK = 'web', 'facebook'
+    CHANNEL_CHOICES = [(WEB, 'Website'), (FACEBOOK, 'Facebook Messenger')]
 
     customer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                                   related_name='conversations', verbose_name='Khách hàng')
+    channel = models.CharField('Kênh', max_length=16, choices=CHANNEL_CHOICES, default=WEB, db_index=True)
+    external_customer_id = models.CharField('Mã khách ngoài hệ thống', max_length=128, blank=True, db_index=True)
+    external_page_id = models.CharField('Mã Trang', max_length=64, blank=True)
     subject = models.CharField('Câu hỏi ban đầu', max_length=255)
     assigned_to = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                      related_name='assigned_conversations', verbose_name='CSKH phụ trách',
@@ -308,6 +409,10 @@ class Conversation(models.Model):
     resolved_at = models.DateTimeField('Đóng ca lúc', null=True, blank=True)
     csat_score = models.PositiveSmallIntegerField('Đánh giá (sao)', null=True, blank=True)
     csat_comment = models.TextField('Góp ý của khách', blank=True)
+    session_started_at = models.DateTimeField('Bắt đầu phiên CSKH', default=timezone.now)
+    session_ended_at = models.DateTimeField('Kết thúc phiên CSKH', null=True, blank=True)
+    session_end_reason = models.CharField('Lý do kết thúc phiên', max_length=20, blank=True)
+    csat_invited_at = models.DateTimeField('Đã mời đánh giá lúc', null=True, blank=True)
     customer_last_read_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -342,6 +447,8 @@ class Message(models.Model):
     attachment_name = models.CharField('Tên tệp', max_length=255, blank=True)
     attachment_mime = models.CharField('MIME type', max_length=120, blank=True)
     attachment_size = models.PositiveBigIntegerField('Dung lượng', default=0)
+    external_message_id = models.CharField('Mã tin nhắn ngoài hệ thống', max_length=180, blank=True, unique=True, null=True)
+    external_sent_at = models.DateTimeField('Thời gian gửi từ kênh ngoài', null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -349,6 +456,35 @@ class Message(models.Model):
 
     def __str__(self):
         return f'{self.sender} · {(self.text or self.attachment_name)[:30]}'
+
+
+class ConversationSession(models.Model):
+    """Một phiên CSKH nằm trong chuỗi hội thoại lâu dài với khách hàng."""
+    ACTIVE, CSAT_INVITE, COMPLETED, DAY_END = 'active', 'csat_invite', 'completed', 'day_end'
+    END_REASON_CHOICES = [
+        (ACTIVE, 'Đang hoạt động'),
+        (CSAT_INVITE, 'Đã gửi mời đánh giá'),
+        (COMPLETED, 'Hoàn tất thủ công'),
+        (DAY_END, 'Kết thúc cuối ngày'),
+    ]
+    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name='sessions')
+    sequence = models.PositiveIntegerField('Số phiên', default=1)
+    started_at = models.DateTimeField('Bắt đầu lúc', default=timezone.now)
+    ended_at = models.DateTimeField('Kết thúc lúc', null=True, blank=True)
+    end_reason = models.CharField('Lý do kết thúc', max_length=20, choices=END_REASON_CHOICES, default=ACTIVE)
+    csat_invited_at = models.DateTimeField('Mời đánh giá lúc', null=True, blank=True)
+    invite_message = models.OneToOneField(Message, on_delete=models.SET_NULL, null=True, blank=True,
+                                           related_name='csat_session')
+    csat_score = models.PositiveSmallIntegerField('Đánh giá', null=True, blank=True)
+    csat_comment = models.TextField('Góp ý', blank=True)
+
+    class Meta:
+        ordering = ['sequence']
+        unique_together = ('conversation', 'sequence')
+        verbose_name = 'Phiên chăm sóc'; verbose_name_plural = 'Phiên chăm sóc'
+
+    def __str__(self):
+        return f'Hội thoại #{self.conversation_id} · Phiên {self.sequence}'
 
 
 class InternalNote(models.Model):
@@ -463,31 +599,31 @@ class Contact(models.Model):
         verbose_name = 'Liên hệ'; verbose_name_plural = 'Liên hệ'; ordering = ['-created_at']
 
 
-# ================= Chatbot AI OHIO =================
+# ================= Chatbot AI AkinaClinic =================
 class ChatbotSetting(models.Model):
-    """Cấu hình singleton cho Trợ lý OHIO. Chatbot vẫn có thể chạy FAQ khi AI/API chưa sẵn sàng."""
+    """Cấu hình singleton cho Trợ lý AkinaClinic. Chatbot vẫn có thể chạy FAQ khi AI/API chưa sẵn sàng."""
     enabled = models.BooleanField('Bật chatbot', default=True)
     ai_enabled = models.BooleanField('Bật trả lời AI', default=True)
     automation_enabled = models.BooleanField('Cho phép AI tự động thao tác', default=True)
     require_confirmation = models.BooleanField('Yêu cầu khách xác nhận trước thao tác thay đổi dữ liệu', default=True)
-    assistant_name = models.CharField('Tên trợ lý', max_length=80, default='Trợ lý OHIO')
+    assistant_name = models.CharField('Tên trợ lý', max_length=80, default='Trợ lý AkinaClinic')
     greeting_message = models.TextField(
         'Lời chào',
-        default='Xin chào, tôi là Trợ lý OHIO. Tôi có thể hỗ trợ bạn về dịch vụ, đặt lịch và thông tin chăm sóc khách hàng.'
+        default='Xin chào, tôi là Trợ lý AkinaClinic. Tôi có thể hỗ trợ bạn về dịch vụ, đặt lịch và thông tin chăm sóc khách hàng.'
     )
     system_prompt = models.TextField(
         'System prompt',
         default=(
-            'Bạn là Trợ lý OHIO của hệ thống spa OHIO. Trả lời bằng tiếng Việt, ngắn gọn, lịch sự và chỉ dựa trên '
-            'thông tin OHIO được cung cấp. Không tự bịa giá, voucher, lịch bác sĩ hoặc chính sách. Với câu hỏi sức khỏe '
+            'Bạn là Trợ lý AkinaClinic của hệ thống spa AkinaClinic. Trả lời bằng tiếng Việt, ngắn gọn, lịch sự và chỉ dựa trên '
+            'thông tin AkinaClinic được cung cấp. Không tự bịa giá, voucher, lịch bác sĩ hoặc chính sách. Với câu hỏi sức khỏe '
             'hoặc da liễu, chỉ cung cấp thông tin chăm sóc chung; không chẩn đoán bệnh, không kê thuốc và không thay thế '
-            'bác sĩ/chuyên viên. Nếu không chắc, hãy nói rõ và đề nghị khách gặp tư vấn viên OHIO.'
+            'bác sĩ/chuyên viên. Nếu không chắc, hãy nói rõ và đề nghị khách gặp tư vấn viên AkinaClinic.'
         )
     )
-    model_name = models.CharField('Gemini model', max_length=80, default='gemini-3.8-flash')
+    model_name = models.CharField('Gemini model', max_length=80, default='gemini-3.5-flash-lite')
     fallback_message = models.TextField(
         'Tin nhắn khi AI không trả lời được',
-        default='Tôi chưa có đủ thông tin để trả lời chính xác. Bạn có thể chọn “Gặp tư vấn viên” để được OHIO hỗ trợ trực tiếp.'
+        default='Tôi chưa có đủ thông tin để trả lời chính xác. Bạn có thể chọn “Gặp tư vấn viên” để được AkinaClinic hỗ trợ trực tiếp.'
     )
     temperature = models.FloatField('Độ sáng tạo', default=0.2)
     updated_at = models.DateTimeField(auto_now=True)

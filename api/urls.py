@@ -2,6 +2,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from . import views
+from .messenger import messenger_webhook
 
 router = DefaultRouter()
 router.register('categories', views.CategoryViewSet, basename='category')
@@ -18,6 +19,7 @@ router.register('tags', views.TagViewSet, basename='tag')
 router.register('notifications', views.NotificationViewSet, basename='notification')
 
 urlpatterns = [
+    path('integrations/meta/webhook/', messenger_webhook, name='meta-messenger-webhook'),
     path('auth/register/', views.RegisterView.as_view(), name='api-register'),
     path('auth/login/', views.LoginView.as_view(), name='api-login'),
     path('auth/logout/', views.LogoutView.as_view(), name='api-logout'),
@@ -30,6 +32,7 @@ urlpatterns = [
     path('dashboard/summary/', views.dashboard_summary, name='api-dashboard-summary'),
     path('dashboard/manager/', views.manager_dashboard, name='api-dashboard-manager'),
     path('dashboard/crm/', views.crm_directory, name='api-dashboard-crm'),
+    path('dashboard/crm-forecast/', views.crm_forecast, name='api-dashboard-crm-forecast'),
     path('dashboard/customers/<int:user_id>/points/', views.adjust_customer_points, name='api-customer-points'),
     path('dashboard/customers/<int:user_id>/tier/', views.set_customer_tier, name='api-customer-tier'),
     path('dashboard/payroll/', views.payroll_report, name='api-dashboard-payroll'),

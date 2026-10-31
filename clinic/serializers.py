@@ -1,7 +1,7 @@
 from django.utils import timezone
 from rest_framework import serializers
 
-from core.models import Service
+from core.models import Booking, Service
 from .models import (Icd10Code, LesionMark, MedicalRecord, Patient, PatientImage, RecordAddendum,
                      TreatmentPlan, TreatmentSession, Visit)
 from .permissions import CLINICAL_READ, CLINICAL_WRITE
@@ -227,13 +227,20 @@ class Icd10Serializer(serializers.ModelSerializer):
 
 class TreatmentSessionSerializer(serializers.ModelSerializer):
     performed_by_name = serializers.SerializerMethodField()
+    has_active_booking = serializers.SerializerMethodField()
 
     class Meta:
         model = TreatmentSession
-        fields = ('id', 'number', 'planned_date', 'performed_at', 'performed_by_name', 'status', 'content')
+        fields = (
+            'id', 'number', 'planned_date', 'performed_at', 'performed_by_name',
+            'status', 'content', 'allow_staff_delegation', 'has_active_booking',
+        )
 
     def get_performed_by_name(self, o):
         return uname(o.performed_by)
+
+    def get_has_active_booking(self, o):
+        return any(booking.status in Booking.ACTIVE_STATUSES for booking in o.bookings.all())
 
 
 class TreatmentPlanSerializer(serializers.ModelSerializer):
@@ -273,12 +280,10 @@ class PatientImageSerializer(serializers.ModelSerializer):
         extra_kwargs = {'image': {'write_only': True}}
 
     def get_url(self, o):
-        r = self.context.get('request')
         try:
-            u = o.image.url
+            return o.image.url
         except Exception:
             return ''
-        return r.build_absolute_uri(u) if r else u
 
     def get_region_label(self, o):
         return o.get_region_display() if o.region else ''

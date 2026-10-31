@@ -1,0 +1,145 @@
+.patient-portal{max-width:1120px;padding-top:34px}
+.pp-hero{position:relative;display:flex;align-items:center;justify-content:space-between;overflow:hidden;min-height:250px;padding:38px 44px;border-radius:20px;background:linear-gradient(115deg,#241d46 0%,#483c82 58%,#796ab7 100%);color:#fff;box-shadow:0 16px 38px rgba(48,38,95,.16)}
+.pp-hero::after{position:absolute;content:"";width:340px;height:340px;right:80px;top:-210px;border:1px solid rgba(255,255,255,.15);border-radius:50%;box-shadow:0 0 0 35px rgba(255,255,255,.035),0 0 0 70px rgba(255,255,255,.025)}
+.pp-hero-content{position:relative;z-index:1;max-width:650px}
+.pp-eyebrow{display:inline-flex;align-items:center;gap:8px;color:#d9d2fa;font-size:11px;font-weight:750;letter-spacing:.13em}
+.pp-eyebrow svg{font-size:17px}
+.pp-hero h1{margin:16px 0 9px;color:#fff;font-size:clamp(28px,4vw,40px);font-weight:720;letter-spacing:-.035em;line-height:1.15}
+.pp-hero p{max-width:600px;margin:0;color:rgba(255,255,255,.78);font-size:14px;line-height:1.75}
+.pp-hero p strong{color:#fff}
+.pp-book-link{display:inline-flex;align-items:center;gap:10px;margin-top:22px;padding:11px 16px;border:1px solid rgba(255,255,255,.34);border-radius:9px;color:#fff;text-decoration:none;font-size:13px;font-weight:700;transition:background .18s ease,transform .18s ease}
+.pp-book-link:hover{transform:translateY(-1px);background:rgba(255,255,255,.12);color:#fff}
+.pp-book-link span{font-size:19px;line-height:12px}
+.pp-hero-mark{position:relative;z-index:1;display:grid;place-items:center;width:136px;height:136px;margin-right:28px;border:1px solid rgba(255,255,255,.18);border-radius:50%;background:rgba(255,255,255,.08);color:#e2dcff}
+.pp-hero-mark::before{position:absolute;inset:12px;border:1px solid rgba(255,255,255,.15);border-radius:50%;content:""}
+.pp-hero-mark svg{font-size:62px}
+.pp-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:18px 0 34px}
+.pp-summary-card{display:flex;align-items:center;gap:14px;min-height:112px;padding:18px;border:1px solid #e8e2f2;border-radius:14px;background:#fff;box-shadow:0 4px 16px rgba(35,25,60,.035)}
+.pp-summary-icon{display:grid;place-items:center;flex:0 0 44px;width:44px;height:44px;border-radius:12px;background:#efedfb;color:#51438e}
+.pp-summary-icon svg{font-size:22px}
+.pp-summary-icon.plum{background:#f4edf8;color:#80558c}
+.pp-summary-icon.rose{background:#fbecf0;color:#a55370}
+.pp-summary-card>div{display:grid;min-width:0;gap:3px}
+.pp-summary-label{color:#716b81;font-size:12px;font-weight:600;line-height:1.4}
+.pp-summary-card strong{color:#29233e;font-size:25px;line-height:1.15}
+.pp-summary-card small{overflow:hidden;color:#8a8498;font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.pp-records{overflow:hidden;border:1px solid #e8e2f2;border-radius:16px;background:#fff;box-shadow:0 5px 22px rgba(35,25,60,.04)}
+.pp-section-heading{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:25px 26px 19px}
+.pp-section-kicker{color:#8377b4;font-size:10px;font-weight:800;letter-spacing:.13em}
+.pp-section-heading h2{margin:4px 0;color:#29233e;font-size:20px;letter-spacing:-.02em}
+.pp-section-heading p{margin:0;color:#888296;font-size:12px}
+.pp-refresh,.pp-alert button{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:8px 11px;border:1px solid #e2dced;border-radius:8px;background:#fff;color:#554b78;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.pp-refresh:hover,.pp-alert button:hover{border-color:#b8acd8;background:#faf9fd}
+.pp-refresh:disabled{opacity:.55;cursor:wait}
+.pp-refresh svg,.pp-alert button svg{font-size:17px}
+.pp-tabs{display:flex;gap:4px;overflow-x:auto;padding:0 20px;border-bottom:1px solid #eeeaf3;scrollbar-width:thin}
+.pp-tabs button{display:flex;align-items:center;gap:8px;flex:0 0 auto;padding:13px 12px;border:0;border-bottom:2px solid transparent;background:transparent;color:#777185;font:inherit;font-size:12px;font-weight:650;cursor:pointer;white-space:nowrap}
+.pp-tabs button:hover{color:#473b7d}
+.pp-tabs button.active{border-bottom-color:#5b4bb7;color:#473b7d}
+.pp-tabs button>svg{font-size:17px}
+.pp-tabs button b{display:grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:#f1eef7;color:#71688b;font-size:10px}
+.pp-tabs button.active b{background:#ebe7f8;color:#50428f}
+.pp-panel{min-height:260px;padding:21px 24px 25px}
+.pp-list{display:grid;gap:12px}
+.pp-card{min-width:0;padding:19px;border:1px solid #ece8f2;border-radius:12px;background:#fff}
+.pp-visit-card{display:flex;gap:14px}
+.pp-card-icon,.pp-soft-icon,.pp-medicine-icon{display:grid;place-items:center;flex:0 0 38px;width:38px;height:38px;border-radius:11px;background:#f0edfa;color:#625397}
+.pp-card-icon svg,.pp-soft-icon svg,.pp-medicine-icon svg{font-size:20px}
+.pp-card-main{flex:1;min-width:0}
+.pp-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.pp-card-top h3{margin:4px 0 0;color:#302a42;font-size:15px;line-height:1.45}
+.pp-date{color:#837d91;font-size:11px;font-weight:600}
+.pp-status,.pp-plan-status{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;padding:5px 8px;border-radius:20px;background:#eff7f0;color:#42724b;font-size:10px;font-weight:750}
+.pp-status svg{font-size:14px}
+.pp-meta{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px}
+.pp-meta span{padding:5px 8px;border-radius:6px;background:#f6f4f9;color:#706b7d;font-size:10px;font-weight:600}
+.pp-detail{margin:11px 0 0;color:#655f70;font-size:12px;line-height:1.65;white-space:pre-line}
+.pp-detail strong{color:#403950}
+.pp-care-card,.pp-plan-card,.pp-rx-card{padding:20px}
+.pp-soft-icon{flex:0 0 36px;width:36px;height:36px;background:#f4edf8;color:#80558c}
+.pp-care-block{margin-top:16px;padding:13px 14px;border-left:3px solid #b2a7d8;border-radius:0 8px 8px 0;background:#f8f6fc}
+.pp-care-block strong,.pp-rx-advice strong{display:block;color:#443a6d;font-size:11px}
+.pp-care-block p,.pp-rx-advice p{margin:5px 0 0;color:#615b6d;font-size:12px;line-height:1.7;white-space:pre-line}
+.pp-follow-up{display:flex;align-items:center;gap:6px;margin-top:13px;color:#665a8b;font-size:11px}
+.pp-follow-up svg{font-size:16px}
+.pp-follow-up strong{color:#403950}
+.pp-plan-status.active{background:#f0edfa;color:#5a4a9b}
+.pp-plan-status.completed{background:#eff7f0;color:#42724b}
+.pp-progress{display:grid;gap:7px;margin-top:17px}
+.pp-progress>div{display:flex;justify-content:space-between;color:#726d80;font-size:11px}
+.pp-progress strong{color:#4c4085}
+.pp-progress-track{display:block;overflow:hidden;height:6px;border-radius:8px;background:#eeeaf5}
+.pp-progress-track i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#7262cc,#b3a6ec)}
+.pp-session-list{display:grid;gap:0;margin:17px 0 0;padding:0;list-style:none}
+.pp-session-list li{position:relative;display:flex;gap:11px;padding:0 0 17px}
+.pp-session-list li:not(:last-child)::after{position:absolute;top:24px;bottom:0;left:11px;width:1px;background:#e8e3f0;content:""}
+.pp-session-dot{z-index:1;display:grid;place-items:center;flex:0 0 23px;width:23px;height:23px;border:1px solid #e1dbea;border-radius:50%;background:#fff;color:#766a9d;font-size:10px;font-weight:700}
+.pp-session-list li.done .pp-session-dot{border-color:#cfe3d2;background:#eff7f0;color:#4c8056}
+.pp-session-dot svg{font-size:15px}
+.pp-session-list li>div{display:grid;gap:3px;padding-top:2px}
+.pp-session-list li>div strong{color:#403950;font-size:11px}
+.pp-session-list li>div span{color:#817b8d;font-size:10px}
+.pp-session-list li>div p{margin:2px 0 0;color:#625d6c;font-size:11px;line-height:1.6;white-space:pre-line}
+.pp-doctor{margin:11px 0 0;color:#817b8d;font-size:11px}
+.pp-doctor strong{color:#514b60}
+.pp-medicine-list{display:grid;gap:8px;margin-top:15px}
+.pp-medicine{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid #f0edf4;border-radius:9px;background:#fcfbfd}
+.pp-medicine-icon{flex:0 0 32px;width:32px;height:32px;border-radius:9px;background:#fbecf0;color:#a55370}
+.pp-medicine-icon svg{font-size:17px}
+.pp-medicine>div{display:grid;gap:3px;min-width:0}
+.pp-medicine>div strong{color:#383144;font-size:12px}
+.pp-medicine>div span{color:#615b6d;font-size:11px;line-height:1.5}
+.pp-medicine>div small{color:#8a8494;font-size:10px}
+.pp-rx-advice{margin-top:13px;padding:12px 14px;border-radius:8px;background:#f8f6fc}
+.pp-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:220px;padding:24px;text-align:center}
+.pp-empty>span{display:grid;place-items:center;width:48px;height:48px;border-radius:15px;background:#f3f0fa;color:#7162a7}
+.pp-empty>span svg{font-size:24px}
+.pp-empty h3{margin:13px 0 5px;color:#39334a;font-size:14px}
+.pp-empty p{max-width:410px;margin:0;color:#858091;font-size:12px;line-height:1.65}
+.pp-loading{display:flex;align-items:center;justify-content:center;gap:11px;min-height:220px;color:#777185;font-size:12px}
+.pp-loading i{width:18px;height:18px;border:2px solid #e8e3f1;border-top-color:#66569f;border-radius:50%;animation:pp-spin .8s linear infinite}
+@keyframes pp-spin{to{transform:rotate(360deg)}}
+.pp-link-notice{display:flex;gap:14px;margin-top:20px;padding:22px;border:1px solid #eadff0;border-radius:13px;background:#fbf8fd}
+.pp-notice-icon{display:grid;place-items:center;flex:0 0 38px;width:38px;height:38px;border-radius:11px;background:#f1eafa;color:#74568e}
+.pp-notice-icon svg{font-size:21px}
+.pp-link-notice h2{margin:1px 0 6px;color:#382d48;font-size:15px}
+.pp-link-notice p{max-width:780px;margin:0;color:#706a7b;font-size:12px;line-height:1.7}
+.pp-contact-link{display:inline-flex;gap:7px;margin-top:12px;color:#584691;font-size:12px;font-weight:750;text-decoration:none}
+.pp-contact-link:hover{color:#322760}
+.pp-alert{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:17px 0;padding:12px 14px;border:1px solid #edd1d1;border-radius:9px;background:#fff3f3;color:#9b3535;font-size:12px}
+.pp-alert button{flex:0 0 auto;border-color:#ecd4d4;color:#8b3434}
+.pp-privacy-note{display:flex;align-items:flex-start;gap:7px;margin:14px 2px 0;color:#8a8494;font-size:10px;line-height:1.6}
+.pp-privacy-note svg{flex:0 0 15px;margin-top:1px;font-size:15px}
+@media(max-width:700px){
+  .patient-portal{padding:22px 14px 38px}
+  .pp-hero{min-height:0;padding:27px 23px;border-radius:15px}
+  .pp-hero-mark{width:74px;height:74px;flex:0 0 74px;margin:0 0 0 10px}
+  .pp-hero-mark::before{inset:7px}
+  .pp-hero-mark svg{font-size:35px}
+  .pp-hero h1{font-size:27px}
+  .pp-hero p{font-size:12px}
+  .pp-summary{grid-template-columns:1fr;gap:9px;margin:13px 0 24px}
+  .pp-summary-card{min-height:83px;padding:13px 15px}
+  .pp-summary-icon{flex-basis:38px;width:38px;height:38px}
+  .pp-summary-card strong{font-size:22px}
+  .pp-section-heading{align-items:flex-start;padding:20px 17px 15px}
+  .pp-section-heading h2{font-size:18px}
+  .pp-section-heading p{max-width:270px;line-height:1.5}
+  .pp-refresh{padding:7px;font-size:0}
+  .pp-refresh svg{font-size:18px}
+  .pp-tabs{padding:0 10px}
+  .pp-tabs button{gap:6px;padding:12px 9px;font-size:11px}
+  .pp-panel{padding:14px}
+  .pp-card{padding:15px}
+}
+@media(max-width:440px){
+  .pp-hero{padding:24px 19px}
+  .pp-hero-mark{display:none}
+  .pp-card-top{gap:8px}
+  .pp-card-top h3{font-size:13px}
+  .pp-status,.pp-plan-status{padding:5px 6px;font-size:9px}
+  .pp-visit-card{gap:10px}
+  .pp-card-icon{flex-basis:32px;width:32px;height:32px}
+  .pp-card-icon svg{font-size:18px}
+}
+@media(prefers-reduced-motion:reduce){.pp-loading i{animation:none}.pp-book-link{transition:none}}

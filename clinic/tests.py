@@ -7,7 +7,8 @@ from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
 from core.models import Booking, Category, Service, Staff
-from .models import MedicalRecord, Patient, Visit
+from .models import MedicalRecord, Patient, PatientImage, TreatmentPlan, TreatmentSession, Visit
+from .serializers import PatientImageSerializer
 
 User = get_user_model()
 
@@ -35,6 +36,11 @@ class ClinicFlowTests(APITestCase):
         self.auth(self.customer)
         self.assertEqual(self.client.get('/api/clinic/patients/').status_code, 403)
         self.assertEqual(self.client.get('/api/clinic/visits/board/').status_code, 403)
+
+    def test_patient_image_url_uses_current_origin(self):
+        patient = Patient.objects.create(full_name='Ảnh Test', phone='0909999999')
+        image = PatientImage(patient=patient, image='clinic/patients/test.png')
+        self.assertEqual(PatientImageSerializer(image).data['url'], '/media/clinic/patients/test.png')
 
     def test_patient_create_code_phone_and_duplicate(self):
         r = self.new_patient()
@@ -111,14 +117,42 @@ class ClinicFlowTests(APITestCase):
         self.assertEqual(r.data['source'], 'appointment')
         self.assertEqual(r.data['doctor'], self.doctor.id)
         b.refresh_from_db()
-        self.assertEqual(b.status, 'confirmed')
+        self.assertEqual(b.status, 'checked_in')
         self.assertIsNotNone(b.patient)
         self.assertEqual(self.client.post('/api/clinic/visits/from-booking/', {'booking_id': b.id}, format='json').status_code, 400)
         # hoàn tất lượt khám → lịch hẹn hoàn thành
         self.client.post(f'/api/clinic/visits/{r.data["id"]}/call/')
+        self.assertEqual(
+            self.client.post(f'/api/clinic/visits/{r.data["id"]}/complete/').status_code,
+            403,
+        )
+        self.auth(self.doctor)
         self.client.post(f'/api/clinic/visits/{r.data["id"]}/complete/')
         b.refresh_from_db()
         self.assertEqual(b.status, 'completed')
+
+    def test_from_booking_does_not_match_patient_by_shared_phone(self):
+        Patient.objects.create(full_name='Người thân A', phone='0988111222')
+        Patient.objects.create(full_name='Người thân B', phone='0988111222')
+        booking = Booking.objects.create(
+            guest_name='Khách đặt lịch',
+            guest_phone='0988 111 222',
+            appointment=timezone.now() + timedelta(hours=2),
+            status=Booking.PENDING,
+        )
+        self.auth(self.cskh)
+
+        response = self.client.post(
+            '/api/clinic/visits/from-booking/',
+            {'booking_id': booking.pk},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        booking.refresh_from_db()
+        self.assertNotIn(booking.patient.full_name, {'Người thân A', 'Người thân B'})
+        self.assertEqual(booking.patient.full_name, booking.guest_name)
+        self.assertEqual(booking.patient.phone, '0988111222')
 
     def test_treatment_plan_sessions(self):
         pid = self.new_patient().data['id']
@@ -135,7 +169,38 @@ class ClinicFlowTests(APITestCase):
         a = self.client.post(f'/api/clinic/plans/{plan_id}/activate/')
         self.assertEqual(a.data['status'], 'active')
         self.assertIsNotNone(a.data['sessions'][1]['planned_date'])
+        self.auth(self.manager)
+        denied_delegation = self.client.post(
+            f'/api/clinic/plans/{plan_id}/configure-session/',
+            {'session_id': sid, 'allow_staff_delegation': True},
+            format='json',
+        )
+        self.assertEqual(denied_delegation.status_code, 403)
+        denied_edit = self.client.patch(
+            f'/api/clinic/plans/{plan_id}/',
+            {'diagnosis': 'Quản lý không được tự đổi chỉ định'},
+            format='json',
+        )
+        self.assertEqual(denied_edit.status_code, 403)
+        self.auth(self.cskh)
+        scheduled = self.client.post(
+            f'/api/clinic/plans/{plan_id}/schedule-session/',
+            {'session_id': sid, 'planned_date': (timezone.localdate() + timedelta(days=4)).isoformat()},
+            format='json',
+        )
+        self.assertEqual(scheduled.status_code, 200, scheduled.data)
+        self.auth(self.doctor)
+        delegated = self.client.post(
+            f'/api/clinic/plans/{plan_id}/configure-session/',
+            {'session_id': sid, 'allow_staff_delegation': True},
+            format='json',
+        )
+        self.assertEqual(delegated.status_code, 200, delegated.data)
+        self.assertTrue(next(item for item in delegated.data['sessions'] if item['id'] == sid)['allow_staff_delegation'])
         self.auth(self.nurse)
+        denied = self.client.post(f'/api/clinic/plans/{plan_id}/complete-session/', {'session_id': sid, 'content': 'ok'}, format='json')
+        self.assertEqual(denied.status_code, 404, denied.data)
+        self.auth(self.doctor)
         d = self.client.post(f'/api/clinic/plans/{plan_id}/complete-session/', {'session_id': sid, 'content': 'ok'}, format='json')
         self.assertEqual(d.data['done_sessions'], 1)
         self.assertEqual(self.client.post(f'/api/clinic/plans/{plan_id}/complete-session/', {'session_id': sid}, format='json').status_code, 400)
@@ -146,6 +211,89 @@ class ClinicFlowTests(APITestCase):
         self.auth(self.cskh)
         row = self.client.get(f'/api/clinic/plans/{plan_id}/').data
         self.assertEqual(row['diagnosis'], '')
+
+    def test_treatment_plans_are_scoped_to_doctor_and_delegated_staff(self):
+        service = Service.objects.create(
+            category=Category.objects.create(name='Điều trị'),
+            name='Laser test',
+            price=500000,
+            duration=30,
+        )
+        patient = Patient.objects.create(full_name='Bệnh nhân A', phone='0901111111')
+        other_patient = Patient.objects.create(full_name='Bệnh nhân B', phone='0902222222')
+        own_plan = TreatmentPlan.objects.create(
+            patient=patient,
+            doctor=self.doctor,
+            service=service,
+            title='Liệu trình của bác sĩ A',
+            diagnosis='Chẩn đoán riêng',
+            content='Phác đồ riêng',
+            note='Ghi chú riêng',
+            status=TreatmentPlan.ACTIVE,
+            total_sessions=2,
+        )
+        own_session = TreatmentSession.objects.create(
+            plan=own_plan,
+            number=1,
+            allow_staff_delegation=True,
+        )
+        TreatmentSession.objects.create(
+            plan=own_plan,
+            number=2,
+            content='Nội dung buổi không được giao',
+        )
+        other_plan = TreatmentPlan.objects.create(
+            patient=other_patient,
+            doctor=self.doctor2,
+            title='Liệu trình của bác sĩ B',
+            status=TreatmentPlan.ACTIVE,
+        )
+
+        self.auth(self.doctor)
+        doctor_response = self.client.get('/api/clinic/plans/')
+        self.assertEqual(doctor_response.status_code, 200, doctor_response.data)
+        doctor_rows = (
+            doctor_response.data.get('results', doctor_response.data)
+            if isinstance(doctor_response.data, dict)
+            else doctor_response.data
+        )
+        self.assertEqual([row['id'] for row in doctor_rows], [own_plan.pk])
+        self.assertEqual(
+            self.client.get(f'/api/clinic/plans/{other_plan.pk}/').status_code,
+            404,
+        )
+
+        staff_profile = Staff.objects.create(
+            user=self.nurse,
+            name='Điều dưỡng được giao',
+            position='Điều dưỡng',
+        )
+        Booking.objects.create(
+            patient=patient,
+            staff=staff_profile,
+            treatment_session=own_session,
+            appointment=timezone.now() + timedelta(days=1),
+            appointment_type=Booking.APPOINTMENT_TYPE_SESSION,
+            status=Booking.CONFIRMED,
+        )
+        self.auth(self.nurse)
+        staff_response = self.client.get('/api/clinic/plans/')
+        self.assertEqual(staff_response.status_code, 200, staff_response.data)
+        staff_rows = (
+            staff_response.data.get('results', staff_response.data)
+            if isinstance(staff_response.data, dict)
+            else staff_response.data
+        )
+        self.assertEqual([row['id'] for row in staff_rows], [own_plan.pk])
+        staff_plan = staff_rows[0]
+        self.assertEqual(staff_plan['diagnosis'], '')
+        self.assertEqual(staff_plan['content'], '')
+        self.assertEqual(staff_plan['note'], '')
+        self.assertEqual([session['id'] for session in staff_plan['sessions']], [own_session.pk])
+        self.assertEqual(
+            self.client.get(f'/api/clinic/plans/{other_plan.pk}/').status_code,
+            404,
+        )
 
     def test_dashboard_and_icd(self):
         self.auth(self.doctor)

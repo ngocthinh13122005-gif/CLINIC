@@ -306,7 +306,7 @@ REPORTS = {'revenue': revenue, 'visits': visits, 'receivables': receivables, 'in
 
 
 # --------------------------------------------------------------------------- xuất Excel
-def to_xlsx(rep, clinic='PHÒNG KHÁM DA LIỄU OHIO'):
+def to_xlsx(rep, clinic='PHÒNG KHÁM DA LIỄU AkinaClinic'):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter

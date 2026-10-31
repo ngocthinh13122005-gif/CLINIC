@@ -8,6 +8,8 @@ services:
       MYSQL_PASSWORD: ohio_dev_password
       MYSQL_ROOT_PASSWORD: ohio_root_password
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "127.0.0.1:3308:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -35,6 +37,9 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       FRONTEND_BASE_URL: http://localhost:8080
       SITE_BASE_URL: http://localhost:8080
+      FIREBASE_ENABLED: "1"
+      FIREBASE_SERVICE_ACCOUNT_FILE: /run/secrets/akinacenter-firebase-admin.json
+      FIREBASE_SERVICE_ACCOUNT_JSON: ""
     depends_on:
       mysql:
         condition: service_healthy
@@ -45,6 +50,7 @@ services:
       - "8000:8000"
     volumes:
       - media_data:/app/media
+      - "C:/Users/VO THI NGOC THINH/Downloads/akinacenter-5a22e-firebase-adminsdk-fbsvc-1d428fb0dd.json:/run/secrets/akinacenter-firebase-admin.json:ro"
 
   celery:
     build: .
@@ -56,6 +62,9 @@ services:
       CELERY_TASK_ALWAYS_EAGER: 0
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+      FIREBASE_ENABLED: "1"
+      FIREBASE_SERVICE_ACCOUNT_FILE: /run/secrets/akinacenter-firebase-admin.json
+      FIREBASE_SERVICE_ACCOUNT_JSON: ""
     depends_on:
       backend:
         condition: service_started
@@ -64,6 +73,7 @@ services:
     command: celery -A config worker -l info
     volumes:
       - media_data:/app/media
+      - "C:/Users/VO THI NGOC THINH/Downloads/akinacenter-5a22e-firebase-adminsdk-fbsvc-1d428fb0dd.json:/run/secrets/akinacenter-firebase-admin.json:ro"
 
   celery-beat:
     build: .
@@ -83,7 +93,7 @@ services:
     command: celery -A config beat -l info
 
   frontend:
-    build: ../ohio-spa-web-app
+    build: ./frontend
     restart: unless-stopped
     depends_on:
       backend:

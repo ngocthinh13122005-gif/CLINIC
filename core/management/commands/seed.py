@@ -56,7 +56,7 @@ class Command(BaseCommand):
         # ---- Khách hàng + hội thoại mẫu để dashboard/chat có dữ liệu ngay ----
         customer, created = User.objects.get_or_create(
             username='khach1',
-            defaults={'email': 'khach1@clinic.vn', 'first_name': 'Khách OHIO', 'role': User.Role.CUSTOMER},
+            defaults={'email': 'khach1@clinic.vn', 'first_name': 'Khách AkinaClinic', 'role': User.Role.CUSTOMER},
         )
         if created:
             customer.set_password('khach12345')
@@ -67,17 +67,17 @@ class Command(BaseCommand):
             defaults={'assigned_to': consultant, 'status': Conversation.OPEN},
         )
         if not conversation.messages.exists():
-            Message.objects.create(conversation=conversation, sender=customer, text='Xin chào OHIO, tôi muốn được tư vấn khám da liễu.')
+            Message.objects.create(conversation=conversation, sender=customer, text='Xin chào AkinaClinic, tôi muốn được tư vấn khám da liễu.')
 
         # ---- Hộp thư tư vấn kiểu OA: nhãn, mẫu trả lời, SLA và presence ----
         ChatSetting.objects.get_or_create(pk=1, defaults={'sla_minutes': 15})
         for name, color in [('VIP','warning'),('Mụn','danger'),('Đặt lịch','primary'),('Chờ bác sĩ','info'),('Khiếu nại','danger'),('Theo dõi lại','success')]:
             Tag.objects.get_or_create(name=name, defaults={'color':color})
         for title, body in [
-            ('Chào khách','Xin chào anh/chị, OHIO rất vui được hỗ trợ. Anh/chị đang quan tâm dịch vụ nào ạ?'),
-            ('Thông tin đặt lịch','Anh/chị vui lòng cho em biết dịch vụ, ngày và khung giờ mong muốn để OHIO kiểm tra lịch trống.'),
+            ('Chào khách','Xin chào anh/chị, AkinaClinic rất vui được hỗ trợ. Anh/chị đang quan tâm dịch vụ nào ạ?'),
+            ('Thông tin đặt lịch','Anh/chị vui lòng cho em biết dịch vụ, ngày và khung giờ mong muốn để AkinaClinic kiểm tra lịch trống.'),
             ('Chờ kiểm tra','Anh/chị chờ em một chút, em đang kiểm tra lịch và thông tin phù hợp.'),
-            ('Chăm sóc sau dịch vụ','Sau điều trị, anh/chị vui lòng làm theo hướng dẫn của bác sĩ và liên hệ OHIO nếu có dấu hiệu bất thường.'),
+            ('Chăm sóc sau dịch vụ','Sau điều trị, anh/chị vui lòng làm theo hướng dẫn của bác sĩ và liên hệ AkinaClinic nếu có dấu hiệu bất thường.'),
         ]:
             QuickReply.objects.get_or_create(title=title, defaults={'body':body, 'created_by':consultant})
         if consultant:
@@ -92,7 +92,7 @@ class Command(BaseCommand):
         if c2new:
             customer2.set_password('khach12345'); customer2.save(update_fields=['password'])
         conv2, _ = Conversation.objects.get_or_create(customer=customer2, subject='Tư vấn điều trị mụn và đặt lịch khám', defaults={'status':Conversation.OPEN,'priority':Conversation.URGENT})
-        if not conv2.messages.exists(): Message.objects.create(conversation=conv2, sender=customer2, text='Tôi đang bị mụn viêm và muốn đặt lịch sớm, OHIO tư vấn giúp tôi với.')
+        if not conv2.messages.exists(): Message.objects.create(conversation=conv2, sender=customer2, text='Tôi đang bị mụn viêm và muốn đặt lịch sớm, AkinaClinic tư vấn giúp tôi với.')
 
         # ---- Giai đoạn 2: dịch vụ đảm nhận + lịch làm việc mẫu để có slot khả dụng ngay khi demo ----
         if 'nhanvien1' in login_staff:

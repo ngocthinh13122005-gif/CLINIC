@@ -135,6 +135,28 @@ class V3Tests(APITestCase):
         self.auth(self.nurse)
         self.assertEqual(self.client.get('/api/clinic/care-tasks/').status_code, 403)
 
+    def test_care_contact_history_and_clinical_escalation(self):
+        self.auth(self.cskh)
+        task = self.client.post('/api/clinic/care-tasks/', {
+            'patient': self.patient.pk, 'kind': 'post_care', 'priority': 'high',
+            'title': 'Hỏi thăm sau peel', 'due_date': str(timezone.localdate()),
+        }, format='json').json()
+        r = self.client.post(f'/api/clinic/care-tasks/{task["id"]}/contact/', {
+            'channel': 'call', 'result': 'needs_doctor', 'note': 'Đỏ rát tăng và sưng nhiều', 'clinical_alert': True,
+        }, format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()['status'], 'escalated')
+        self.assertEqual(r.json()['priority'], 'urgent')
+        self.assertEqual(r.json()['contact_count'], 1)
+        self.assertEqual(r.json()['last_contact']['result'], 'needs_doctor')
+        self.auth(self.doctor)
+        done = self.client.post(f'/api/clinic/care-tasks/{task["id"]}/contact/', {
+            'channel': 'call', 'result': 'completed', 'note': 'Bác sĩ đã đánh giá và hướng dẫn tái khám.',
+        }, format='json')
+        self.assertEqual(done.status_code, 200, done.content)
+        self.assertEqual(done.json()['status'], 'done')
+        self.assertEqual(done.json()['contact_count'], 2)
+
     def test_consent_sign_flow(self):
         self.auth(self.cskh)
         c = self.client.post('/api/clinic/consents/', {'patient': self.patient.pk, 'kind': 'laser'}, format='json').json()

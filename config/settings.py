@@ -129,7 +129,7 @@ EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', '1') == '1'
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', f'OHIO DANANG <{EMAIL_HOST_USER or "no-reply@ohio.local"}>')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', f'AkinaClinic <{EMAIL_HOST_USER or "no-reply@akinaclinic.local"}>')
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend' if EMAIL_HOST_PASSWORD else 'django.core.mail.backends.console.EmailBackend'
 EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '12'))
 
@@ -144,7 +144,15 @@ FIREBASE_SERVICE_ACCOUNT_FILE = os.environ.get('FIREBASE_SERVICE_ACCOUNT_FILE', 
 FIREBASE_SERVICE_ACCOUNT_JSON = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON', '')
 CLOUDINARY_URL = os.environ.get('CLOUDINARY_URL', '')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
-GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
+GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3.6-flash')
+
+# Meta Messenger. Secrets belong in .env only; never expose them to the frontend.
+META_APP_ID = os.environ.get('META_APP_ID', '')
+META_APP_SECRET = os.environ.get('META_APP_SECRET', '')
+META_PAGE_ID = os.environ.get('META_PAGE_ID', '')
+META_PAGE_ACCESS_TOKEN = os.environ.get('META_PAGE_ACCESS_TOKEN', '')
+META_WEBHOOK_VERIFY_TOKEN = os.environ.get('META_WEBHOOK_VERIFY_TOKEN', '')
+META_GRAPH_API_VERSION = os.environ.get('META_GRAPH_API_VERSION', 'v24.0')
 
 LOYALTY_VND_PER_POINT = int(os.environ.get('LOYALTY_VND_PER_POINT', '10000'))
 PASSWORD_RESET_CODE_TTL_MINUTES = int(os.environ.get('PASSWORD_RESET_CODE_TTL_MINUTES', '10'))

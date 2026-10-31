@@ -1,4 +1,4 @@
-"""Firebase bridge for OHIO realtime chat.
+"""Firebase bridge for AkinaClinic realtime chat.
 
 Django owns authorization and persists messages in MySQL/SQLite. Firebase is used only as
 an authenticated realtime mirror so the React client can subscribe with onSnapshot.

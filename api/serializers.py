@@ -1,14 +1,19 @@
+import hashlib
+import hmac
+import json
 import secrets
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Sum
 from rest_framework import serializers
 
 from core.models import (
-    Attendance, Booking, BookingItem, Category, Conversation, LeaveRequest,
+    Attendance, Booking, BookingHistory, BookingItem, Category, Conversation, LeaveRequest,
     Message, Notification, Service, Staff, Voucher, VoucherRedemption, WorkingHours, RosterShift,
-    Tag, QuickReply, AgentPresence, ChatSetting, InternalNote, ConversationEvent,
+    Tag, QuickReply, AgentPresence, ChatSetting, InternalNote, ConversationEvent, ConversationSession,
 )
+from clinic.models import Patient, TreatmentPlan, TreatmentSession, Visit
 
 User = get_user_model()
 
@@ -72,7 +77,8 @@ class ServiceSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Service
-        fields = ('id', 'category', 'category_name', 'name', 'description', 'price', 'duration', 'image_url', 'is_active')
+        fields = ('id', 'category', 'category_name', 'name', 'description', 'price', 'duration',
+                  'booking_policy', 'image_url', 'is_active')
 
     def get_image_url(self, obj):
         if not obj.image:
@@ -102,19 +108,19 @@ class StaffSerializer(serializers.ModelSerializer):
     class Meta:
         model = Staff
         fields = ('id', 'user_id', 'name', 'position', 'phone', 'is_active', 'rating', 'experience_years',
-                  'base_salary', 'bonus', 'manual_deduction', 'payroll_status', 'username', 'email', 'password', 'role',
+                  'base_salary', 'commission_rate', 'bonus', 'manual_deduction', 'payroll_status', 'username', 'email', 'password', 'role',
                   'service_ids', 'service_ids_current', 'account_username', 'account_email', 'account_role', 'service_names', 'photo_url')
 
     def to_representation(self, obj):
         data = super().to_representation(obj)
         req = self.context.get('request')
         if not (req and req.user.is_authenticated and req.user.role in {'manager', 'sysadmin'}):
-            for f in ('base_salary', 'bonus', 'manual_deduction', 'payroll_status', 'phone'):
+            for f in ('base_salary', 'commission_rate', 'bonus', 'manual_deduction', 'payroll_status', 'phone'):
                 data.pop(f, None)
         return data
 
     def get_photo_url(self, obj):
-        """Ảnh chân dung (nên là PNG tách nền) tải lên trong Django admin."""
+        """Ảnh chân dung nhân sự được tải lên trong Django admin."""
         if not obj.photo:
             return ''
         try:
@@ -202,9 +208,39 @@ class BookingItemSerializer(serializers.ModelSerializer):
         fields = ('id', 'service', 'service_name', 'price')
 
 
+def booking_request_fingerprint(request):
+    payload = json.dumps(request.data, sort_keys=True, separators=(',', ':'), default=str)
+    return hmac.new(
+        settings.SECRET_KEY.encode(),
+        payload.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+class BookingHistorySerializer(serializers.ModelSerializer):
+    actor_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BookingHistory
+        fields = (
+            'event', 'old_status', 'new_status', 'old_appointment', 'new_appointment',
+            'reason', 'actor_name', 'created_at',
+        )
+
+    def get_actor_name(self, obj):
+        return (obj.actor.get_full_name() or obj.actor.username) if obj.actor else ''
+
+
 class BookingSerializer(serializers.ModelSerializer):
     items = BookingItemSerializer(many=True, read_only=True)
-    service_ids = serializers.ListField(child=serializers.IntegerField(min_value=1), write_only=True, required=False)
+    service_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        write_only=True,
+        required=False,
+        allow_empty=True,
+    )
+    treatment_session_id = serializers.IntegerField(write_only=True, required=False)
+    follow_up_visit_id = serializers.IntegerField(write_only=True, required=False)
     voucher_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     customer_name = serializers.CharField(read_only=True)
     customer_phone = serializers.CharField(read_only=True)
@@ -219,16 +255,23 @@ class BookingSerializer(serializers.ModelSerializer):
     duration_minutes = serializers.IntegerField(read_only=True)
     visit_id = serializers.SerializerMethodField()
     visit_status = serializers.SerializerMethodField()
+    treatment_session_label = serializers.SerializerMethodField()
+    treatment_session_details = serializers.SerializerMethodField()
+    treatment_session_policy = serializers.SerializerMethodField()
+    history = BookingHistorySerializer(many=True, read_only=True)
 
     class Meta:
         model = Booking
         fields = (
             'patient', 'patient_code', 'appointment_type', 'appointment_type_label', 'end_time', 'duration_minutes',
             'visit_id', 'visit_status',
+            'treatment_session_id', 'treatment_session_label', 'treatment_session_details',
+            'treatment_session_policy', 'follow_up_visit_id',
             'id', 'user', 'guest_name', 'guest_phone', 'guest_email', 'confirm_code',
             'staff', 'staff_name', 'appointment', 'subtotal', 'discount_total', 'total', 'note', 'status', 'status_label',
             'applied_voucher', 'applied_voucher_code', 'loyalty_points_earned', 'loyalty_awarded',
-            'created_at', 'customer_name', 'customer_phone', 'customer_email', 'items', 'service_ids', 'voucher_id',
+            'created_at', 'customer_name', 'customer_phone', 'customer_email', 'items', 'history',
+            'service_ids', 'voucher_id',
         )
         read_only_fields = ('user', 'confirm_code', 'subtotal', 'discount_total', 'total', 'applied_voucher', 'loyalty_points_earned', 'loyalty_awarded', 'created_at')
 
@@ -243,6 +286,36 @@ class BookingSerializer(serializers.ModelSerializer):
         v = getattr(obj, 'visit', None)
         return v.status if v else None
 
+    def get_treatment_session_label(self, obj):
+        session = obj.treatment_session
+        if not session:
+            return ''
+        return f'{session.plan.title} · Buổi {session.number}'
+
+    def get_treatment_session_details(self, obj):
+        session = obj.treatment_session
+        if not session:
+            return None
+        return {
+            'plan_title': session.plan.title,
+            'session_number': session.number,
+            'total_sessions': session.plan.total_sessions,
+            'session_status': session.status,
+            'session_status_label': session.get_status_display(),
+            'plan_status': session.plan.status,
+            'plan_status_label': session.plan.get_status_display(),
+        }
+
+    def get_treatment_session_policy(self, obj):
+        session = obj.treatment_session
+        if not session:
+            return None
+        return {
+            'allow_staff_delegation': session.allow_staff_delegation,
+            'doctor_user_id': session.plan.doctor_id,
+            'service_id': session.plan.service_id,
+        }
+
     def validate(self, attrs):
         from django.utils import timezone
         from core.availability import has_conflict, qualified_staff
@@ -254,8 +327,114 @@ class BookingSerializer(serializers.ModelSerializer):
         if appointment and appointment <= timezone.now():
             raise serializers.ValidationError({'appointment': 'Thời gian hẹn phải ở tương lai.'})
         service_ids = attrs.get('service_ids') or []
+        service_ids = sorted(set(service_ids))
+        attrs['service_ids'] = service_ids
+        appointment_type = attrs.get('appointment_type', Booking.APPOINTMENT_TYPE_CONSULT)
+        treatment_session_id = attrs.get('treatment_session_id')
+        session = None
+        follow_up_visit_id = attrs.pop('follow_up_visit_id', None)
+        if appointment_type == Booking.APPOINTMENT_TYPE_FOLLOW_UP:
+            if not request or not request.user.is_authenticated or request.user.role != 'customer':
+                raise serializers.ValidationError({
+                    'appointment_type': 'Để đặt lịch tái khám, vui lòng đăng nhập tài khoản bệnh nhân.',
+                })
+            patient = Patient.objects.filter(user=request.user).first()
+            if follow_up_visit_id:
+                previous_visit = Visit.objects.filter(
+                    pk=follow_up_visit_id,
+                    patient=patient,
+                    status=Visit.COMPLETED,
+                ).first() if patient else None
+                if not previous_visit:
+                    raise serializers.ValidationError({
+                        'follow_up_visit_id': 'Không tìm thấy lượt khám đã hoàn tất thuộc hồ sơ của bạn.',
+                    })
+                attrs['follow_up_visit'] = previous_visit
+                attrs['patient'] = patient
+            elif patient:
+                attrs['patient'] = patient
+        if appointment_type == Booking.APPOINTMENT_TYPE_SESSION:
+            if not request or not request.user.is_authenticated or request.user.role != 'customer':
+                raise serializers.ValidationError({
+                    'treatment_session_id': 'Đặt buổi liệu trình cần đăng nhập tài khoản khách hàng.',
+                })
+            if not treatment_session_id:
+                raise serializers.ValidationError({
+                    'treatment_session_id': 'Vui lòng chọn buổi trong liệu trình của bạn.',
+                })
+            session = TreatmentSession.objects.select_related('plan__service', 'plan__doctor').filter(
+                pk=treatment_session_id,
+                plan__patient__user=request.user,
+            ).first()
+            if not session:
+                raise serializers.ValidationError({
+                    'treatment_session_id': 'Không tìm thấy buổi liệu trình thuộc hồ sơ của bạn.',
+                })
+            if session.plan.status != TreatmentPlan.ACTIVE or session.status != TreatmentSession.PENDING:
+                raise serializers.ValidationError({
+                    'treatment_session_id': 'Buổi liệu trình này không còn có thể đặt.',
+                })
+            if not session.plan.doctor_id or not session.plan.doctor.is_active:
+                raise serializers.ValidationError({
+                    'treatment_session_id': 'Liệu trình chưa có bác sĩ phụ trách đang hoạt động. Vui lòng liên hệ phòng khám.',
+                })
+            if not session.plan.service_id or not session.plan.service.is_active:
+                raise serializers.ValidationError({
+                    'treatment_session_id': 'Buổi này chưa có dịch vụ được bác sĩ chỉ định hợp lệ. Vui lòng liên hệ phòng khám.',
+                })
+            if service_ids and set(service_ids) != {session.plan.service_id}:
+                raise serializers.ValidationError({
+                    'service_ids': 'Dịch vụ của buổi liệu trình được lấy theo chỉ định trong hồ sơ.',
+                })
+            attrs['service_ids'] = [session.plan.service_id]
+            service_ids = attrs['service_ids']
+            if session.bookings.filter(status__in=Booking.ACTIVE_STATUSES).exists():
+                raise serializers.ValidationError({
+                    'treatment_session_id': 'Buổi này đã có lịch hẹn. Vui lòng chọn buổi khác.',
+                })
+            requested_staff = attrs.get('staff')
+            if requested_staff:
+                raise serializers.ValidationError({
+                    'staff': 'Phòng khám sẽ phân công bác sĩ/người thực hiện theo chỉ định của bác sĩ phụ trách.',
+                })
+        elif treatment_session_id:
+            raise serializers.ValidationError({
+                'treatment_session_id': 'Chỉ lịch loại buổi liệu trình mới được gắn với một buổi cụ thể.',
+            })
+        if not service_ids and appointment_type not in {
+            Booking.APPOINTMENT_TYPE_CONSULT,
+            Booking.APPOINTMENT_TYPE_FOLLOW_UP,
+        }:
+            raise serializers.ValidationError({
+                'service_ids': 'Vui lòng chọn dịch vụ cho loại lịch này.',
+            })
+        if appointment_type in {
+            Booking.APPOINTMENT_TYPE_SESSION,
+            Booking.APPOINTMENT_TYPE_CONSULT,
+            Booking.APPOINTMENT_TYPE_FOLLOW_UP,
+        } and attrs.get('voucher_id'):
+            raise serializers.ValidationError({
+                'voucher_id': 'Lịch tư vấn, tái khám hoặc buổi liệu trình không áp dụng voucher dịch vụ.',
+            })
         staff = attrs.get('staff')
-        if service_ids:
+        if appointment_type == Booking.APPOINTMENT_TYPE_PROCEDURE and service_ids:
+            policies = set(Service.objects.filter(pk__in=service_ids).values_list('booking_policy', flat=True))
+            if policies - {Service.BOOKING_DIRECT}:
+                raise serializers.ValidationError({
+                    'appointment_type': 'Dịch vụ cần được bác sĩ tư vấn hoặc chỉ định trước khi đặt thực hiện.',
+                })
+        if appointment_type in {
+            Booking.APPOINTMENT_TYPE_CONSULT,
+            Booking.APPOINTMENT_TYPE_FOLLOW_UP,
+        }:
+            candidates = Staff.objects.filter(is_active=True, user__role='doctor')
+            if staff:
+                candidates = candidates.filter(pk=staff.pk)
+            if appointment and not any(not has_conflict(candidate, appointment, 60) for candidate in candidates):
+                raise serializers.ValidationError({
+                    'appointment': 'Không còn bác sĩ phù hợp ở khung giờ này.',
+                })
+        elif service_ids:
             duration = sum(Service.objects.filter(pk__in=service_ids).values_list('duration', flat=True)) or 60
             if staff:
                 eligible = qualified_staff(Staff.objects.filter(pk=staff.pk), service_ids).exists()
@@ -273,8 +452,6 @@ class BookingSerializer(serializers.ModelSerializer):
         return attrs
 
     def validate_service_ids(self, value):
-        if not value:
-            raise serializers.ValidationError('Cần chọn ít nhất một dịch vụ.')
         found = set(Service.objects.filter(id__in=value, is_active=True).values_list('id', flat=True))
         missing = set(value) - found
         if missing:
@@ -285,11 +462,21 @@ class BookingSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         from django.utils import timezone
         service_ids = validated_data.pop('service_ids', [])
+        treatment_session_id = validated_data.pop('treatment_session_id', None)
         voucher_id = validated_data.pop('voucher_id', None)
         request = self.context.get('request')
         staff_roles = {'consultant', 'manager', 'doctor', 'sysadmin'}
         patient = validated_data.get('patient')
-        if patient and not (request and request.user.is_authenticated and request.user.role in staff_roles):
+        customer_owns_patient = bool(
+            patient
+            and request
+            and request.user.is_authenticated
+            and request.user.role == 'customer'
+            and patient.user_id == request.user.id
+        )
+        if patient and not customer_owns_patient and not (
+            request and request.user.is_authenticated and request.user.role in staff_roles
+        ):
             validated_data.pop('patient')  # chỉ nhân viên phòng khám mới được gắn hồ sơ bệnh nhân
             patient = None
         if patient:
@@ -302,15 +489,104 @@ class BookingSerializer(serializers.ModelSerializer):
             validated_data['guest_name'] = validated_data.get('guest_name') or (request.user.get_full_name() or request.user.username)
             validated_data['guest_phone'] = validated_data.get('guest_phone') or request.user.phone
             validated_data['guest_email'] = validated_data.get('guest_email') or request.user.email
+        treatment_session = None
+        if treatment_session_id:
+            treatment_session = TreatmentSession.objects.select_for_update().select_related(
+                'plan__patient', 'plan__service', 'plan__doctor',
+            ).filter(
+                pk=treatment_session_id,
+            ).first()
+            if (
+                not treatment_session
+                or treatment_session.plan.patient.user_id != request.user.id
+                or treatment_session.plan.status != TreatmentPlan.ACTIVE
+                or treatment_session.status != TreatmentSession.PENDING
+                or not treatment_session.plan.doctor_id
+                or not treatment_session.plan.doctor.is_active
+                or not treatment_session.plan.service_id
+                or not treatment_session.plan.service.is_active
+            ):
+                raise serializers.ValidationError({
+                    'treatment_session_id': 'Buổi liệu trình không còn khả dụng. Vui lòng tải lại và chọn buổi khác.',
+                })
+            if treatment_session.bookings.filter(status__in=Booking.ACTIVE_STATUSES).exists():
+                raise serializers.ValidationError({
+                    'treatment_session_id': 'Buổi này vừa được đặt. Vui lòng tải lại và chọn buổi khác.',
+                })
+            validated_data['treatment_session'] = treatment_session
+            validated_data['patient'] = treatment_session.plan.patient
+            if service_ids != [treatment_session.plan.service_id]:
+                raise serializers.ValidationError({
+                    'service_ids': 'Dịch vụ của buổi liệu trình không khớp chỉ định. Vui lòng tải lại trang.',
+                })
         services = list(Service.objects.filter(id__in=service_ids, is_active=True))
-        subtotal = sum(service.price for service in services)
-        if not validated_data.get('staff') and validated_data.get('appointment'):
-            from core.availability import qualified_staff, has_conflict
-            duration = sum(service.duration for service in services) or 60
-            for candidate in qualified_staff(Staff.objects.all(), service_ids):
-                if not has_conflict(candidate, validated_data['appointment'], duration):
-                    validated_data['staff'] = candidate
-                    break
+        is_treatment_session = bool(treatment_session)
+        appointment_type = validated_data.get('appointment_type', Booking.APPOINTMENT_TYPE_CONSULT)
+        consultation_request = appointment_type in {
+            Booking.APPOINTMENT_TYPE_CONSULT,
+            Booking.APPOINTMENT_TYPE_FOLLOW_UP,
+        }
+        subtotal = 0 if is_treatment_session or consultation_request else sum(service.price for service in services)
+        if validated_data.get('appointment'):
+            from core.availability import has_conflict, qualified_staff
+            clinician_required = appointment_type in {
+                Booking.APPOINTMENT_TYPE_CONSULT,
+                Booking.APPOINTMENT_TYPE_FOLLOW_UP,
+            }
+            duration = 60 if clinician_required else sum(service.duration for service in services) or 60
+            follow_up_visit = validated_data.get('follow_up_visit')
+            preferred_staff_id = (
+                Staff.objects.filter(
+                    user_id=follow_up_visit.doctor_id,
+                    is_active=True,
+                ).values_list('pk', flat=True).first()
+                if appointment_type == Booking.APPOINTMENT_TYPE_FOLLOW_UP
+                and follow_up_visit
+                and follow_up_visit.doctor_id
+                else None
+            )
+            if is_treatment_session:
+                candidates = qualified_staff(
+                    Staff.objects.filter(
+                        is_active=True,
+                        user__is_active=True,
+                        user__role__in=['doctor', 'staff'],
+                    ),
+                    service_ids,
+                )
+                preferred_staff_id = Staff.objects.filter(
+                    user_id=treatment_session.plan.doctor_id,
+                    is_active=True,
+                    user__is_active=True,
+                    user__role='doctor',
+                ).values_list('pk', flat=True).first()
+                if not treatment_session.allow_staff_delegation:
+                    candidates = candidates.filter(user_id=treatment_session.plan.doctor_id)
+            elif clinician_required:
+                candidates = Staff.objects.filter(is_active=True, user__role='doctor')
+            else:
+                candidates = qualified_staff(Staff.objects.all(), service_ids)
+            requested_staff = validated_data.get('staff')
+            if requested_staff:
+                candidates = candidates.filter(pk=requested_staff.pk)
+            candidate_ids = list(candidates.values_list('pk', flat=True))
+            locked_candidates = list(
+                Staff.objects.select_for_update().filter(pk__in=candidate_ids).order_by('pk')
+            )
+            if not requested_staff and preferred_staff_id:
+                locked_candidates.sort(key=lambda candidate: candidate.pk != preferred_staff_id)
+            available_staff = next(
+                (
+                    candidate for candidate in locked_candidates
+                    if not has_conflict(candidate, validated_data['appointment'], duration)
+                ),
+                None,
+            )
+            if available_staff is None:
+                raise serializers.ValidationError({
+                    'appointment': 'Khung giờ vừa được người khác đặt hoặc không còn khả dụng.',
+                })
+            validated_data['staff'] = available_staff
         voucher = None
         redemption = None
         discount = 0
@@ -325,9 +601,34 @@ class BookingSerializer(serializers.ModelSerializer):
             if subtotal < voucher.min_spend:
                 raise serializers.ValidationError({'voucher_id': f'Đơn hàng tối thiểu {voucher.min_spend:,}đ để dùng voucher.'})
             discount = min(voucher.discount_value, subtotal)
-        booking = Booking.objects.create(**validated_data, applied_voucher=voucher, discount_total=discount, total=max(0, subtotal-discount))
+        booking = Booking.objects.create(
+            **validated_data,
+            applied_voucher=voucher,
+            discount_total=discount,
+            total=max(0, subtotal-discount),
+            idempotency_key=(
+                request.headers.get('Idempotency-Key', '').strip() or None
+                if request else None
+            ),
+            idempotency_fingerprint=(
+                booking_request_fingerprint(request)
+                if request and request.headers.get('Idempotency-Key', '').strip()
+                else ''
+            ),
+        )
+        BookingHistory.objects.create(
+            booking=booking,
+            actor=request.user if request and request.user.is_authenticated else None,
+            event='created',
+            new_status=booking.status,
+            new_appointment=booking.appointment,
+        )
         for service in services:
-            BookingItem.objects.create(booking=booking, service=service, price=service.price)
+            BookingItem.objects.create(
+                booking=booking,
+                service=service,
+                price=0 if is_treatment_session or consultation_request else service.price,
+            )
         if redemption:
             redemption.status = VoucherRedemption.USED
             redemption.used_at = timezone.now()
@@ -430,11 +731,14 @@ class MessageSerializer(serializers.ModelSerializer):
     sender_name = serializers.SerializerMethodField()
     sender_role = serializers.CharField(source='sender.role', read_only=True)
     attachment_url = serializers.SerializerMethodField()
+    csat_score = serializers.SerializerMethodField()
+    csat_comment = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
         fields = ('id', 'conversation', 'sender', 'sender_name', 'sender_role', 'text', 'message_type',
-                  'attachment', 'attachment_url', 'attachment_name', 'attachment_mime', 'attachment_size', 'created_at')
+                  'attachment', 'attachment_url', 'attachment_name', 'attachment_mime', 'attachment_size',
+                  'csat_score', 'csat_comment', 'created_at')
         read_only_fields = ('sender', 'created_at', 'attachment_name', 'attachment_mime', 'attachment_size', 'message_type', 'attachment_url')
         extra_kwargs = {'attachment': {'write_only': True, 'required': False}}
 
@@ -451,6 +755,31 @@ class MessageSerializer(serializers.ModelSerializer):
         # Giữ URL tương đối để frontend Docker/Nginx cùng origin luôn mở đúng /media/.
         return url
 
+    def _csat_session(self, obj):
+        if obj.message_type != Message.CSAT:
+            return None
+        try:
+            return obj.csat_session
+        except ConversationSession.DoesNotExist:
+            return None
+
+    def get_csat_score(self, obj):
+        session = self._csat_session(obj)
+        return session.csat_score if session else None
+
+    def get_csat_comment(self, obj):
+        session = self._csat_session(obj)
+        return session.csat_comment if session else ''
+
+
+class ConversationSessionSerializer(serializers.ModelSerializer):
+    end_label = serializers.CharField(source='get_end_reason_display', read_only=True)
+
+    class Meta:
+        model = ConversationSession
+        fields = ('id', 'sequence', 'started_at', 'ended_at', 'end_reason', 'end_label',
+                  'csat_invited_at', 'csat_score', 'csat_comment', 'invite_message')
+
 
 class ConversationSerializer(serializers.ModelSerializer):
     customer_name = serializers.SerializerMethodField()
@@ -460,6 +789,8 @@ class ConversationSerializer(serializers.ModelSerializer):
     customer_loyalty_points = serializers.IntegerField(source='customer.loyalty_points', read_only=True, default=0)
     customer_tier = serializers.SerializerMethodField()
     customer_total_spending = serializers.SerializerMethodField()
+    customer_last_visit = serializers.SerializerMethodField()
+    customer_next_visit = serializers.SerializerMethodField()
     assigned_name = serializers.SerializerMethodField()
     escalated_name = serializers.SerializerMethodField()
     takeover_name = serializers.SerializerMethodField()
@@ -475,18 +806,27 @@ class ConversationSerializer(serializers.ModelSerializer):
     sla_minutes = serializers.SerializerMethodField()
     next_actor = serializers.SerializerMethodField()
     read_only = serializers.SerializerMethodField()
+    csat_can_invite = serializers.SerializerMethodField()
+    csat_block_reason = serializers.SerializerMethodField()
+    session_number = serializers.SerializerMethodField()
+    session_history = ConversationSessionSerializer(source='sessions', many=True, read_only=True)
 
     class Meta:
         model = Conversation
         fields = (
             'id', 'customer', 'customer_name', 'customer_phone', 'customer_email', 'customer_avatar_url',
-            'customer_loyalty_points', 'customer_tier', 'customer_total_spending',
-            'subject', 'assigned_to', 'assigned_name', 'escalated_to', 'escalated_name', 'taken_over_by', 'takeover_name',
+            'customer_loyalty_points', 'customer_tier', 'customer_total_spending', 'customer_last_visit', 'customer_next_visit',
+            'subject', 'channel', 'assigned_to', 'assigned_name', 'escalated_to', 'escalated_name', 'taken_over_by', 'takeover_name',
             'status', 'priority', 'tags', 'first_response_at', 'resolved_at',
-            'csat_score', 'csat_comment', 'messages', 'notes', 'events', 'unread_count', 'last_message', 'last_message_at',
+            'csat_score', 'csat_comment', 'csat_invited_at', 'csat_can_invite', 'csat_block_reason',
+            'session_started_at', 'session_ended_at', 'session_end_reason',
+            'session_number', 'session_history',
+            'messages', 'notes', 'events', 'unread_count', 'last_message', 'last_message_at',
             'waiting_minutes', 'sla_state', 'sla_minutes', 'next_actor', 'read_only', 'created_at', 'updated_at',
         )
-        read_only_fields = ('customer', 'first_response_at', 'resolved_at', 'csat_score', 'csat_comment', 'created_at', 'updated_at')
+        read_only_fields = ('customer', 'channel', 'first_response_at', 'resolved_at', 'csat_score', 'csat_comment',
+                            'csat_invited_at', 'session_started_at', 'session_ended_at', 'session_end_reason',
+                            'created_at', 'updated_at')
 
     def get_customer_name(self, obj):
         return obj.customer.get_full_name() or obj.customer.username
@@ -506,6 +846,25 @@ class ConversationSerializer(serializers.ModelSerializer):
         if spend_map is not None:
             return spend_map.get(obj.customer_id, 0)
         return Booking.objects.filter(user=obj.customer, status=Booking.COMPLETED).aggregate(v=Sum('total'))['v'] or 0
+
+    def _visit(self, obj, upcoming):
+        # Danh sách hội thoại không cần dữ liệu này: tránh truy vấn thừa cho từng dòng.
+        if isinstance(self.root, serializers.ListSerializer):
+            return None
+        from django.utils import timezone
+        qs = Booking.objects.filter(user=obj.customer).exclude(status=Booking.CANCELLED)
+        now = timezone.now()
+        if upcoming:
+            row = qs.filter(appointment__gte=now).order_by('appointment').first()
+        else:
+            row = qs.filter(appointment__lt=now, status=Booking.COMPLETED).order_by('-appointment').first()
+        return row.appointment if row else None
+
+    def get_customer_last_visit(self, obj):
+        return self._visit(obj, upcoming=False)
+
+    def get_customer_next_visit(self, obj):
+        return self._visit(obj, upcoming=True)
 
     def get_customer_tier(self, obj):
         spend = self.get_customer_total_spending(obj)
@@ -598,6 +957,33 @@ class ConversationSerializer(serializers.ModelSerializer):
             return obj.escalated_to_id != user.pk
         return user.pk != obj.customer_id
 
+    def get_csat_can_invite(self, obj):
+        if obj.status == Conversation.CLOSED or obj.csat_invited_at or obj.csat_score:
+            return False
+        daily_invited = self.context.get('daily_invited_customers')
+        if daily_invited is not None:
+            return obj.customer_id not in daily_invited
+        from django.utils import timezone
+        return not ConversationSession.objects.filter(
+            conversation__customer_id=obj.customer_id,
+            csat_invited_at__date=timezone.localdate(),
+        ).exclude(conversation_id=obj.pk, sequence=self.get_session_number(obj)).exists()
+
+    def get_csat_block_reason(self, obj):
+        if obj.csat_score:
+            return 'Khách hàng đã đánh giá phiên này.'
+        if obj.csat_invited_at:
+            return 'Phiên này đã được gửi một lời mời đánh giá.'
+        if obj.status == Conversation.CLOSED:
+            return 'Phiên chăm sóc đã kết thúc.'
+        if not self.get_csat_can_invite(obj):
+            return 'Khách hàng đã nhận lời mời đánh giá trong hôm nay.'
+        return ''
+
+    def get_session_number(self, obj):
+        sessions = list(obj.sessions.all())
+        return sessions[-1].sequence if sessions else 1
+
 
 
 class ConversationListSerializer(ConversationSerializer):
@@ -605,6 +991,7 @@ class ConversationListSerializer(ConversationSerializer):
     messages = None
     notes = None
     events = None
+    session_history = None
 
     class Meta(ConversationSerializer.Meta):
-        fields = tuple(f for f in ConversationSerializer.Meta.fields if f not in ('messages', 'notes', 'events'))
+        fields = tuple(f for f in ConversationSerializer.Meta.fields if f not in ('messages', 'notes', 'events', 'session_history'))

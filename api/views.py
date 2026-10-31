@@ -7,28 +7,32 @@ from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.hashers import make_password, check_password
 from django.core.mail import send_mail
-from django.db import transaction
-from django.db.models import Count, OuterRef, Q, Subquery, Sum
+from django.db import IntegrityError, transaction
+from django.db.models import Case, Count, IntegerField, OuterRef, Q, Subquery, Sum, When
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework import permissions, status, viewsets
 from rest_framework.authtoken.models import Token
 from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.exceptions import ValidationError
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import PasswordResetCode
-from core.models import Attendance, Booking, Category, Conversation, LeaveRequest, Message, Notification, Service, Staff, Voucher, VoucherRedemption, WorkingHours, RosterShift, Tag, QuickReply, AgentPresence, ChatSetting, InternalNote, ConversationEvent, ConversationRead
+from core.models import Attendance, Booking, BookingHistory, Category, Conversation, ConversationSession, LeaveRequest, Message, Notification, Service, Staff, Voucher, VoucherRedemption, WorkingHours, RosterShift, Tag, QuickReply, AgentPresence, ChatSetting, InternalNote, ConversationEvent, ConversationRead
 from . import chatbot
 from .firebase import create_custom_token, mirror_message, sync_conversation, mark_notification_read
 from .events import broadcast_dashboard, notify_roles, notify_users
 from .media import upload_to_cloudinary
-from .permissions import IsManagerRole, IsStaffRole
+from .permissions import CanCompleteBooking, IsManagerRole, IsStaffRole
 from .serializers import (
-    AttendanceSerializer, BookingSerializer, ConversationListSerializer, ConversationSerializer, LeaveRequestSerializer,
+    AttendanceSerializer, BookingSerializer, booking_request_fingerprint, ConversationListSerializer, ConversationSerializer, LeaveRequestSerializer,
     MessageSerializer, NotificationSerializer, ServiceSerializer, StaffSerializer, UserSerializer, VoucherSerializer, WorkingHoursSerializer, RosterShiftSerializer, CategorySerializer, TagSerializer, QuickReplySerializer, InternalNoteSerializer, ConversationEventSerializer,
 )
 
 User = get_user_model()
+CUSTOMER_BOOKING_CHANGE_NOTICE = timedelta(hours=24)
 
 
 def _queue_email(booking, request, event):
@@ -41,6 +45,10 @@ def _queue_email(booking, request, event):
 
 
 class RegisterView(APIView):
+    # Public token endpoints must not inherit SessionAuthentication. A stale
+    # Django session cookie would otherwise make DRF require a CSRF token
+    # before a user can sign in or create a new account.
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -63,6 +71,7 @@ class RegisterView(APIView):
 
 
 class LoginView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -110,6 +119,7 @@ class ChangePasswordView(APIView):
 
 
 class ForgotPasswordRequestView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -130,7 +140,7 @@ class ForgotPasswordRequestView(APIView):
             return Response({'detail': 'SMTP chưa cấu hình. Đang dùng mã test local.', 'debug_code': code})
         try:
             send_mail(
-                'Mã xác minh đặt lại mật khẩu OHIO',
+                'Mã xác minh đặt lại mật khẩu AkinaClinic',
                 f'Mã xác minh của bạn là: {code}. Mã có hiệu lực {settings.PASSWORD_RESET_CODE_TTL_MINUTES} phút.',
                 settings.DEFAULT_FROM_EMAIL, [email], fail_silently=False,
             )
@@ -140,6 +150,7 @@ class ForgotPasswordRequestView(APIView):
 
 
 class ForgotPasswordVerifyView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -161,6 +172,7 @@ class ForgotPasswordVerifyView(APIView):
 
 
 class ForgotPasswordResetView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -284,7 +296,7 @@ class RosterShiftViewSet(viewsets.ModelViewSet):
 
 
 def after_booking_created(booking, request):
-    """Email + thông báo + dashboard sau khi tạo lịch hẹn (dùng chung cho trang đặt lịch và Trợ lý OHIO)."""
+    """Email + thông báo + dashboard sau khi tạo lịch hẹn (dùng chung cho trang đặt lịch và Trợ lý AkinaClinic)."""
     _queue_email(booking, request, 'created')
     data = {'booking_id': booking.pk, 'status': booking.status, 'appointment': booking.appointment.isoformat()}
     notify_roles(['manager', 'sysadmin', 'consultant'], 'booking.created', 'Có lịch hẹn mới', f'{booking.customer_name} vừa tạo lịch hẹn #{booking.pk}.', data)
@@ -295,27 +307,94 @@ def after_booking_created(booking, request):
     broadcast_dashboard('booking.created', data)
 
 
+class BookingListPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
 class BookingViewSet(viewsets.ModelViewSet):
     serializer_class = BookingSerializer
+    pagination_class = BookingListPagination
+    http_method_names = ['get', 'post', 'head', 'options']
 
     def get_queryset(self):
         user = self.request.user
-        qs = Booking.objects.select_related('user', 'staff', 'patient', 'visit').prefetch_related('items__service')
+        qs = Booking.objects.select_related(
+            'user', 'staff', 'patient', 'visit', 'follow_up_visit', 'treatment_session__plan',
+        ).prefetch_related('items__service', 'history__actor')
         if not user.is_authenticated:
             return qs.none()
         p = self.request.query_params
-        if p.get('from'):
-            qs = qs.filter(appointment__date__gte=p['from'])
-        if p.get('to'):
-            qs = qs.filter(appointment__date__lte=p['to'])
+        start_date = parse_date(p['from']) if p.get('from') else None
+        end_date = parse_date(p['to']) if p.get('to') else None
+        if p.get('from') and start_date is None:
+            raise ValidationError({'from': 'Ngày bắt đầu không hợp lệ.'})
+        if p.get('to') and end_date is None:
+            raise ValidationError({'to': 'Ngày kết thúc không hợp lệ.'})
+        if start_date and end_date and start_date > end_date:
+            raise ValidationError({'to': 'Ngày kết thúc phải bằng hoặc sau ngày bắt đầu.'})
+        if start_date:
+            qs = qs.filter(appointment__date__gte=start_date)
+        if end_date:
+            qs = qs.filter(appointment__date__lte=end_date)
         if p.get('patient'):
             qs = qs.filter(patient_id=p['patient'])
+        if p.get('status'):
+            statuses = [value.strip() for value in p['status'].split(',') if value.strip()]
+            valid_statuses = {value for value, _ in Booking.STATUS}
+            invalid_statuses = set(statuses) - valid_statuses
+            if not statuses or invalid_statuses:
+                raise ValidationError({'status': 'Trạng thái lịch hẹn không hợp lệ.'})
+            qs = qs.filter(status__in=statuses)
+        if p.get('staff'):
+            try:
+                staff_id = int(p['staff'])
+            except (TypeError, ValueError):
+                raise ValidationError({'staff': 'Nhân sự không hợp lệ.'})
+            qs = qs.filter(staff_id=staff_id)
+        search = p.get('q', '').strip()
+        if len(search) > 100:
+            raise ValidationError({'q': 'Từ khóa tìm kiếm tối đa 100 ký tự.'})
+        if search:
+            for term in search.split():
+                lookup = (
+                    Q(guest_name__icontains=term)
+                    | Q(guest_phone__icontains=term)
+                    | Q(user__first_name__icontains=term)
+                    | Q(user__last_name__icontains=term)
+                    | Q(user__username__icontains=term)
+                    | Q(patient__full_name__icontains=term)
+                    | Q(staff__name__icontains=term)
+                    | Q(items__service__name__icontains=term)
+                    | Q(confirm_code__icontains=term)
+                )
+                if term.isdecimal() and len(term) <= 18:
+                    lookup |= Q(pk=int(term))
+                qs = qs.filter(lookup)
+            qs = qs.distinct()
         if user.role in {'manager', 'sysadmin', 'consultant'}:
             return qs
         if user.role in {'staff', 'doctor'}:
             staff = getattr(user, 'staff_profile', None)
             return qs.filter(staff=staff) if staff else qs.none()
         return qs.filter(user=user)
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        if request.query_params.get('view') != 'list':
+            serializer = self.get_serializer(queryset, many=True)
+            return Response(serializer.data)
+        if 'pending' in {value.strip() for value in request.query_params.get('status', '').split(',')}:
+            queryset = queryset.order_by('appointment', 'pk')
+        else:
+            queryset = queryset.order_by('-created_at', 'pk')
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
     def get_permissions(self):
         if self.action == 'create':
@@ -328,13 +407,100 @@ class BookingViewSet(viewsets.ModelViewSet):
         booking = serializer.save()
         after_booking_created(booking, self.request)
 
+    def create(self, request, *args, **kwargs):
+        idempotency_key = request.headers.get('Idempotency-Key', '').strip()
+        if idempotency_key:
+            if len(idempotency_key) > 128:
+                return Response({'detail': 'Idempotency-Key tối đa 128 ký tự.'}, status=400)
+            fingerprint = booking_request_fingerprint(request)
+            existing = Booking.objects.filter(idempotency_key=idempotency_key).first()
+            if existing:
+                same_owner = (
+                    existing.user_id == request.user.id
+                    if request.user.is_authenticated
+                    else existing.user_id is None
+                    and existing.guest_phone == request.data.get('guest_phone', '')
+                )
+                if not same_owner or existing.idempotency_fingerprint != fingerprint:
+                    return Response(
+                        {'detail': 'Idempotency-Key đã được dùng cho một yêu cầu khác.'},
+                        status=409,
+                    )
+                return Response(
+                    self.get_serializer(existing).data,
+                    status=status.HTTP_200_OK,
+                )
+        try:
+            return super().create(request, *args, **kwargs)
+        except IntegrityError:
+            if not idempotency_key:
+                raise
+            existing = Booking.objects.filter(idempotency_key=idempotency_key).first()
+            if not existing:
+                raise
+            same_owner = (
+                existing.user_id == request.user.id
+                if request.user.is_authenticated
+                else existing.user_id is None
+                and existing.guest_phone == request.data.get('guest_phone', '')
+            )
+            if not same_owner or existing.idempotency_fingerprint != booking_request_fingerprint(request):
+                return Response(
+                    {'detail': 'Idempotency-Key đã được dùng cho một yêu cầu khác.'},
+                    status=409,
+                )
+            return Response(self.get_serializer(existing).data, status=status.HTTP_200_OK)
+
     @action(detail=True, methods=['post'], permission_classes=[IsStaffRole])
     def confirm(self, request, pk=None):
-        booking = self.get_object()
-        if booking.status != Booking.PENDING:
-            return Response({'detail': 'Chỉ lịch đang chờ xác nhận mới có thể xác nhận.'}, status=400)
-        booking.status = Booking.CONFIRMED
-        booking.save(update_fields=['status'])
+        with transaction.atomic():
+            booking = Booking.objects.select_for_update().select_related(
+                'treatment_session__plan__doctor',
+                'treatment_session__plan__service',
+                'staff',
+            ).get(pk=self.get_object().pk)
+            if request.user.role == 'staff':
+                return Response({'detail': 'Nhân viên chỉ tiếp nhận lịch được phân công; lễ tân hoặc bác sĩ xác nhận lịch.'}, status=403)
+            if booking.status != Booking.PENDING:
+                return Response({'detail': 'Chỉ lịch đang chờ xác nhận mới có thể xác nhận.'}, status=400)
+            if booking.treatment_session_id:
+                from core.availability import qualified_staff
+                from clinic.models import TreatmentPlan, TreatmentSession
+
+                session = TreatmentSession.objects.select_for_update().select_related(
+                    'plan__doctor', 'plan__service',
+                ).get(pk=booking.treatment_session_id)
+                service_ids = list(booking.items.values_list('service_id', flat=True))
+                if (
+                    session.status != TreatmentSession.PENDING
+                    or session.plan.status != TreatmentPlan.ACTIVE
+                    or not session.plan.doctor_id
+                    or not session.plan.doctor.is_active
+                    or not session.plan.service_id
+                    or not session.plan.service.is_active
+                    or service_ids != [session.plan.service_id]
+                ):
+                    return Response({'detail': 'Buổi liệu trình không còn đủ điều kiện xác nhận.'}, status=400)
+                eligible = qualified_staff(
+                    Staff.objects.filter(
+                        is_active=True,
+                        user__is_active=True,
+                        user__role__in=['doctor', 'staff'],
+                    ),
+                    service_ids,
+                )
+                if not session.allow_staff_delegation:
+                    eligible = eligible.filter(user_id=session.plan.doctor_id)
+                if not booking.staff_id or not eligible.filter(pk=booking.staff_id).exists():
+                    return Response({'detail': 'Người được phân công không đủ điều kiện theo chỉ định của bác sĩ phụ trách.'}, status=400)
+            old_status = booking.status
+            booking.status = Booking.CONFIRMED
+            booking.save(update_fields=['status'])
+            BookingHistory.objects.create(
+                booking=booking, actor=request.user, event='confirmed',
+                old_status=old_status, new_status=booking.status,
+                old_appointment=booking.appointment, new_appointment=booking.appointment,
+            )
         _queue_email(booking, request, 'confirmed')
         data = {'booking_id': booking.pk, 'status': booking.status}
         targets = [booking.user] if booking.user else []
@@ -343,25 +509,50 @@ class BookingViewSet(viewsets.ModelViewSet):
         broadcast_dashboard('booking.confirmed', data)
         return Response(self.get_serializer(booking).data)
 
-    @action(detail=True, methods=['post'], permission_classes=[IsStaffRole])
+    @action(detail=True, methods=['post'], permission_classes=[CanCompleteBooking])
     def complete(self, request, pk=None):
         from django.db import transaction
+        from clinic.models import TreatmentSession, Visit
+
         with transaction.atomic():
-            booking = Booking.objects.select_for_update().get(pk=self.get_object().pk)
-            if booking.status == Booking.CANCELLED:
-                return Response({'detail': 'Lịch đã hủy không thể hoàn thành.'}, status=400)
+            booking = Booking.objects.select_for_update().select_related(
+                'treatment_session',
+            ).get(pk=self.get_object().pk)
+            if booking.status in {Booking.CANCELLED, Booking.NO_SHOW}:
+                return Response({'detail': 'Lịch đã hủy hoặc khách không đến, không thể hoàn thành.'}, status=400)
             if booking.status == Booking.COMPLETED:
                 return Response(self.get_serializer(booking).data)
-            if booking.status != Booking.CONFIRMED:
-                return Response({'detail': 'Cần xác nhận lịch trước khi hoàn thành.'}, status=400)
+            if booking.status not in {Booking.CHECKED_IN, Booking.IN_PROGRESS}:
+                return Response({'detail': 'Chỉ lịch đã check-in hoặc đang phục vụ mới có thể hoàn thành.'}, status=400)
+            visit = Visit.objects.filter(booking=booking).first()
+            if not visit or visit.status != Visit.COMPLETED:
+                return Response({
+                    'detail': 'Chỉ hoàn tất lịch từ lượt khám sau khi bác sĩ kết thúc chuyên môn.',
+                }, status=400)
+            if (
+                booking.treatment_session_id
+                and booking.treatment_session.status != TreatmentSession.DONE
+            ):
+                return Response({
+                    'detail': 'Buổi liệu trình phải được ghi nhận đã thực hiện trước khi hoàn tất lịch.',
+                }, status=400)
+            old_status = booking.status
             booking.status = Booking.COMPLETED
             if booking.user and not booking.loyalty_awarded:
-                points = max(1, int((booking.total or 0) / max(1, settings.LOYALTY_VND_PER_POINT)))
+                points = (
+                    max(1, int(booking.total / max(1, settings.LOYALTY_VND_PER_POINT)))
+                    if booking.total else 0
+                )
                 booking.user.loyalty_points = (booking.user.loyalty_points or 0) + points
                 booking.user.save(update_fields=['loyalty_points'])
                 booking.loyalty_awarded = True
                 booking.loyalty_points_earned = points
             booking.save(update_fields=['status', 'loyalty_awarded', 'loyalty_points_earned'])
+            BookingHistory.objects.create(
+                booking=booking, actor=request.user, event='completed',
+                old_status=old_status, new_status=booking.status,
+                old_appointment=booking.appointment, new_appointment=booking.appointment,
+            )
         data = {'booking_id': booking.pk, 'status': booking.status, 'points': booking.loyalty_points_earned}
         if booking.user:
             notify_users([booking.user], 'booking.completed', 'Dịch vụ đã hoàn thành', f'Bạn nhận được {booking.loyalty_points_earned} điểm thưởng từ lịch hẹn #{booking.pk}.', data)
@@ -370,12 +561,19 @@ class BookingViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(booking).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsStaffRole])
+    @transaction.atomic
     def hold(self, request, pk=None):
         booking = self.get_object()
-        if booking.status in {Booking.COMPLETED, Booking.CANCELLED}:
-            return Response({'detail': 'Lịch đã hoàn thành hoặc đã hủy không thể đưa về chờ xử lý.'}, status=400)
+        if booking.status not in {Booking.PENDING, Booking.CONFIRMED}:
+            return Response({'detail': 'Chỉ lịch đang chờ hoặc đã xác nhận mới có thể đưa về chờ xử lý.'}, status=400)
+        old_status = booking.status
         booking.status = Booking.PENDING
         booking.save(update_fields=['status'])
+        BookingHistory.objects.create(
+            booking=booking, actor=request.user, event='held',
+            old_status=old_status, new_status=Booking.PENDING,
+            old_appointment=booking.appointment, new_appointment=booking.appointment,
+        )
         data = {'booking_id': booking.pk, 'status': booking.status}
         if booking.user:
             notify_users([booking.user], 'booking.pending', 'Lịch hẹn đang chờ xử lý', f'Lịch hẹn #{booking.pk} đang được giữ ở trạng thái chờ xác nhận.', data)
@@ -383,12 +581,28 @@ class BookingViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(booking).data)
 
     @action(detail=True, methods=['post'])
+    @transaction.atomic
     def cancel(self, request, pk=None):
-        booking = self.get_object()
-        if booking.status in {Booking.COMPLETED, Booking.CANCELLED}:
-            return Response({'detail': 'Lịch đã hoàn thành hoặc đã hủy không thể hủy lại.'}, status=400)
-        booking.status = Booking.CANCELLED
-        booking.save(update_fields=['status'])
+        with transaction.atomic():
+            booking = Booking.objects.select_for_update().get(pk=self.get_object().pk)
+            if booking.status not in {Booking.PENDING, Booking.CONFIRMED}:
+                return Response({'detail': 'Chỉ lịch đang chờ hoặc đã xác nhận mới có thể hủy.'}, status=400)
+            if (
+                request.user.role == 'customer'
+                and booking.appointment < timezone.now() + CUSTOMER_BOOKING_CHANGE_NOTICE
+            ):
+                return Response({
+                    'detail': 'Bạn chỉ có thể tự hủy lịch trước giờ hẹn ít nhất 24 giờ. Vui lòng liên hệ phòng khám để được hỗ trợ.',
+                }, status=400)
+            old_status = booking.status
+            booking.status = Booking.CANCELLED
+            booking.save(update_fields=['status'])
+            BookingHistory.objects.create(
+                booking=booking, actor=request.user if request.user.is_authenticated else None,
+                event='cancelled', old_status=old_status, new_status=booking.status,
+                old_appointment=booking.appointment, new_appointment=booking.appointment,
+                reason=(request.data.get('reason') or '')[:255],
+            )
         redemption = getattr(booking, 'voucher_redemption', None)
         if redemption:
             redemption.status = VoucherRedemption.AVAILABLE
@@ -405,6 +619,145 @@ class BookingViewSet(viewsets.ModelViewSet):
         if booking.staff and booking.staff.user: targets.append(booking.staff.user)
         notify_users(targets, 'booking.cancelled', 'Lịch hẹn đã hủy', f'Lịch hẹn #{booking.pk} đã được hủy.', data)
         broadcast_dashboard('booking.cancelled', data)
+        return Response(self.get_serializer(booking).data)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsStaffRole])
+    def no_show(self, request, pk=None):
+        with transaction.atomic():
+            booking = Booking.objects.select_for_update().get(pk=self.get_object().pk)
+            if booking.status not in {Booking.PENDING, Booking.CONFIRMED}:
+                return Response({'detail': 'Chỉ lịch chưa check-in mới có thể ghi nhận khách không đến.'}, status=400)
+            if booking.appointment > timezone.now():
+                return Response({'detail': 'Chỉ ghi nhận khách không đến sau giờ hẹn.'}, status=400)
+            old_status = booking.status
+            booking.status = Booking.NO_SHOW
+            booking.save(update_fields=['status'])
+            BookingHistory.objects.create(
+                booking=booking, actor=request.user, event='no_show',
+                old_status=old_status, new_status=booking.status,
+                old_appointment=booking.appointment,
+                new_appointment=booking.appointment,
+                reason=(request.data.get('reason') or '')[:255],
+            )
+        return Response(self.get_serializer(booking).data)
+
+    @action(detail=True, methods=['post'])
+    def reschedule(self, request, pk=None):
+        from core.availability import has_conflict, qualified_staff
+        from clinic.models import TreatmentPlan, TreatmentSession
+
+        if request.user.role == 'staff':
+            return Response({'detail': 'Nhân viên chỉ tiếp nhận lịch được phân công; hãy liên hệ lễ tân để đổi lịch.'}, status=403)
+        try:
+            new_appointment = datetime.fromisoformat(str(request.data.get('appointment')))
+        except (TypeError, ValueError):
+            return Response({'detail': 'Thời gian hẹn mới không hợp lệ.'}, status=400)
+        if timezone.is_naive(new_appointment):
+            new_appointment = timezone.make_aware(new_appointment, timezone.get_current_timezone())
+        if new_appointment <= timezone.now():
+            return Response({'detail': 'Thời gian hẹn phải ở tương lai.'}, status=400)
+
+        with transaction.atomic():
+            booking = Booking.objects.select_for_update().select_related(
+                'treatment_session__plan__doctor', 'treatment_session__plan__service', 'staff',
+            ).get(pk=self.get_object().pk)
+            if booking.status not in {Booking.PENDING, Booking.CONFIRMED}:
+                return Response({'detail': 'Chỉ lịch đang chờ hoặc đã xác nhận mới có thể đổi lịch.'}, status=400)
+            if (
+                request.user.role == 'customer'
+                and booking.appointment < timezone.now() + CUSTOMER_BOOKING_CHANGE_NOTICE
+            ):
+                return Response({
+                    'detail': 'Bạn chỉ có thể tự đổi lịch trước giờ hẹn ít nhất 24 giờ. Vui lòng liên hệ phòng khám để được hỗ trợ.',
+                }, status=400)
+            if (
+                request.user.role == 'customer'
+                and new_appointment < timezone.now() + CUSTOMER_BOOKING_CHANGE_NOTICE
+            ):
+                return Response({
+                    'detail': 'Thời gian mới phải cách hiện tại ít nhất 24 giờ.',
+                }, status=400)
+            treatment_session = None
+            if booking.treatment_session_id:
+                treatment_session = TreatmentSession.objects.select_for_update().select_related(
+                    'plan__doctor', 'plan__service',
+                ).get(pk=booking.treatment_session_id)
+                if treatment_session.status != TreatmentSession.PENDING or treatment_session.plan.status != TreatmentPlan.ACTIVE:
+                    return Response({'detail': 'Buổi liệu trình không còn đủ điều kiện đổi lịch.'}, status=400)
+
+            service_ids = list(booking.items.values_list('service_id', flat=True))
+            clinician_required = booking.appointment_type in {
+                Booking.APPOINTMENT_TYPE_CONSULT,
+                Booking.APPOINTMENT_TYPE_FOLLOW_UP,
+            }
+            duration = 60 if clinician_required else booking.duration_minutes or 60
+            staff_id = request.data.get('staff')
+            if staff_id is not None and request.user.role == 'customer':
+                return Response({'detail': 'Phòng khám điều phối người thực hiện; bạn chỉ có thể yêu cầu đổi thời gian.'}, status=403)
+            session = treatment_session
+            if session:
+                if (
+                    session.status != TreatmentSession.PENDING
+                    or session.plan.status != TreatmentPlan.ACTIVE
+                    or not session.plan.doctor_id
+                    or not session.plan.doctor.is_active
+                    or not session.plan.service_id
+                    or not session.plan.service.is_active
+                    or service_ids != [session.plan.service_id]
+                ):
+                    return Response({'detail': 'Buổi liệu trình không còn đủ điều kiện đổi lịch.'}, status=400)
+                candidates = qualified_staff(
+                    Staff.objects.filter(
+                        is_active=True,
+                        user__is_active=True,
+                        user__role__in=['doctor', 'staff'],
+                    ),
+                    service_ids,
+                )
+                if not session.allow_staff_delegation:
+                    candidates = candidates.filter(user_id=session.plan.doctor_id)
+            elif clinician_required:
+                candidates = Staff.objects.filter(is_active=True, user__role='doctor')
+            else:
+                candidates = qualified_staff(Staff.objects.all(), service_ids)
+            if staff_id is not None:
+                try:
+                    candidates = candidates.filter(pk=int(staff_id))
+                except (TypeError, ValueError):
+                    return Response({'detail': 'Nhân sự được chọn không hợp lệ.'}, status=400)
+            elif booking.staff_id:
+                candidates = candidates.filter(pk=booking.staff_id)
+
+            candidate_ids = list(candidates.values_list('pk', flat=True))
+            locked_candidates = list(
+                Staff.objects.select_for_update().filter(pk__in=candidate_ids).order_by('pk')
+            )
+            new_staff = next(
+                (
+                    candidate for candidate in locked_candidates
+                    if not has_conflict(
+                        candidate, new_appointment, duration, exclude_booking_id=booking.pk,
+                    )
+                ),
+                None,
+            )
+            if not new_staff:
+                return Response({'detail': 'Khung giờ vừa được người khác đặt hoặc không còn khả dụng.'}, status=409)
+
+            old_status = booking.status
+            old_appointment = booking.appointment
+            booking.appointment = new_appointment
+            booking.staff = new_staff
+            booking.status = Booking.PENDING
+            booking.save(update_fields=['appointment', 'staff', 'status'])
+            BookingHistory.objects.create(
+                booking=booking, actor=request.user, event='rescheduled',
+                old_status=old_status, new_status=booking.status,
+                old_appointment=old_appointment, new_appointment=new_appointment,
+                reason=(request.data.get('reason') or '')[:255],
+            )
+
+        _queue_email(booking, request, 'rescheduled')
         return Response(self.get_serializer(booking).data)
 
 
@@ -525,24 +878,106 @@ class ConversationViewSet(viewsets.ModelViewSet):
     serializer_class = ConversationSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        cfg = ChatSetting.load()
+        if cfg.auto_close_daily:
+            now = timezone.now()
+            stale = Conversation.objects.exclude(status=Conversation.CLOSED).filter(
+                session_started_at__date__lt=timezone.localdate(),
+            )
+            for conversation in stale:
+                conversation.status = Conversation.CLOSED
+                conversation.resolved_at = now
+                conversation.session_ended_at = now
+                conversation.session_end_reason = ConversationSession.DAY_END
+                conversation.save(update_fields=['status', 'resolved_at', 'session_ended_at', 'session_end_reason', 'updated_at'])
+                self._finish_session(conversation, now, ConversationSession.DAY_END)
+
     def get_serializer_class(self):
         # Hàng chờ KHÔNG kèm tin nhắn/ghi chú/lịch sử để tải nhanh.
         if self.action == 'list':
             return ConversationListSerializer
         return ConversationSerializer
 
+    @staticmethod
+    def _current_session(conversation):
+        session = conversation.sessions.order_by('-sequence').first()
+        if session:
+            return session
+        return ConversationSession.objects.create(
+            conversation=conversation,
+            sequence=1,
+            started_at=conversation.session_started_at or conversation.created_at,
+            ended_at=conversation.session_ended_at,
+            end_reason=conversation.session_end_reason or ConversationSession.ACTIVE,
+            csat_invited_at=conversation.csat_invited_at,
+            csat_score=conversation.csat_score,
+            csat_comment=conversation.csat_comment,
+        )
+
+    def _finish_session(self, conversation, ended_at, reason, invite_message=None):
+        session = self._current_session(conversation)
+        session.ended_at = ended_at
+        session.end_reason = reason
+        if invite_message:
+            session.invite_message = invite_message
+            session.csat_invited_at = ended_at
+        session.save(update_fields=['ended_at', 'end_reason', 'invite_message', 'csat_invited_at'])
+        return session
+
+    def _start_new_session(self, conversation, actor):
+        previous = self._current_session(conversation)
+        if not previous.ended_at:
+            previous.ended_at = timezone.now()
+            if previous.end_reason == ConversationSession.ACTIVE:
+                previous.end_reason = ConversationSession.COMPLETED
+            previous.save(update_fields=['ended_at', 'end_reason'])
+        now = timezone.now()
+        session = ConversationSession.objects.create(
+            conversation=conversation,
+            sequence=previous.sequence + 1,
+            started_at=now,
+        )
+        conversation.status = Conversation.OPEN
+        conversation.assigned_to = None
+        conversation.escalated_to = None
+        conversation.taken_over_by = None
+        conversation.first_response_at = None
+        conversation.resolved_at = None
+        conversation.csat_score = None
+        conversation.csat_comment = ''
+        conversation.csat_invited_at = None
+        conversation.session_started_at = now
+        conversation.session_ended_at = None
+        conversation.session_end_reason = ''
+        conversation.save(update_fields=[
+            'status', 'assigned_to', 'escalated_to', 'taken_over_by', 'first_response_at', 'resolved_at',
+            'csat_score', 'csat_comment', 'csat_invited_at', 'session_started_at', 'session_ended_at',
+            'session_end_reason', 'updated_at',
+        ])
+        ConversationEvent.objects.create(
+            conversation=conversation,
+            actor=actor,
+            event_type=ConversationEvent.REOPENED,
+            meta=f'Khách hàng bắt đầu phiên CSKH #{session.sequence}',
+        )
+        if hasattr(conversation, '_prefetched_objects_cache'):
+            conversation._prefetched_objects_cache.pop('sessions', None)
+        return session
+
     def _base_queryset(self, lean=True):
         qs = Conversation.objects.select_related('customer', 'assigned_to', 'escalated_to', 'taken_over_by')
         if lean:
             last = Message.objects.filter(conversation=OuterRef('pk')).order_by('-created_at', '-id')
-            return qs.prefetch_related('tags').annotate(
+            return qs.prefetch_related('tags', 'sessions').annotate(
                 last_at_a=Subquery(last.values('created_at')[:1]),
                 last_sender_a=Subquery(last.values('sender_id')[:1]),
                 last_text_a=Subquery(last.values('text')[:1]),
                 last_type_a=Subquery(last.values('message_type')[:1]),
                 last_att_a=Subquery(last.values('attachment_name')[:1]),
             )
-        return qs.prefetch_related('messages__sender', 'tags', 'notes__author', 'events__actor')
+        return qs.prefetch_related('messages__sender', 'messages__csat_session', 'tags', 'sessions', 'notes__author', 'events__actor')
 
     def get_queryset(self):
         user = self.request.user
@@ -576,7 +1011,15 @@ class ConversationViewSet(viewsets.ModelViewSet):
                     unread[cid] = unread.get(cid, 0) + 1
             for row in Booking.objects.filter(user_id__in={c.customer_id for c in rows}, status=Booking.COMPLETED).values('user_id').annotate(t=Sum('total')):
                 spend[row['user_id']] = row['t'] or 0
-        return {'unread_map': unread, 'spend_map': spend, 'chat_cfg': ChatSetting.load()}
+        daily_invited_customers = set(ConversationSession.objects.filter(
+            csat_invited_at__date=timezone.localdate(),
+        ).values_list('conversation__customer_id', flat=True))
+        return {
+            'unread_map': unread,
+            'spend_map': spend,
+            'chat_cfg': ChatSetting.load(),
+            'daily_invited_customers': daily_invited_customers,
+        }
 
     def _queue_rows(self, user, tab):
         qs = self.get_queryset()
@@ -586,6 +1029,8 @@ class ConversationViewSet(viewsets.ModelViewSet):
             rows = list(qs.exclude(status=Conversation.CLOSED).order_by('-updated_at'))
             return rows
         if user.role == 'consultant':
+            if tab == 'closed':
+                return list(qs.filter(assigned_to=user, status=Conversation.CLOSED).order_by('-resolved_at', '-updated_at'))
             base = list(qs.exclude(status=Conversation.CLOSED))
             if tab == 'unassigned':
                 rows = [c for c in base if c.assigned_to_id is None and c.status == Conversation.OPEN]
@@ -646,6 +1091,11 @@ class ConversationViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         conversation = serializer.save(customer=self.request.user)
+        ConversationSession.objects.get_or_create(
+            conversation=conversation,
+            sequence=1,
+            defaults={'started_at': conversation.session_started_at},
+        )
         notify_roles(['consultant', 'manager'], 'chat.created', 'Có hội thoại CSKH mới', f'{self.request.user.get_full_name() or self.request.user.username} vừa bắt đầu một cuộc trò chuyện.', {'conversation_id': conversation.pk})
         try: sync_conversation(conversation, background=True)
         except Exception: pass
@@ -669,11 +1119,11 @@ class ConversationViewSet(viewsets.ModelViewSet):
         cfg = ChatSetting.load()
         presence, _ = AgentPresence.objects.get_or_create(user=user) if user.role in {'consultant', 'doctor', 'manager'} else (None, False)
         if user.role == 'consultant':
-            tabs = [('unassigned','Chưa gán'),('mine','Của tôi'),('waiting','Chờ khách')]
+            tabs = [('unassigned','Chưa gán'),('mine','Của tôi'),('waiting','Chờ khách'),('closed','Hoàn thành')]
         elif user.role == 'doctor':
             tabs = [('doctor','Được chuyển cho tôi')]
         elif user.role in {'manager','sysadmin'}:
-            tabs = [('all','Tất cả'),('unassigned','Chưa gán'),('active','Đang xử lý'),('waiting','Chờ khách'),('doctor','Đã chuyển bác sĩ'),('overdue','Quá SLA'),('closed','Hoàn thành')]
+            tabs = [('all','Tất cả'),('unassigned','Chưa gán'),('active','Đang xử lý'),('waiting','Chờ khách'),('doctor','Đã chuyển bác sĩ'),('closed','Hoàn thành')]
         else:
             tabs = []
         counts = {key: len(self._queue_rows(user, key)) for key, _ in tabs}
@@ -689,6 +1139,8 @@ class ConversationViewSet(viewsets.ModelViewSet):
             'presence': presence.status if presence else '',
             'sla_minutes': cfg.sla_minutes,
             'business_start': str(cfg.business_start)[:5], 'business_end': str(cfg.business_end)[:5],
+            'auto_csat_enabled': cfg.auto_csat_enabled,
+            'auto_close_daily': cfg.auto_close_daily,
             'quick_replies': QuickReplySerializer(QuickReply.objects.filter(is_active=True), many=True).data,
             'tags': TagSerializer(Tag.objects.all(), many=True).data,
             'doctors': [{'id':u.id,'name':u.get_full_name() or u.username} for u in doctors],
@@ -704,6 +1156,21 @@ class ConversationViewSet(viewsets.ModelViewSet):
             return Response({'detail':'Trạng thái không hợp lệ.'}, status=400)
         obj, _ = AgentPresence.objects.update_or_create(user=request.user, defaults={'status':value})
         return Response({'status':obj.status})
+
+    @action(detail=True, methods=['post'], url_path='ai-copilot')
+    def ai_copilot(self, request, pk=None):
+        if request.user.role not in {'manager', 'consultant', 'doctor'}:
+            return Response({'detail': 'Chỉ nhân viên được sử dụng AI Copilot.'}, status=403)
+        conversation = self.get_object()
+        if conversation.status == Conversation.CLOSED:
+            return Response({'detail': 'Hội thoại đã hoàn thành.'}, status=400)
+        if not self._can_send(conversation, request.user):
+            return Response({'detail': 'Bạn cần nhận hoặc tiếp quản đúng ca trước khi sử dụng AI Copilot.'}, status=403)
+        from .ai_support import CopilotNoText, CopilotNotConfigured, CopilotUnavailable, generate_copilot
+        try:
+            return Response(generate_copilot(conversation, refresh=bool(request.data.get('refresh'))))
+        except CopilotUnavailable as exc:
+            return Response({'detail': str(exc), 'code': exc.code}, status=exc.status_code)
 
     @action(detail=True, methods=['post'])
     def claim(self, request, pk=None):
@@ -801,13 +1268,25 @@ class ConversationViewSet(viewsets.ModelViewSet):
         )
         if not allowed:
             return Response({'detail':'Bạn không có quyền đóng ca này.'}, status=403)
+        now = timezone.now()
         conv.status = Conversation.CLOSED
-        conv.resolved_at = timezone.now()
-        conv.save(update_fields=['status','resolved_at','updated_at'])
+        conv.resolved_at = now
+        conv.session_ended_at = now
+        conv.session_end_reason = ConversationSession.COMPLETED
+        cfg = ChatSetting.load()
+        can_invite_today = not ConversationSession.objects.filter(
+            conversation__customer_id=conv.customer_id,
+            csat_invited_at__date=timezone.localdate(),
+        ).exclude(conversation_id=conv.pk, sequence=self._current_session(conv).sequence).exists()
+        invite_message = None
+        if cfg.auto_csat_enabled and not conv.csat_invited_at and not conv.csat_score and can_invite_today:
+            invite_message = self._post_system_message(conv, request.user, 'Đánh giá phiên chăm sóc', Message.CSAT)
+            conv.csat_invited_at = now
+            conv.session_end_reason = ConversationSession.CSAT_INVITE
+        conv.save(update_fields=['status','resolved_at','session_ended_at','session_end_reason','csat_invited_at','updated_at'])
+        self._finish_session(conv, now, conv.session_end_reason, invite_message)
         ConversationEvent.objects.create(conversation=conv, actor=request.user, event_type=ConversationEvent.CLOSED)
-        notify_users([conv.customer], 'chat.closed', 'Phiên tư vấn đã hoàn thành', 'Bạn có thể đánh giá chất lượng hỗ trợ của OHIO.', {'conversation_id':conv.pk})
-        if not conv.csat_score and not conv.messages.filter(message_type=Message.CSAT).exists():
-            self._post_system_message(conv, request.user, 'Đánh giá phiên chăm sóc', Message.CSAT)
+        notify_users([conv.customer], 'chat.closed', 'Phiên tư vấn đã hoàn thành', 'Bạn có thể đánh giá chất lượng hỗ trợ của AkinaClinic.', {'conversation_id':conv.pk})
         return Response(self.get_serializer(conv).data)
 
     @action(detail=True, methods=['post'])
@@ -815,10 +1294,7 @@ class ConversationViewSet(viewsets.ModelViewSet):
         if request.user.role != 'manager':
             return Response({'detail':'Chỉ quản lý có thể mở lại ca.'}, status=403)
         conv = self.get_object()
-        conv.status = Conversation.OPEN
-        conv.resolved_at = None
-        conv.save(update_fields=['status','resolved_at','updated_at'])
-        ConversationEvent.objects.create(conversation=conv, actor=request.user, event_type=ConversationEvent.REOPENED)
+        self._start_new_session(conv, request.user)
         return Response(self.get_serializer(conv).data)
 
     @action(detail=True, methods=['post'])
@@ -855,21 +1331,34 @@ class ConversationViewSet(viewsets.ModelViewSet):
         conv = self.get_object()
         if request.user.id != conv.customer_id:
             return Response({'detail': 'Chỉ khách hàng được đánh giá.'}, status=403)
-        invited = conv.messages.filter(message_type=Message.CSAT).exists()
-        if conv.status != Conversation.CLOSED and not invited:
-            return Response({'detail': 'Chỉ đánh giá khi phiên tư vấn kết thúc hoặc được CSKH mời đánh giá.'}, status=400)
-        if conv.csat_score:
+        invite_id = request.data.get('message_id')
+        invitation = conv.messages.filter(message_type=Message.CSAT, pk=invite_id).first() if invite_id else conv.messages.filter(message_type=Message.CSAT).order_by('-created_at', '-id').first()
+        if not invitation:
+            return Response({'detail': 'Phiên này chưa có lời mời đánh giá từ CSKH.'}, status=400)
+        try:
+            session = invitation.csat_session
+        except ConversationSession.DoesNotExist:
+            session = self._current_session(conv)
+            session.invite_message = invitation
+            session.csat_invited_at = invitation.created_at
+            session.save(update_fields=['invite_message', 'csat_invited_at'])
+        if session.csat_score:
             return Response({'detail': 'Bạn đã đánh giá phiên này rồi.'}, status=400)
         try: score = int(request.data.get('score') or 0)
         except Exception: score = 0
         if not 1 <= score <= 5: return Response({'detail': 'Điểm đánh giá phải từ 1 đến 5.'}, status=400)
-        conv.csat_score = score
-        conv.csat_comment = (request.data.get('comment') or '').strip()[:500]
-        conv.save(update_fields=['csat_score', 'csat_comment', 'updated_at'])
-        summary = f'Khách hàng đã đánh giá {score}/5 sao' + (f': “{conv.csat_comment}”' if conv.csat_comment else '')
+        comment = (request.data.get('comment') or '').strip()[:500]
+        session.csat_score = score
+        session.csat_comment = comment
+        session.save(update_fields=['csat_score', 'csat_comment'])
+        if session.sequence == self._current_session(conv).sequence:
+            conv.csat_score = score
+            conv.csat_comment = comment
+            conv.save(update_fields=['csat_score', 'csat_comment', 'updated_at'])
+        summary = f'Khách hàng đã đánh giá phiên #{session.sequence}: {score}/5 sao' + (f': “{comment}”' if comment else '')
         self._post_system_message(conv, request.user, summary, Message.SYSTEM)
         notify_roles(['manager'], 'chat.csat', 'Có đánh giá CSKH mới', f'{conv.customer}: {score}/5 sao', {'conversation_id': conv.pk})
-        return Response({'csat_score': conv.csat_score, 'csat_comment': conv.csat_comment})
+        return Response({'message_id': invitation.pk, 'session': session.sequence, 'csat_score': score, 'csat_comment': comment})
 
     @action(detail=True, methods=['post'])
     def realtime(self, request, pk=None):
@@ -902,11 +1391,30 @@ class ConversationViewSet(viewsets.ModelViewSet):
         conversation = self.get_object()
         if request.user.id == conversation.customer_id or not self._can_send(conversation, request.user):
             return Response({'detail': 'Bạn cần nhận/tiếp quản ca trước khi gửi lời mời đánh giá.'}, status=403)
+        if conversation.status == Conversation.CLOSED:
+            return Response({'detail': 'Phiên chăm sóc đã kết thúc.'}, status=400)
         if conversation.csat_score:
             return Response({'detail': 'Khách hàng đã đánh giá phiên này.'}, status=400)
+        current_session = self._current_session(conversation)
+        if conversation.csat_invited_at or current_session.csat_invited_at:
+            return Response({'detail': 'Mỗi phiên chỉ được gửi một lời mời đánh giá.'}, status=400)
+        if ConversationSession.objects.filter(
+            conversation__customer_id=conversation.customer_id,
+            csat_invited_at__date=timezone.localdate(),
+        ).exclude(pk=current_session.pk).exists():
+            return Response({'detail': 'Khách hàng đã nhận lời mời đánh giá trong hôm nay.'}, status=400)
         message = self._post_system_message(conversation, request.user, 'Đánh giá phiên chăm sóc', Message.CSAT)
+        now = timezone.now()
+        conversation.status = Conversation.CLOSED
+        conversation.resolved_at = now
+        conversation.session_ended_at = now
+        conversation.session_end_reason = ConversationSession.CSAT_INVITE
+        conversation.csat_invited_at = now
+        conversation.save(update_fields=['status','resolved_at','session_ended_at','session_end_reason','csat_invited_at','updated_at'])
+        self._finish_session(conversation, now, ConversationSession.CSAT_INVITE, message)
+        ConversationEvent.objects.create(conversation=conversation, actor=request.user, event_type=ConversationEvent.CLOSED, meta='Đã gửi mời đánh giá')
         notify_users([conversation.customer], 'chat.csat_invite', 'Mời đánh giá phiên chăm sóc',
-                     'OHIO muốn nghe góp ý của bạn về phiên hỗ trợ vừa rồi.', {'conversation_id': conversation.pk})
+                     'AkinaClinic muốn nghe góp ý của bạn về phiên hỗ trợ vừa rồi.', {'conversation_id': conversation.pk})
         return Response(MessageSerializer(message, context={'request': request}).data, status=201)
 
     @action(detail=True, methods=['get', 'post'])
@@ -919,7 +1427,7 @@ class ConversationViewSet(viewsets.ModelViewSet):
                 after = int(request.query_params.get('after') or 0)
             except ValueError:
                 after = 0
-            rows = list(conversation.messages.select_related('sender').filter(id__gt=after).order_by('id'))
+            rows = list(conversation.messages.select_related('sender', 'csat_session').filter(id__gt=after).order_by('id'))
             if rows and request.query_params.get('mark_read') == '1':
                 self._mark_read(conversation, user)
             return Response(MessageSerializer(rows, many=True, context={'request': request}).data)
@@ -930,6 +1438,9 @@ class ConversationViewSet(viewsets.ModelViewSet):
         upload = request.FILES.get('attachment')
         if not text and not upload:
             return Response({'detail': 'Tin nhắn không được để trống.'}, status=400)
+        reopened = user.id == conversation.customer_id and conversation.status == Conversation.CLOSED
+        if reopened:
+            self._start_new_session(conversation, user)
         if upload and upload.size > 15 * 1024 * 1024:
             return Response({'detail':'Tệp vượt quá giới hạn 15 MB.'}, status=400)
         mime = getattr(upload, 'content_type', '') if upload else ''
@@ -961,6 +1472,13 @@ class ConversationViewSet(viewsets.ModelViewSet):
             mirror_message(message)  # chạy nền, không chặn phản hồi gửi tin
         except Exception:
             pass
+        if conversation.channel == Conversation.FACEBOOK and user.id != conversation.customer_id:
+            try:
+                from .messenger import send_message_to_channel
+                send_message_to_channel(message)
+            except RuntimeError as exc:
+                message.delete()
+                return Response({'detail': str(exc)}, status=502)
         targets = []
         if user != conversation.customer: targets.append(conversation.customer)
         for u in [conversation.assigned_to, conversation.escalated_to, conversation.taken_over_by]:
@@ -969,7 +1487,11 @@ class ConversationViewSet(viewsets.ModelViewSet):
             targets.extend(User.objects.filter(role='consultant', is_active=True).exclude(presence__status=AgentPresence.OFFLINE)[:10])
         preview = text[:100] if text else (message.attachment_name or 'Tệp đính kèm')
         notify_users(targets, 'chat.message', 'Tin nhắn mới', f'{user.get_full_name() or user.username}: {preview}', {'conversation_id': conversation.pk})
-        return Response(MessageSerializer(message, context={'request':request}).data, status=201)
+        payload = dict(MessageSerializer(message, context={'request':request}).data)
+        if reopened:
+            payload['session_reopened'] = True
+            payload['conversation_status'] = conversation.status
+        return Response(payload, status=201)
 
     @action(detail=False, methods=['get'], url_path='search')
     def search(self, request):
@@ -998,9 +1520,10 @@ class ConversationViewSet(viewsets.ModelViewSet):
             return Response({'detail':'Không có quyền xem báo cáo.'}, status=403)
         qs = self._base_queryset(lean=True)
         closed = qs.filter(status=Conversation.CLOSED)
-        scored = closed.exclude(csat_score__isnull=True)
-        avg_csat = scored.aggregate(v=Sum('csat_score'))['v'] or 0
-        avg_csat = round(avg_csat / max(1, scored.count()), 2)
+        session_qs = ConversationSession.objects.select_related('conversation')
+        scored_sessions = session_qs.exclude(csat_score__isnull=True)
+        avg_csat = scored_sessions.aggregate(v=Sum('csat_score'))['v'] or 0
+        avg_csat = round(avg_csat / max(1, scored_sessions.count()), 2)
         cfg = ChatSetting.load()
         overdue = 0
         for c in qs.exclude(status=Conversation.CLOSED):
@@ -1011,10 +1534,73 @@ class ConversationViewSet(viewsets.ModelViewSet):
         for agent in User.objects.filter(role='consultant',is_active=True):
             handled=qs.filter(assigned_to=agent)
             closed_agent=handled.filter(status=Conversation.CLOSED)
-            scores=closed_agent.exclude(csat_score__isnull=True)
+            scores=session_qs.filter(conversation__assigned_to=agent).exclude(csat_score__isnull=True)
             total_score=scores.aggregate(v=Sum('csat_score'))['v'] or 0
             staff_rows.append({'id':agent.id,'name':agent.get_full_name() or agent.username,'active':handled.exclude(status=Conversation.CLOSED).count(),'closed':closed_agent.count(),'csat':round(total_score/max(1,scores.count()),2) if scores.exists() else None})
-        return Response({'new':qs.filter(created_at__date=timezone.localdate()).count(),'unassigned':qs.filter(assigned_to__isnull=True).exclude(status=Conversation.CLOSED).count(),'overdue':overdue,'closed':closed.count(),'avg_csat':avg_csat,'agents':staff_rows})
+        invited = session_qs.exclude(csat_invited_at__isnull=True)
+        responses = invited.exclude(csat_score__isnull=True)
+        satisfied = responses.filter(csat_score__gte=4).count()
+        daily = []
+        for offset in range(6, -1, -1):
+            day = timezone.localdate() - timedelta(days=offset)
+            day_invited = invited.filter(csat_invited_at__date=day)
+            day_responses = day_invited.exclude(csat_score__isnull=True)
+            score_total = day_responses.aggregate(v=Sum('csat_score'))['v'] or 0
+            daily.append({
+                'date': day,
+                'invited': day_invited.count(),
+                'responses': day_responses.count(),
+                'avg_csat': round(score_total / max(1, day_responses.count()), 2) if day_responses.exists() else 0,
+            })
+        distribution = {str(score): responses.filter(csat_score=score).count() for score in range(1, 6)}
+        return Response({
+            'new': session_qs.filter(started_at__date=timezone.localdate()).count(),
+            'unassigned': qs.filter(assigned_to__isnull=True).exclude(status=Conversation.CLOSED).count(),
+            'overdue': overdue,
+            'closed': session_qs.exclude(ended_at__isnull=True).count(),
+            'avg_csat': avg_csat,
+            'invited': invited.count(),
+            'responses': responses.count(),
+            'response_rate': round(responses.count() * 100 / max(1, invited.count()), 1),
+            'satisfaction_rate': round(satisfied * 100 / max(1, responses.count()), 1),
+            'distribution': distribution,
+            'daily': daily,
+            'agents': staff_rows,
+        })
+
+    @action(detail=False, methods=['get', 'patch'], url_path='manager-settings')
+    def manager_settings(self, request):
+        if request.user.role != 'manager':
+            return Response({'detail': 'Chỉ quản lý được cấu hình CSKH.'}, status=403)
+        cfg = ChatSetting.load()
+        if request.method == 'PATCH':
+            fields = []
+            for name in ('auto_csat_enabled', 'auto_close_daily'):
+                if name in request.data:
+                    setattr(cfg, name, bool(request.data.get(name)))
+                    fields.append(name)
+            if 'sla_minutes' in request.data:
+                try:
+                    cfg.sla_minutes = min(240, max(1, int(request.data.get('sla_minutes'))))
+                    fields.append('sla_minutes')
+                except (TypeError, ValueError):
+                    return Response({'detail': 'SLA phải là số phút hợp lệ.'}, status=400)
+            for name in ('business_start', 'business_end'):
+                if name in request.data:
+                    try:
+                        setattr(cfg, name, datetime.strptime(str(request.data.get(name)), '%H:%M').time())
+                        fields.append(name)
+                    except ValueError:
+                        return Response({'detail': 'Giờ làm việc phải có định dạng HH:MM.'}, status=400)
+            if fields:
+                cfg.save(update_fields=[*set(fields)])
+        return Response({
+            'auto_csat_enabled': cfg.auto_csat_enabled,
+            'auto_close_daily': cfg.auto_close_daily,
+            'sla_minutes': cfg.sla_minutes,
+            'business_start': str(cfg.business_start)[:5],
+            'business_end': str(cfg.business_end)[:5],
+        })
 
 
 
@@ -1068,7 +1654,7 @@ class TagViewSet(viewsets.ModelViewSet):
 @api_view(['GET'])
 @permission_classes([permissions.AllowAny])
 def chatbot_session(request):
-    """Cấu hình + lịch sử gần nhất của Trợ lý OHIO theo visitor_key."""
+    """Cấu hình + lịch sử gần nhất của Trợ lý AkinaClinic theo visitor_key."""
     cfg = chatbot.public_config()
     key = request.query_params.get('visitor_key', '')
     session, key = chatbot.get_session(request, key, request.query_params.get('page', ''))
@@ -1081,7 +1667,7 @@ def chatbot_session(request):
 @permission_classes([permissions.AllowAny])
 def chatbot_message(request):
     if not chatbot.ChatbotSetting.load().enabled:
-        return Response({'detail': 'Trợ lý OHIO đang tạm ngưng.'}, status=503)
+        return Response({'detail': 'Trợ lý AkinaClinic đang tạm ngưng.'}, status=503)
     session, key = chatbot.get_session(request, request.data.get('visitor_key', ''), request.data.get('page', ''))
     if session is None:
         return Response({'detail': 'visitor_key không hợp lệ.'}, status=400)
@@ -1250,6 +1836,41 @@ def crm_directory(request):
     return Response(rows)
 
 
+@api_view(['GET'])
+@permission_classes([IsManagerRole])
+def crm_forecast(request):
+    """Dự báo có trọng số từ lịch hẹn thật; không suy diễn từ dữ liệu bệnh án."""
+    today = timezone.localdate()
+    start = today.replace(day=1)
+    months = []
+    for offset in range(6):
+        year = start.year + (start.month - 1 + offset) // 12
+        month = (start.month - 1 + offset) % 12 + 1
+        month_start = start.replace(year=year, month=month, day=1)
+        next_year = year + (1 if month == 12 else 0)
+        next_month = 1 if month == 12 else month + 1
+        month_end = month_start.replace(year=next_year, month=next_month, day=1)
+        qs = Booking.objects.filter(appointment__date__gte=month_start, appointment__date__lt=month_end)
+        pending = qs.filter(status=Booking.PENDING).aggregate(v=Sum('total'))['v'] or 0
+        confirmed = qs.filter(status=Booking.CONFIRMED).aggregate(v=Sum('total'))['v'] or 0
+        completed = qs.filter(status=Booking.COMPLETED).aggregate(v=Sum('total'))['v'] or 0
+        weighted = round(pending * .3 + confirmed * .7 + completed)
+        months.append({'month': month_start.strftime('%m/%Y'), 'pending': pending, 'confirmed': confirmed,
+                       'actual': completed, 'forecast': weighted})
+    active = Booking.objects.filter(status__in=[Booking.PENDING, Booking.CONFIRMED], appointment__date__gte=today).select_related('user', 'patient').prefetch_related('items__service').order_by('appointment')[:100]
+    opportunities = []
+    for b in active:
+        probability = 70 if b.status == Booking.CONFIRMED else 30
+        opportunities.append({'id': b.id, 'customer': b.customer_name, 'appointment': b.appointment,
+                              'services': [x.service.name for x in b.items.all()], 'value': b.total,
+                              'stage': b.status, 'probability': probability, 'weighted_value': round(b.total * probability / 100)})
+    return Response({'months': months, 'opportunities': opportunities,
+                     'summary': {'pipeline': sum(x['value'] for x in opportunities),
+                                 'weighted': sum(x['weighted_value'] for x in opportunities),
+                                 'opportunities': len(opportunities),
+                                 'confirmed': sum(1 for x in opportunities if x['stage'] == Booking.CONFIRMED)}})
+
+
 @api_view(['POST'])
 @permission_classes([IsManagerRole])
 def adjust_customer_points(request, user_id):
@@ -1294,7 +1915,8 @@ def payroll_report(request):
         leave_days = sum(x.days for x in leave_qs)
         unpaid_days = sum(x.days for x in leave_qs.filter(leave_type=LeaveRequest.UNPAID))
         completed_revenue = Booking.objects.filter(staff=profile, status=Booking.COMPLETED).aggregate(v=Sum('total'))['v'] or 0
-        commission = round(completed_revenue * 0.08)
+        commission_rate = profile.commission_rate or 0
+        commission = round(completed_revenue * commission_rate / 100)
         late_minutes = 0
         for a in attendances.filter(status=Attendance.LATE, check_in__isnull=False):
             expected_hour = 9
@@ -1305,7 +1927,8 @@ def payroll_report(request):
         net_pay = max(0, profile.base_salary + commission + profile.bonus - deductions)
         rows.append({
             'id': profile.id, 'user_id': user.id, 'name': profile.name, 'role': user.role, 'workdays': workdays,
-            'leave_days': leave_days, 'annual_leave': 12, 'base_salary': profile.base_salary, 'commission': commission,
+            'leave_days': leave_days, 'annual_leave': 12, 'base_salary': profile.base_salary,
+            'commission_base': completed_revenue, 'commission_rate': commission_rate, 'commission': commission,
             'bonus': profile.bonus, 'manual_deduction': profile.manual_deduction, 'auto_deduction': auto_deduction,
             'late_minutes': late_minutes, 'unpaid_days': unpaid_days, 'deductions': deductions, 'net_pay': net_pay,
             'status': profile.payroll_status,
@@ -1339,6 +1962,12 @@ def public_ticket(request, code):
         'confirm_code': booking.confirm_code,
         'customer_name': booking.customer_name,
         'appointment': booking.appointment,
+        'appointment_type': booking.appointment_type,
+        'appointment_type_label': booking.get_appointment_type_display(),
+        'treatment_session_label': (
+            f'{booking.treatment_session.plan.title} · Buổi {booking.treatment_session.number}'
+            if booking.treatment_session_id else ''
+        ),
         'status': booking.status,
         'status_label': booking.get_status_display(),
         'staff_name': booking.staff.name if booking.staff else '',
@@ -1356,6 +1985,7 @@ def public_ticket(request, code):
 def availability(request):
     """Return eligible staff and free start times for a service combination/day."""
     from core.availability import available_slots, qualified_staff
+    from clinic.models import TreatmentPlan, TreatmentSession
 
     raw_ids = (request.query_params.get('service_ids') or '').split(',')
     try:
@@ -1367,14 +1997,82 @@ def availability(request):
         day = date.fromisoformat(day_raw)
     except ValueError:
         return Response({'detail': 'date phải có dạng YYYY-MM-DD.'}, status=400)
+    appointment_type = request.query_params.get('appointment_type', Booking.APPOINTMENT_TYPE_CONSULT)
+    treatment_session_id = request.query_params.get('treatment_session_id')
+    session = None
+    if appointment_type == Booking.APPOINTMENT_TYPE_SESSION:
+        if not request.user.is_authenticated or request.user.role != 'customer':
+            return Response({'detail': 'Đăng nhập tài khoản bệnh nhân để xem lịch buổi liệu trình.'}, status=403)
+        if not treatment_session_id:
+            return Response({'detail': 'Vui lòng chọn buổi liệu trình cần xem lịch.'}, status=400)
+        session = TreatmentSession.objects.select_related(
+            'plan__patient', 'plan__doctor', 'plan__service',
+        ).filter(
+            pk=treatment_session_id,
+            plan__patient__user=request.user,
+            plan__status=TreatmentPlan.ACTIVE,
+            status=TreatmentSession.PENDING,
+        ).first()
+        if not session:
+            return Response({'detail': 'Buổi liệu trình không thuộc hồ sơ của bạn hoặc không còn khả dụng.'}, status=404)
+        if session.bookings.filter(status__in=Booking.ACTIVE_STATUSES).exists():
+            return Response({'detail': 'Buổi liệu trình này đã có lịch hiệu lực.'}, status=400)
+        if not session.plan.doctor_id or not session.plan.doctor.is_active:
+            return Response({'detail': 'Liệu trình chưa có bác sĩ phụ trách đang hoạt động.'}, status=400)
+        if not session.plan.service_id or not session.plan.service.is_active:
+            return Response({'detail': 'Buổi này chưa có dịch vụ được bác sĩ chỉ định hợp lệ.'}, status=400)
+        if service_ids and set(service_ids) != {session.plan.service_id}:
+            return Response({'detail': 'Dịch vụ của buổi liệu trình lấy theo chỉ định trong hồ sơ.'}, status=400)
+        service_ids = [session.plan.service_id]
+    elif treatment_session_id:
+        return Response({'detail': 'Chỉ lịch buổi liệu trình mới nhận treatment_session_id.'}, status=400)
     if not service_ids:
-        return Response({'detail': 'Cần ít nhất một service_id.'}, status=400)
-
-    services = list(Service.objects.filter(pk__in=service_ids, is_active=True))
-    if len(services) != len(service_ids):
-        return Response({'detail': 'Có dịch vụ không tồn tại hoặc đã tắt.'}, status=400)
-    duration = sum(service.duration for service in services) or 60
-    staff_qs = qualified_staff(Staff.objects.all(), service_ids).prefetch_related('working_hours')
+        if appointment_type not in {
+            Booking.APPOINTMENT_TYPE_CONSULT,
+            Booking.APPOINTMENT_TYPE_FOLLOW_UP,
+        }:
+            return Response({'detail': 'Chỉ lịch khám/tư vấn mới được đặt khi chưa chọn dịch vụ.'}, status=400)
+        duration = 60
+        staff_qs = Staff.objects.filter(is_active=True, user__role='doctor').prefetch_related('working_hours')
+    else:
+        services = list(Service.objects.filter(pk__in=service_ids, is_active=True))
+        if len(services) != len(service_ids):
+            return Response({'detail': 'Có dịch vụ không tồn tại hoặc đã tắt.'}, status=400)
+        if appointment_type == Booking.APPOINTMENT_TYPE_PROCEDURE and any(
+            service.booking_policy != Service.BOOKING_DIRECT for service in services
+        ):
+            return Response({'detail': 'Dịch vụ cần được bác sĩ tư vấn hoặc chỉ định trước.'}, status=400)
+        if appointment_type in {
+            Booking.APPOINTMENT_TYPE_CONSULT,
+            Booking.APPOINTMENT_TYPE_FOLLOW_UP,
+        }:
+            duration = 60
+            staff_qs = Staff.objects.filter(
+                is_active=True, user__role='doctor',
+            ).prefetch_related('working_hours')
+        elif session:
+            staff_qs = qualified_staff(
+                Staff.objects.filter(
+                    is_active=True,
+                    user__is_active=True,
+                    user__role__in=['doctor', 'staff'],
+                ),
+                service_ids,
+            )
+            if not session.allow_staff_delegation:
+                staff_qs = staff_qs.filter(user_id=session.plan.doctor_id)
+            staff_qs = staff_qs.order_by(
+                Case(
+                    When(user_id=session.plan.doctor_id, then=0),
+                    default=1,
+                    output_field=IntegerField(),
+                ),
+                'name',
+            )
+            duration = sum(service.duration for service in services) or 60
+        else:
+            duration = sum(service.duration for service in services) or 60
+            staff_qs = qualified_staff(Staff.objects.all(), service_ids).prefetch_related('working_hours')
 
     staff_id = request.query_params.get('staff_id')
     if staff_id:
@@ -1388,6 +2086,7 @@ def availability(request):
         result.append({
             'staff_id': staff.pk,
             'staff_name': staff.name,
+            'is_plan_doctor': bool(session and staff.user_id == session.plan.doctor_id),
             'duration': duration,
             'slots': [slot.isoformat() for slot in available_slots(staff, day, duration)],
         })

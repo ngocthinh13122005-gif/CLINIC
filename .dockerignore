@@ -1,4 +1,7 @@
 .git
+.env
+.env.*
+!.env.example
 .venv
 venv
 __pycache__
@@ -7,5 +10,9 @@ __pycache__
 *.sqlite3
 media
 staticfiles
+.firebase
+akinacenter-*.json
+tmp/firebase-config.json
 .idea
 .vscode
+frontend

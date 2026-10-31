@@ -33,8 +33,12 @@ def _busy_intervals(staff, day, exclude_booking_id=None):
     tz = timezone.get_current_timezone()
     day_start = timezone.make_aware(datetime.combine(day, datetime.min.time()), tz)
     day_end = day_start + timedelta(days=1)
-    qs = (Booking.objects.filter(staff=staff, appointment__gte=day_start, appointment__lt=day_end)
-          .exclude(status=Booking.CANCELLED).prefetch_related('items__service'))
+    qs = (Booking.objects.filter(
+        staff=staff,
+        appointment__gte=day_start,
+        appointment__lt=day_end,
+        status__in=Booking.ACTIVE_STATUSES,
+    ).prefetch_related('items__service'))
     if exclude_booking_id:
         qs = qs.exclude(pk=exclude_booking_id)
     return [(b.appointment, b.end_time) for b in qs]

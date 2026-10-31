@@ -1,0 +1,245 @@
+.public-shell{
+  --p-ink:#123b3b;--p-900:#124f4c;--p-800:#14645f;--p-700:#087f78;--p-600:#11948b;--p-500:#27a79d;--p-400:#53bbb0;
+  --p-300:#8bd5cd;--p-200:#bce8e2;--p-100:#def3ef;--p-50:#f0f9f7;--p-bar:#fff;
+  --spa:#087f78;--spa-dark:#124f4c;--spa-navy:#123b3b;--spa-border:#dcebe8;--spa-muted:#667d7b;--spa-soft:#f0f9f7;--spa-bg:#f5faf9;
+  --spa-text:#263f3e;background:#f7faf9;color:var(--spa-text);
+}
+.public-shell .ak-header{position:sticky;top:0;z-index:1100;background:#fff;box-shadow:0 4px 18px rgba(17,63,61,.07)}
+.public-shell .ak-utility{min-height:31px;background:#f3f7f8;color:#60747b;font-size:11px}
+.public-shell .ak-header-inner{width:min(1280px,100%);min-height:inherit;margin:0 auto;padding:0 28px}
+.public-shell .ak-utility .ak-header-inner{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.public-shell .ak-utility span,.public-shell .ak-utility a{display:inline-flex;align-items:center;gap:7px}
+.public-shell .ak-utility svg{font-size:15px;color:#528f96}
+.public-shell .ak-utility a{color:#425b64;text-decoration:none}
+.public-shell .ak-utility a strong{color:#286e76}
+.public-shell .ak-utility a strong{font-weight:750}
+.public-shell .ak-mainbar{border-bottom:1px solid #e8f0ee}
+.public-shell .ak-mainbar>.ak-header-inner{display:grid;grid-template-columns:220px minmax(0,1fr) auto;align-items:center;gap:22px;min-height:75px}
+.public-shell .ak-brand{display:inline-flex;align-items:center;gap:10px;width:max-content;color:var(--p-ink);text-decoration:none}
+.public-shell .ak-brand-mark{display:grid;place-items:center;width:39px;height:39px;border-radius:12px;background:linear-gradient(145deg,#087f78,#155754);color:#fff;font-size:19px;font-weight:800;letter-spacing:-.08em;box-shadow:0 5px 12px rgba(8,127,120,.2)}
+.public-shell .ak-brand-copy{display:grid;gap:3px}
+.public-shell .ak-brand-copy strong{font-size:17px;font-weight:780;letter-spacing:-.02em}
+.public-shell .ak-brand-copy small{color:#69817f;font-size:8px;font-weight:750;letter-spacing:.14em}
+.public-shell .ak-nav{display:flex;align-items:center;justify-content:center;gap:4px;min-width:0}
+.public-shell .ak-nav-link{display:inline-flex;align-items:center;gap:7px;padding:11px 12px;border-radius:9px;color:#536d6b;text-decoration:none;font-size:13px;font-weight:650;white-space:nowrap;transition:background .16s ease,color .16s ease}
+.public-shell .ak-nav-link:hover,.public-shell .ak-nav-link.active{background:#edf7f5;color:#087f78}
+.public-shell .ak-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;min-width:0}
+.public-shell .ak-actions .notif-wrap{position:relative}
+.public-shell .ak-actions .notif-button{display:grid;place-items:center;width:39px;height:39px;border:1px solid #dfece9;border-radius:11px;background:#fff;color:#416764;cursor:pointer}
+.public-shell .ak-actions .notif-button:hover{border-color:#a9d6d0;background:#f3faf8}
+.public-shell .ak-actions .notif-badge{border-color:#fff}
+.public-shell .ak-work-link{color:#52716e;text-decoration:none;font-size:12px;font-weight:650;white-space:nowrap}
+.public-shell .ak-work-link:hover{color:#087f78}
+.public-shell .ak-account{position:relative}
+.public-shell .ak-account-trigger{display:inline-flex;align-items:center;gap:8px;max-width:170px;height:42px;padding:4px 10px 4px 5px;border:1px solid #deebe8;border-radius:12px;background:#fff;color:#365b59;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.public-shell .ak-account-trigger:hover,.public-shell .ak-account-trigger.open{border-color:#9fcfc9;background:#f7fbfa}
+.public-shell .ak-account-avatar{display:grid;place-items:center;flex:0 0 30px;width:30px;height:30px;border-radius:9px;background:#e8f5f2;color:#087f78;font-size:13px;font-weight:800}
+.public-shell .ak-account-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.public-shell .ak-account-chevron{font-size:17px;color:#78918e;transition:transform .16s ease}
+.public-shell .ak-account-trigger.open .ak-account-chevron{transform:rotate(180deg)}
+.public-shell .ak-account-menu{position:absolute;top:calc(100% + 10px);right:0;z-index:1110;width:256px;padding:7px;border:1px solid #e0ebe9;border-radius:14px;background:#fff;box-shadow:0 16px 38px rgba(21,62,60,.16);animation:ak-menu-in .14s ease-out}
+@keyframes ak-menu-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.public-shell .ak-account-summary{display:grid;gap:3px;padding:11px 12px 12px;border-bottom:1px solid #edf2f1}
+.public-shell .ak-account-summary strong{overflow:hidden;color:#243f3e;font-size:13px;text-overflow:ellipsis;white-space:nowrap}
+.public-shell .ak-account-summary span{color:#819390;font-size:10px}
+.public-shell .ak-account-item{display:flex;width:100%;align-items:center;gap:10px;padding:10px 11px;border:0;border-radius:8px;background:transparent;color:#4f6765;text-align:left;text-decoration:none;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.public-shell .ak-account-item svg{font-size:17px;color:#698985}
+.public-shell .ak-account-item:hover,.public-shell .ak-account-item.active{background:#eff8f6;color:#087f78}
+.public-shell .ak-account-item.logout{margin-top:5px;border-top:1px solid #edf2f1;border-radius:0 0 8px 8px;color:#a44d4d}
+.public-shell .ak-account-item.logout svg{color:#a44d4d}
+.public-shell .ak-login-link{display:inline-flex;align-items:center;gap:6px;color:#476663;text-decoration:none;font-size:12px;font-weight:700;white-space:nowrap}
+.public-shell .ak-login-link svg{font-size:18px}
+.public-shell .ak-book-cta{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:41px;padding:0 15px;border:1px solid #087f78;border-radius:10px;background:#087f78;color:#fff;text-decoration:none;font-size:12px;font-weight:750;white-space:nowrap;box-shadow:0 5px 12px rgba(8,127,120,.16);transition:background .16s ease,transform .16s ease}
+.public-shell .ak-book-cta:hover{transform:translateY(-1px);background:#126761;color:#fff}
+.public-shell .ak-book-cta svg{font-size:16px}
+.public-shell .ak-mobile-toggle,.public-shell .ak-mobile-panel{display:none}
+.public-shell .ak-footer{margin-top:0;background:#f4f7f8;color:#5d7077}
+.public-shell .ak-footer-main{display:grid;justify-items:center;gap:10px;padding:36px 20px 28px;text-align:center}
+.public-shell .ak-footer-brand{display:inline-flex;align-items:center;gap:9px;color:#294650;text-decoration:none;font-size:16px}
+.public-shell .ak-footer-brand .ak-brand-mark{width:33px;height:33px;border-radius:10px;background:#e4eff1;color:#287d84;box-shadow:none}
+.public-shell .ak-footer-main p{margin:0;color:#6b7d83;font-size:12px;line-height:1.6}
+.public-shell .ak-footer-hotline{display:inline-flex;align-items:center;gap:7px;margin-top:3px;color:#286e76;text-decoration:none;font-size:13px;font-weight:750}
+.public-shell .ak-footer-bottom{display:flex;justify-content:space-between;gap:14px;padding:13px max(24px,calc((100% - 1224px)/2));border-top:1px solid #e1e9ec;color:#718087;font-size:10px}
+.public-shell .public-footer{display:none}
+.public-shell main{min-height:55vh}
+.public-shell .ohio-btn-primary{background:var(--p-700);border-color:var(--p-700);color:#fff}
+.public-shell .ohio-btn-primary:hover{background:var(--p-900);border-color:var(--p-900);color:#fff}
+.public-shell .ohio-btn-outline{border-color:var(--p-200);color:var(--p-800);background:#fff}
+.public-shell .ohio-btn-outline:hover{background:var(--p-50);border-color:var(--p-400);color:var(--p-900)}
+.public-shell .ohio-btn-muted{border-color:#dbe8e6;color:#526c69}
+.public-shell .ohio-btn-muted:hover{background:var(--p-50)}
+.public-shell .ohio-input:focus,.public-shell .ohio-select:focus,.public-shell .ohio-textarea:focus{border-color:var(--p-500);box-shadow:0 0 0 3px rgba(39,167,157,.14)}
+.public-shell .hero{background:var(--p-50);border-bottom-color:var(--spa-border)}
+.public-shell .hero-badge{background:var(--p-100);color:var(--p-800)}
+.public-shell .public-page{max-width:1200px}
+.public-shell .public-page-title{color:var(--spa-navy)}
+.public-shell .public-page-subtitle{color:var(--spa-muted)}
+.public-shell .public-card,.public-shell .login-card{border-color:var(--spa-border);border-radius:16px;box-shadow:0 8px 26px rgba(16,65,62,.055)}
+.public-shell .customer-account{max-width:1160px}
+.public-shell .customer-account .ap-card,.public-shell .customer-account .ops-card{border-color:var(--spa-border);border-radius:16px;box-shadow:0 6px 22px rgba(16,65,62,.045)}
+.public-shell .customer-account .ap-card-title,.public-shell .customer-account .ops-card-head h3{color:var(--spa-navy)}
+.public-shell .customer-account .ap-card-subtitle,.public-shell .customer-account .ops-card-head p{color:var(--spa-muted)}
+.public-shell .customer-account .ap-btn.primary{background:var(--p-700);border-color:var(--p-700)}
+.public-shell .customer-account .ap-btn.primary:hover{background:var(--p-900);border-color:var(--p-900)}
+.public-shell .customer-account .ops-voucher-card{border-color:#dcebe8;border-radius:13px;background:#fbfefd}
+.public-shell .customer-account .ops-voucher-card strong{color:var(--spa-navy)}
+.public-shell .customer-account .ops-voucher-card span{color:var(--spa-muted)}
+.public-shell .login-card h1{color:var(--spa-navy)}
+.public-shell a:focus-visible,.public-shell button:focus-visible{outline:3px solid rgba(39,167,157,.4);outline-offset:2px}
+.public-shell .booking-wrap{max-width:1180px;margin:26px auto 0}
+.public-shell .booking-panel,.public-shell .booking-summary{border-color:var(--spa-border);border-radius:14px;box-shadow:0 6px 22px rgba(16,65,62,.045)}
+.public-shell .bk-step.active .bk-circle,.public-shell .bk-step.done:not(:last-child)::after{background:var(--p-700)}
+.public-shell .bk-step.active .bk-circle,.public-shell .bk-step.done .bk-circle{border-color:var(--p-700)}
+.public-shell .bk-step.done .bk-circle{color:var(--p-700)}
+.public-shell .bk-step.active .bk-label,.public-shell .bk-step.done .bk-label{color:var(--p-800)}
+.public-shell .bk-svc-row.selected,.public-shell .bk-expert-row.selected{border-color:var(--p-500);background:var(--p-50)}
+.public-shell .bk-svc-ph,.public-shell .bk-expert-avatar{background:var(--p-100);color:var(--p-800)}
+.public-shell .bk-svc-name,.public-shell .booking-panel h2,.public-shell .booking-summary h2{color:var(--spa-navy)}
+.public-shell .bk-svc-desc,.public-shell .bk-svc-meta .duration{color:var(--spa-muted)}
+.public-shell .slot-btn{border-color:#cfe2df;color:#466461}
+.public-shell .slot-btn:hover{background:var(--p-50)}
+.public-shell .slot-btn.active{border-color:var(--p-700);background:var(--p-700);color:#fff}
+.public-shell .summary-services,.public-shell .summary-total{border-color:var(--spa-border)}
+.public-shell .summary-row strong,.public-shell .summary-total,.public-shell .summary-service{color:#385654}
+.public-shell .summary-note{border-color:#dcebe8;background:#f5faf9;color:#627b78}
+.public-shell .ticket-card{border-color:var(--spa-border)}
+.public-shell .ticket-success-heading{margin-bottom:26px;text-align:center}
+.public-shell .ticket-success-icon{display:grid;place-items:center;width:76px;height:76px;margin:0 auto 14px;border-radius:50%;background:var(--p-700);color:#fff}
+.public-shell .ticket-success-label{color:var(--p-800);font-size:var(--fs-xs);font-weight:750;letter-spacing:.08em;text-transform:uppercase}
+.public-shell .ticket-success-heading .public-page-title{margin-top:6px}
+.public-shell .ticket-success-heading .public-page-subtitle{margin-bottom:0}
+.public-shell .ticket-card{overflow:hidden;border:1px solid var(--spa-border);border-radius:14px;background:#fff;box-shadow:0 8px 28px rgba(16,65,62,.08)}
+.public-shell .ticket-card-header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:22px 24px;background:#124f4c;color:#fff}
+.public-shell .ticket-card-eyebrow{font-size:var(--fs-xs);letter-spacing:.14em;opacity:.78;text-transform:uppercase}
+.public-shell .ticket-card-title{margin-top:4px;font-size:var(--fs-md);font-weight:750}
+.public-shell .ticket-card-body{padding:22px 24px}
+.public-shell .ticket-row-label{width:34%;color:var(--spa-muted)}
+.public-shell .ticket-row-value{color:#263f3e;text-align:right;font-weight:600}
+.public-shell .ticket-row-value.strong{color:var(--p-800);font-weight:750}
+.public-shell .ticket-code{margin-top:18px;padding:16px;border:1px solid #dcebe8;border-radius:10px;background:#f5faf9;text-align:center}
+.public-shell .ticket-code-label{color:var(--spa-muted);font-size:var(--fs-xs);letter-spacing:.09em;text-transform:uppercase}
+.public-shell .ticket-code-value{margin-top:6px;color:var(--spa-navy);font-family:Consolas,monospace;font-size:clamp(1.2rem,4vw,1.75rem);font-weight:750;letter-spacing:.1em;overflow-wrap:anywhere}
+.public-shell .ticket-copy{margin-top:8px;border:0;background:transparent;color:var(--p-700);font-size:var(--fs-xs);font-weight:750;cursor:pointer}
+.public-shell .ticket-copy-error{margin-top:7px;color:#a33d3d;font-size:var(--fs-xs)}
+.public-shell .ticket-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:22px}
+.public-shell .floating-contact .floating-action{background:#087f78}
+.public-shell .customer-account .profile-avatar{background:var(--p-100);color:var(--p-800)}
+.public-shell .patient-portal .pp-hero{background:linear-gradient(112deg,#123b3b 0%,#087f78 58%,#36aaa0 100%);box-shadow:0 16px 38px rgba(18,79,76,.16)}
+.public-shell .patient-portal .pp-eyebrow{color:#c8f1e8}
+.public-shell .patient-portal .pp-hero-mark{color:#c8f1e8}
+.public-shell .patient-portal .pp-summary-card,.public-shell .patient-portal .pp-records{border-color:var(--spa-border);box-shadow:0 5px 22px rgba(16,65,62,.045)}
+.public-shell .patient-portal .pp-summary-icon{background:var(--p-100);color:var(--p-800)}
+.public-shell .patient-portal .pp-summary-icon.plum,.public-shell .patient-portal .pp-summary-icon.rose{background:var(--p-100);color:var(--p-800)}
+.public-shell .patient-portal .pp-summary-icon,.public-shell .patient-portal .pp-summary-icon.plum,.public-shell .patient-portal .pp-summary-icon.rose{width:28px;height:28px;flex-basis:28px;border-radius:0;background:transparent;color:var(--p-700)}
+.public-shell .patient-portal .pp-summary-icon svg{font-size:20px}
+.public-shell .patient-portal .pp-summary-label,.public-shell .patient-portal .pp-summary-card small{color:var(--spa-muted)}
+.public-shell .patient-portal .pp-summary-card strong,.public-shell .patient-portal .pp-section-heading h2{color:var(--spa-navy)}
+.public-shell .patient-portal .pp-section-kicker{color:var(--p-700)}
+.public-shell .patient-portal .pp-section-heading p,.public-shell .patient-portal .pp-date{color:var(--spa-muted)}
+.public-shell .patient-portal .pp-refresh,.public-shell .patient-portal .pp-alert button{border-color:#dcebe8;color:var(--p-800)}
+.public-shell .patient-portal .pp-refresh:hover,.public-shell .patient-portal .pp-alert button:hover{border-color:var(--p-300);background:var(--p-50)}
+.public-shell .patient-portal .pp-tabs{border-color:#e6efed}
+.public-shell .patient-portal .pp-tabs button{color:#718582}
+.public-shell .patient-portal .pp-tabs button:hover,.public-shell .patient-portal .pp-tabs button.active{color:var(--p-800)}
+.public-shell .patient-portal .pp-tabs button.active{border-bottom-color:var(--p-600)}
+.public-shell .patient-portal .pp-tabs button b,.public-shell .patient-portal .pp-tabs button.active b{background:var(--p-100);color:var(--p-800)}
+.public-shell .patient-portal .pp-tabs button{gap:9px}
+.public-shell .patient-portal .pp-card{border-color:#e4efed}
+.public-shell .patient-portal .pp-card-icon,.public-shell .patient-portal .pp-soft-icon,.public-shell .patient-portal .pp-medicine-icon{background:var(--p-100);color:var(--p-800)}
+.public-shell .patient-portal .pp-card-top h3,.public-shell .patient-portal .pp-medicine>div strong{color:#263f3e}
+.public-shell .patient-portal .pp-meta span{background:#f0f7f5;color:#5d7773}
+.public-shell .patient-portal .pp-detail,.public-shell .patient-portal .pp-care-block p,.public-shell .patient-portal .pp-rx-advice p{color:#526b67}
+.public-shell .patient-portal .pp-detail strong,.public-shell .patient-portal .pp-follow-up strong{color:#254d49}
+.public-shell .patient-portal .pp-care-block{border-color:var(--p-500);background:var(--p-50)}
+.public-shell .patient-portal .pp-care-block strong,.public-shell .patient-portal .pp-rx-advice strong{color:var(--p-800)}
+.public-shell .patient-portal .pp-follow-up{color:var(--p-700)}
+.public-shell .patient-portal .pp-plan-status.active{background:var(--p-100);color:var(--p-800)}
+.public-shell .patient-portal .pp-progress strong{color:var(--p-800)}
+.public-shell .patient-portal .pp-progress-track{background:#e5f0ee}
+.public-shell .patient-portal .pp-progress-track i{background:linear-gradient(90deg,#087f78,#8bd5cd)}
+.public-shell .patient-portal .pp-session-list li:not(:last-child)::after{background:#dcebe8}
+.public-shell .patient-portal .pp-session-dot{border-color:#dcebe8;color:var(--p-700)}
+.public-shell .patient-portal .pp-medicine{border-color:#e5efed;background:#fbfefd}
+.public-shell .patient-portal .pp-medicine>div span{color:#526b67}
+.public-shell .patient-portal .pp-rx-advice{background:var(--p-50)}
+.public-shell .patient-portal .pp-empty>span{background:var(--p-100);color:var(--p-700)}
+.public-shell .patient-portal .pp-empty p,.public-shell .patient-portal .pp-loading,.public-shell .patient-portal .pp-privacy-note{color:var(--spa-muted)}
+.public-shell .patient-portal .pp-loading i{border-color:#dcebe8;border-top-color:var(--p-700)}
+.public-shell .patient-portal .pp-link-notice{border-color:#dcebe8;background:#f5faf9}
+.public-shell .patient-portal .pp-notice-icon{background:var(--p-100);color:var(--p-800)}
+.public-shell .patient-portal .pp-link-notice h2{color:var(--spa-navy)}
+.public-shell .patient-portal .pp-link-notice p{color:#526b67}
+.public-shell .patient-portal .pp-contact-link{color:var(--p-800)}
+.public-shell .patient-portal .pp-contact-link:hover{color:var(--p-900)}
+.services-page{padding-top:48px}
+.services-intro{max-width:680px;margin-bottom:32px}
+.services-eyebrow{color:var(--p-700);font-size:11px;font-weight:750;letter-spacing:.12em}
+.services-page .public-page-title{margin-top:10px;font-size:clamp(30px,4vw,42px);letter-spacing:-.035em}
+.services-page .public-page-subtitle{max-width:600px;margin-top:12px;font-size:15px;line-height:1.75}
+.public-shell .services-page .grid-services{gap:20px}
+.public-shell .services-page .card-service{border-color:var(--spa-border);border-radius:14px;box-shadow:0 5px 20px rgba(16,65,62,.045)}
+.public-shell .services-page .card-service:hover{border-color:var(--p-300);box-shadow:0 12px 28px rgba(16,65,62,.09);transform:translateY(-2px)}
+.public-shell .services-page .service-image,.public-shell .services-page .service-ph{height:190px;background:#f0f7f5}
+.public-shell .services-page .service-ph{color:#718582;font-size:12px}
+.public-shell .services-page .card-service-body{padding:21px}
+.public-shell .services-page .service-category{color:var(--p-700);font-size:10px;letter-spacing:.1em}
+.public-shell .services-page .service-title{margin:8px 0;color:var(--spa-navy);font-size:18px;line-height:1.4}
+.public-shell .services-page .service-desc{min-height:60px;color:var(--spa-muted);font-size:13px;line-height:1.65}
+.public-shell .services-page .service-meta{padding-top:13px;border-top:1px solid #e8efed}
+.public-shell .services-page .price{color:var(--p-800);font-size:15px}
+.public-shell .services-page .service-policy{margin:8px 0 0;color:var(--spa-muted);font-size:12px;line-height:1.5}
+.public-shell .services-page .services-book-link{width:100%;margin-top:17px;border-color:var(--p-500);color:var(--p-800)}
+.public-shell .services-page .services-book-link:hover{background:var(--p-50);border-color:var(--p-700);color:var(--p-900)}
+.services-message{margin:24px 0;color:var(--spa-muted)}
+.services-message.error{color:#a33d3d}
+@media(max-width:600px){.services-page{padding-top:30px}.services-intro{margin-bottom:24px}.public-shell .services-page .service-image,.public-shell .services-page .service-ph{height:175px}}
+@media(max-width:1120px){
+  .public-shell .ak-mainbar>.ak-header-inner{grid-template-columns:195px minmax(0,1fr) auto;gap:12px;padding:0 20px}
+  .public-shell .ak-nav-link{padding:10px 9px;font-size:12px}
+  .public-shell .ak-work-link{display:none}
+  .public-shell .ak-account-label{display:none}
+  .public-shell .ak-account-trigger{width:42px;justify-content:center;padding:4px}
+  .public-shell .ak-account-chevron{display:none}
+}
+@media(max-width:900px){
+  .public-shell .ak-header-inner{padding-left:18px;padding-right:18px}
+  .public-shell .ak-mainbar>.ak-header-inner{grid-template-columns:minmax(0,1fr) auto auto;gap:10px;min-height:68px}
+  .public-shell .ak-nav{display:none}
+  .public-shell .ak-mobile-toggle{display:grid;place-items:center;grid-column:2;grid-row:1;width:40px;height:40px;border:1px solid #dcebe8;border-radius:11px;background:#fff;color:#32635f;cursor:pointer}
+  .public-shell .ak-mobile-toggle:hover{background:#f0f9f7}
+  .public-shell .ak-actions{grid-column:3;grid-row:1}
+  .public-shell .ak-actions .ak-login-link,.public-shell .ak-actions .ak-book-cta,.public-shell .ak-account{display:none}
+  .public-shell .ak-mobile-panel{display:grid;grid-template-columns:1fr auto;gap:18px;padding:12px 18px 17px;border-top:1px solid #e9f1ef;background:#fff}
+  .public-shell .ak-mobile-panel nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}
+  .public-shell .ak-mobile-panel .ak-nav-link{justify-content:flex-start;padding:11px 10px}
+  .public-shell .ak-mobile-panel .ak-mobile-actions{display:flex;flex-direction:column;justify-content:center;gap:8px}
+  .public-shell .ak-mobile-panel .ak-mobile-actions>a,.public-shell .ak-mobile-panel .ak-mobile-actions>button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:8px 12px;border:1px solid #dcebe8;border-radius:9px;background:#fff;color:#466461;text-decoration:none;font:inherit;font-size:12px;font-weight:700;white-space:nowrap}
+  .public-shell .ak-mobile-panel .ak-mobile-actions>.ak-book-cta{border-color:#087f78;background:#087f78;color:#fff}
+  .public-shell .ak-footer-bottom{padding:13px 18px}
+  .public-shell .booking-grid{grid-template-columns:minmax(0,1fr)}
+  .public-shell .booking-panel,.public-shell .booking-summary{min-width:0}
+  .public-shell .booking-summary{position:static}
+}
+@media(max-width:600px){
+  .public-shell .ak-utility{min-height:29px;font-size:10px}
+  .public-shell .ak-utility .ak-header-inner{justify-content:center}
+  .public-shell .ak-utility .ak-header-inner>span{display:none}
+  .public-shell .ak-mainbar>.ak-header-inner{padding:0 14px;min-height:64px}
+  .public-shell .ak-brand-mark{width:36px;height:36px}
+  .public-shell .ak-brand-copy strong{font-size:15px}
+  .public-shell .ak-brand-copy small{font-size:7px}
+  .public-shell .ak-mobile-panel{grid-template-columns:1fr;padding:9px 14px 14px}
+  .public-shell .ak-mobile-panel nav{grid-template-columns:1fr 1fr}
+  .public-shell .ak-mobile-panel .ak-mobile-actions{flex-direction:row;justify-content:stretch}
+  .public-shell .ak-mobile-panel .ak-mobile-actions>*{flex:1}
+  .public-shell .ak-footer-bottom{flex-direction:column;align-items:center;text-align:center}
+  .public-shell .booking-wrap{margin-top:18px;padding:0 14px 40px}
+  .public-shell .booking-panel,.public-shell .booking-summary{padding:18px}
+  .public-shell .bk-svc-row{gap:8px}
+  .public-shell .bk-svc-image,.public-shell .bk-svc-ph{width:42px;height:42px}
+  .public-shell .bk-svc-meta .price{font-size:11px}
+}
+@media(prefers-reduced-motion:reduce){
+  .public-shell .ak-account-menu{animation:none}
+  .public-shell .ak-nav-link,.public-shell .ak-book-cta,.public-shell .ak-account-chevron{transition:none}
+}

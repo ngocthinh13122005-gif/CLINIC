@@ -5,8 +5,9 @@ from .models import Icd10Code, MedicalRecord, Patient, TreatmentPlan, Visit
 
 @admin.register(Patient)
 class PatientAdmin(admin.ModelAdmin):
-    list_display = ('code', 'full_name', 'phone', 'gender', 'is_active', 'created_at')
-    search_fields = ('code', 'full_name', 'phone')
+    list_display = ('code', 'full_name', 'phone', 'user', 'gender', 'is_active', 'created_at')
+    list_select_related = ('user',)
+    search_fields = ('code', 'full_name', 'phone', 'user__username', 'user__email')
 
 
 @admin.register(Visit)

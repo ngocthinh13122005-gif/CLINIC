@@ -1,0 +1,24 @@
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import api from '../api/client';
+import { useAuth } from '../context/AuthContext';
+
+export function ForgotPasswordPage(){
+  const [step,setStep]=useState(1); const [email,setEmail]=useState(''); const [code,setCode]=useState(''); const [token,setToken]=useState(''); const [password,setPassword]=useState(''); const [msg,setMsg]=useState(''); const [error,setError]=useState(''); const [debug,setDebug]=useState('');
+  const requestCode=async(e)=>{e.preventDefault();setError('');try{const {data}=await api.post('/auth/forgot-password/request/',{email});setMsg(data.detail);setDebug(data.debug_code||'');setStep(2);}catch(err){setError(err.response?.data?.detail||'Không thể gửi mã.')}};
+  const verify=async(e)=>{e.preventDefault();setError('');try{const {data}=await api.post('/auth/forgot-password/verify/',{email,code});setToken(data.reset_token);setStep(3);}catch(err){setError(err.response?.data?.detail||'Mã không hợp lệ.')}};
+  const reset=async(e)=>{e.preventDefault();setError('');try{const {data}=await api.post('/auth/forgot-password/reset/',{email,reset_token:token,new_password:password});setMsg(data.detail);setStep(4);}catch(err){setError(err.response?.data?.detail||'Không thể đổi mật khẩu.')}};
+  return <div className="login-wrap"><div className="login-card"><h1>Quên mật khẩu</h1><p className="public-page-subtitle">Xác minh email để đặt lại mật khẩu AkinaClinic.</p>{error&&<div className="alert-box error">{error}</div>}{msg&&<div className="alert-box success">{msg}{debug&&<div style={{marginTop:6}}>Mã test: <strong>{debug}</strong></div>}</div>}
+    {step===1&&<form onSubmit={requestCode}><div className="form-group"><label className="form-label">Email tài khoản</label><input className="ohio-input" type="email" required value={email} onChange={e=>setEmail(e.target.value)}/></div><button className="ohio-btn ohio-btn-primary" style={{width:'100%'}}>Gửi mã xác minh</button></form>}
+    {step===2&&<form onSubmit={verify}><div className="form-group"><label className="form-label">Mã 6 số</label><input className="ohio-input" required maxLength={6} value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,''))}/></div><button className="ohio-btn ohio-btn-primary" style={{width:'100%'}}>Xác minh mã</button></form>}
+    {step===3&&<form onSubmit={reset}><div className="form-group"><label className="form-label">Mật khẩu mới</label><input className="ohio-input" type="password" minLength={6} required value={password} onChange={e=>setPassword(e.target.value)}/></div><button className="ohio-btn ohio-btn-primary" style={{width:'100%'}}>Đổi mật khẩu</button></form>}
+    {step===4&&<div style={{textAlign:'center'}}><Link className="ohio-btn ohio-btn-primary" to="/login">Đăng nhập</Link></div>}
+    <div style={{textAlign:'center',marginTop:16,fontSize:'var(--fs-sm)'}}><Link to="/login">Quay lại đăng nhập</Link></div>
+  </div></div>;
+}
+
+export function ChangePasswordPage(){
+  const { updateSession } = useAuth(); const navigate=useNavigate(); const [form,setForm]=useState({current_password:'',new_password:'',confirm:''}); const [error,setError]=useState(''); const [busy,setBusy]=useState(false);
+  const submit=async(e)=>{e.preventDefault();setError('');if(form.new_password!==form.confirm){setError('Xác nhận mật khẩu không khớp.');return;}setBusy(true);try{const {data}=await api.post('/auth/change-password/',{current_password:form.current_password,new_password:form.new_password});updateSession(data.user,data.token);navigate(data.user.role==='customer'?'/' : '/dashboard',{replace:true});}catch(err){setError(err.response?.data?.detail||'Không thể đổi mật khẩu.');}finally{setBusy(false)}};
+  return <div className="login-wrap"><div className="login-card"><h1>Đổi mật khẩu lần đầu</h1><p className="public-page-subtitle">Tài khoản nhân sự cần đặt mật khẩu riêng trước khi sử dụng hệ thống.</p>{error&&<div className="alert-box error">{error}</div>}<form onSubmit={submit}><div className="form-group"><label className="form-label">Mật khẩu tạm thời</label><input className="ohio-input" type="password" required value={form.current_password} onChange={e=>setForm({...form,current_password:e.target.value})}/></div><div className="form-group"><label className="form-label">Mật khẩu mới</label><input className="ohio-input" type="password" minLength={6} required value={form.new_password} onChange={e=>setForm({...form,new_password:e.target.value})}/></div><div className="form-group"><label className="form-label">Xác nhận mật khẩu</label><input className="ohio-input" type="password" minLength={6} required value={form.confirm} onChange={e=>setForm({...form,confirm:e.target.value})}/></div><button className="ohio-btn ohio-btn-primary" style={{width:'100%'}} disabled={busy}>{busy?'Đang lưu...':'Lưu mật khẩu mới'}</button></form></div></div>;
+}

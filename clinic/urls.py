@@ -1,7 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from . import views, views_v2, views_v3, views_v4
+from . import marketing, views, views_v2, views_v3, views_v4
 
 router = DefaultRouter()
 router.register('patients', views.PatientViewSet, basename='clinic-patient')
@@ -13,6 +13,10 @@ router.register('images', views.PatientImageViewSet, basename='clinic-image')
 router.register('medicines', views_v2.MedicineViewSet, basename='clinic-medicine')
 router.register('prescriptions', views_v2.PrescriptionViewSet, basename='clinic-rx')
 router.register('invoices', views_v2.InvoiceViewSet, basename='clinic-invoice')
+router.register('cashier-shifts', views_v2.CashierShiftViewSet, basename='clinic-cashier-shift')
+router.register('payments', views_v2.PaymentViewSet, basename='clinic-payment')
+router.register('refunds', views_v2.RefundViewSet, basename='clinic-refund')
+router.register('debt-followups', views_v2.DebtFollowUpViewSet, basename='clinic-debt-followup')
 
 router.register('suppliers', views_v3.SupplierViewSet, basename='clinic-supplier')
 router.register('lots', views_v3.LotViewSet, basename='clinic-lot')
@@ -26,6 +30,13 @@ router.register('data-requests', views_v4.DataRequestViewSet, basename='clinic-d
 router.register('incidents', views_v4.IncidentViewSet, basename='clinic-incident')
 
 urlpatterns = [
+    path('my-portal/', views.patient_portal, name='clinic-patient-portal'),
+    path('marketing/overview/', marketing.overview),
+    path('marketing/contacts/', marketing.contacts),
+    path('marketing/lists/', marketing.lists),
+    path('marketing/campaigns/', marketing.campaigns),
+    path('marketing/campaigns/<int:pk>/send/', marketing.campaign_send),
+    path('marketing/unsubscribe/<uuid:token>/', marketing.unsubscribe),
     path('compliance/notice/', views_v4.notice),
     path('compliance/overview/', views_v4.overview),
     path('compliance/retention/', views_v4.retention),
