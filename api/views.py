@@ -755,6 +755,13 @@ class BookingViewSet(viewsets.ModelViewSet):
             }
             duration = 60 if clinician_required else booking.duration_minutes or 60
             staff_id = request.data.get('staff')
+            if request.user.role == 'manager' and staff_id is not None:
+                try:
+                    changing_performer = int(staff_id) != booking.staff_id
+                except (TypeError, ValueError):
+                    return Response({'detail': 'Nhân sự được chọn không hợp lệ.'}, status=400)
+                if changing_performer and len(str(request.data.get('reason') or '').strip()) < 5:
+                    return Response({'reason': 'Điều phối lại nhân sự cần nhập lý do tối thiểu 5 ký tự.'}, status=400)
             if staff_id is not None and request.user.role == 'customer':
                 return Response({'detail': 'Phòng khám điều phối người thực hiện; bạn chỉ có thể yêu cầu đổi thời gian.'}, status=403)
             session = treatment_session
