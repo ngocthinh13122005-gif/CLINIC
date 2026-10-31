@@ -49,6 +49,33 @@ class AkinaClinicApiIntegrationTests(APITestCase):
         token, _ = Token.objects.get_or_create(user=user)
         self.client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
 
+    @patch('api.views._queue_email')
+    def test_manager_restores_cancelled_booking_with_reason_and_audit(self, queue_email):
+        staff = self.make_staff()
+        booking = Booking.objects.create(
+            user=self.customer, staff=staff, appointment=self.slot(days=3),
+            status=Booking.CANCELLED, appointment_type=Booking.APPOINTMENT_TYPE_CONSULT,
+        )
+        self.auth(self.customer)
+        denied = self.client.post(
+            f'/api/bookings/{booking.pk}/restore/',
+            {'reason': 'Hủy nhầm lịch'}, format='json',
+        )
+        self.assertEqual(denied.status_code, 403)
+        self.auth(self.manager)
+        missing_reason = self.client.post(
+            f'/api/bookings/{booking.pk}/restore/', {}, format='json',
+        )
+        self.assertEqual(missing_reason.status_code, 400)
+        restored = self.client.post(
+            f'/api/bookings/{booking.pk}/restore/',
+            {'reason': 'Hủy nhầm do thao tác của lễ tân'}, format='json',
+        )
+        self.assertEqual(restored.status_code, 200, restored.data)
+        booking.refresh_from_db()
+        self.assertEqual(booking.status, Booking.PENDING)
+        self.assertTrue(booking.history.filter(event='restored', actor=self.manager).exists())
+
     def test_login_and_me(self):
         response = self.client.post(
             '/api/auth/login/', {'username': 'customer1', 'password': 'pass12345'}, format='json'

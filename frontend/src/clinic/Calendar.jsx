@@ -49,9 +49,10 @@ export default function CalendarPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const canBook = ['consultant', 'manager', 'doctor'].includes(user.role);
+  const canRestore = user.role === 'manager';
   const [date, setDate] = useState(isoDay());
-  const [viewMode, setViewMode] = useState(() => searchParams.get('view') === 'list' || searchParams.has('status') ? 'list' : 'calendar');
-  const [listStatus, setListStatus] = useState(() => LIST_STATUS_OPTIONS.some((option) => option.value === searchParams.get('status')) ? searchParams.get('status') : 'all');
+  const [viewMode, setViewMode] = useState(() => searchParams.get('view') === 'calendar' ? 'calendar' : (searchParams.get('view') === 'list' || searchParams.has('status') || ['consultant', 'manager'].includes(user.role) ? 'list' : 'calendar'));
+  const [listStatus, setListStatus] = useState(() => LIST_STATUS_OPTIONS.some((option) => option.value === searchParams.get('status')) ? searchParams.get('status') : (['consultant', 'manager'].includes(user.role) ? 'pending' : 'all'));
   const [listDate, setListDate] = useState('');
   const [listDoctor, setListDoctor] = useState('');
   const [listQuery, setListQuery] = useState('');
@@ -119,9 +120,16 @@ export default function CalendarPage() {
   const applyFavorite = (state) => { setQ(state.search || ''); setDoctorFilter(state.filters?.doctor || ''); setTypeFilter(state.filters?.type || ''); setStatusFilter(state.filters?.status || ''); };
   const runListAction = async (booking, action, successMessage) => {
     if (action === 'cancel' && !window.confirm(`Bạn có chắc muốn hủy lịch hẹn của ${booking.customer_name}?`)) return;
+    let body = {};
+    if (action === 'restore') {
+      const reason = window.prompt('Lý do khôi phục lịch đã hủy (ít nhất 5 ký tự):');
+      if (reason === null) return;
+      if (reason.trim().length < 5) { setListActionError('Cần nhập lý do khôi phục ít nhất 5 ký tự.'); return; }
+      body = { reason: reason.trim() };
+    }
     setListActionError('');
     try {
-      await api.post(`/bookings/${booking.id}/${action}/`);
+      await api.post(`/bookings/${booking.id}/${action}/`, body);
       toast(successMessage);
       reload();
     } catch (error) {
@@ -139,11 +147,10 @@ export default function CalendarPage() {
   };
 
   return <>
-    <PageHead title={user.role === 'doctor' ? 'Lịch hẹn của tôi' : 'Lịch hẹn bác sĩ'} subtitle="Bấm vào ô trống để đặt lịch, bấm vào lịch hẹn để xem chi tiết hoặc đón khách."
-      actions={canBook && <Btn kind="primary" icon={<AddRounded />} onClick={() => setCreating({ staff: doctors[0]?.id || '', date, time: '09:00' })}>Đặt lịch hẹn</Btn>} />
+    <PageHead actions={canBook && <Btn kind="primary" icon={<AddRounded />} onClick={() => setCreating({ staff: doctors[0]?.id || '', date, time: '09:00' })}>Đặt lịch hẹn</Btn>} />
     <div className="cl-view-tabs" role="tablist" aria-label="Chế độ xem lịch hẹn">
       <button type="button" role="tab" aria-selected={viewMode === 'list'} className={viewMode === 'list' ? 'on' : ''} onClick={() => setViewMode('list')}>Danh sách</button>
-      <button type="button" role="tab" aria-selected={viewMode === 'calendar'} className={viewMode === 'calendar' ? 'on' : ''} onClick={() => setViewMode('calendar')}>Calendar</button>
+      <button type="button" role="tab" aria-selected={viewMode === 'calendar'} className={viewMode === 'calendar' ? 'on' : ''} onClick={() => setViewMode('calendar')}>Lịch bác sĩ</button>
     </div>
     {viewMode === 'calendar' && <>
       <SmartFilterBar id="calendar" search={q} onSearch={setQ} placeholder="Tìm bệnh nhân, số điện thoại, bác sĩ hoặc dịch vụ…" filters={calendarFilters} onApplyFavorite={applyFavorite}/>
@@ -230,6 +237,7 @@ export default function CalendarPage() {
                 {canManageBooking && booking.status === 'pending' && <Btn size="sm" kind="primary" onClick={() => runListAction(booking, 'confirm', 'Đã xác nhận lịch hẹn.')}>Xác nhận</Btn>}
                 {canManageBooking && <Btn size="sm" onClick={() => setSel(booking)}>Đổi lịch / Chi tiết</Btn>}
                 {canManageBooking && <Btn size="sm" onClick={() => runListAction(booking, 'cancel', 'Đã hủy lịch hẹn.')}>Hủy</Btn>}
+                {canRestore && booking.status === 'cancelled' && <Btn size="sm" onClick={() => runListAction(booking, 'restore', 'Đã gửi lịch về chờ xác nhận.')}>Khôi phục</Btn>}
               </div>
             </article>;
           })}</div>
@@ -240,13 +248,13 @@ export default function CalendarPage() {
           </nav>}
         </> : <div className="cl-booking-list-empty"><strong>Không tìm thấy lịch hẹn</strong><span>Thử đổi trạng thái, ngày hẹn hoặc từ khóa tìm kiếm.</span></div>}
     </section>}
-    <BookingDetail booking={sel} canBook={canBook} onClose={closeBooking} onChanged={(msg) => { setSel(null); toast(msg); reload(); }} doctors={doctors} staffMembers={staff.data?.results || staff.data || []} />
+    <BookingDetail booking={sel} canBook={canBook} canRestore={canRestore} onClose={closeBooking} onChanged={(msg) => { setSel(null); toast(msg); reload(); }} doctors={doctors} staffMembers={staff.data?.results || staff.data || []} />
     <BookingForm init={creating} doctors={doctors} onClose={() => setCreating(null)} onSaved={() => { setCreating(null); toast('Đã đặt lịch hẹn.'); reload(); }} />
     {toastNode}
   </>;
 }
 
-function BookingDetail({ booking: b, canBook, onClose, onChanged, doctors, staffMembers }) {
+function BookingDetail({ booking: b, canBook, canRestore, onClose, onChanged, doctors, staffMembers }) {
   const [err, setErr] = useState('');
   const [resched, setResched] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -307,10 +315,12 @@ function BookingDetail({ booking: b, canBook, onClose, onChanged, doctors, staff
           <Field label="Ngày"><input type="date" value={resched.date} onChange={(e) => setResched({ ...resched, date: e.target.value })} /></Field>
           <Field label="Giờ"><input type="time" step={900} value={resched.time} onChange={(e) => setResched({ ...resched, time: e.target.value })} /></Field>
           <Field label={b.appointment_type === 'session' ? 'Người thực hiện' : 'Bác sĩ'} span="2"><select value={resched.staff || ''} disabled={!assignmentOptions.length} onChange={(e) => setResched({ ...resched, staff: Number(e.target.value) })}><option value="">— Chọn người đủ điều kiện —</option>{assignmentOptions.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select>{b.appointment_type === 'session' && <small className="cl-muted">{sessionPolicy?.allow_staff_delegation ? 'Bác sĩ phụ trách đã cho phép điều phối bác sĩ/nhân sự có dịch vụ phù hợp.' : 'Chỉ bác sĩ phụ trách liệu trình được thực hiện buổi này.'}</small>}</Field>
-          <Btn kind="primary" disabled={!resched.staff || !assignmentOptions.length || busy} onClick={() => run(() => api.post(`/bookings/${b.id}/reschedule/`, { appointment: new Date(`${resched.date}T${resched.time}`).toISOString(), staff: resched.staff }), 'Đã đổi lịch hẹn.')}>Lưu giờ mới</Btn>
+          <Btn kind="primary" disabled={!resched.staff || !assignmentOptions.length || busy} onClick={() => { let reason = ''; if (canRestore && Number(resched.staff) !== Number(b.staff)) { const entered = window.prompt('Lý do điều phối lại nhân sự (ít nhất 5 ký tự):'); if (entered === null) return; reason = entered.trim(); if (reason.length < 5) { setErr('Vui lòng nhập lý do điều phối ít nhất 5 ký tự.'); return; } } run(() => api.post(`/bookings/${b.id}/reschedule/`, { appointment: new Date(`${resched.date}T${resched.time}`).toISOString(), staff: resched.staff, ...(reason ? { reason } : {}) }), 'Đã đổi lịch hẹn.'); }}>Lưu giờ mới</Btn>
         </div>}
       </div>
-      {canAct && <footer className="cl-booking-drawer-footer">
+      {(canAct || (canRestore && b.status === 'cancelled')) && <footer className="cl-booking-drawer-footer">
+      {canRestore && b.status === 'cancelled' && <Btn disabled={busy} kind="primary" onClick={() => { const reason = window.prompt('Lý do khôi phục lịch đã hủy (ít nhất 5 ký tự):'); if (reason === null) return; if (reason.trim().length < 5) { setErr('Cần nhập lý do khôi phục ít nhất 5 ký tự.'); return; } run(() => api.post(`/bookings/${b.id}/restore/`, { reason: reason.trim() }), 'Lịch đã chuyển về chờ xác nhận.'); }}>Khôi phục lịch</Btn>}
+      {canAct && <>
       <Btn disabled={busy} onClick={() => {
         if (window.confirm(`Bạn có chắc muốn hủy lịch hẹn của ${b.customer_name}?`)) {
           run(() => api.post(`/bookings/${b.id}/cancel/`), 'Đã hủy lịch hẹn.');
@@ -319,7 +329,8 @@ function BookingDetail({ booking: b, canBook, onClose, onChanged, doctors, staff
       <Btn disabled={busy} onClick={() => setResched({ date: isoDay(new Date(b.appointment)), time: fmtTime(b.appointment), staff: assignmentOptions.some((person) => person.id === b.staff) ? b.staff : assignmentOptions[0]?.id || '' })}>Đổi giờ</Btn>
       {b.status === 'pending' && <Btn disabled={busy} kind="primary" onClick={() => run(() => api.post(`/bookings/${b.id}/confirm/`), 'Đã xác nhận lịch hẹn.')}>Xác nhận</Btn>}
       {new Date(b.appointment) <= new Date() && <Btn disabled={busy} onClick={() => run(() => api.post(`/bookings/${b.id}/no_show/`), 'Đã ghi nhận khách không đến.')}>Không đến</Btn>}
-      <Btn disabled={busy} kind="primary" onClick={() => run(() => api.post('/clinic/visits/from-booking/', { booking_id: b.id }), 'Đã đón bệnh nhân — đang chờ ở sảnh.')}>Bệnh nhân đã đến</Btn></footer>}
+      <Btn disabled={busy} kind="primary" onClick={() => run(() => api.post('/clinic/visits/from-booking/', { booking_id: b.id }), 'Đã đón bệnh nhân — đang chờ ở sảnh.')}>Bệnh nhân đã đến</Btn></>}
+      </footer>}
     </aside>
   </div>;
 }
@@ -328,36 +339,54 @@ function BookingForm({ init, doctors, onClose, onSaved }) {
   const services = useLoad(async () => (await api.get('/services/')).data, []);
   const [f, setF] = useState(null);
   const [patient, setPatient] = useState(null);
+  const [plans, setPlans] = useState([]);
+  const [sessionId, setSessionId] = useState('');
+  const [plansError, setPlansError] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (init) { setF({ type: 'consult', service_ids: [], note: '', ...init }); setPatient(null); setErr(''); } }, [init]);
+  useEffect(() => {
+    setSessionId(''); setPlans([]); setPlansError('');
+    if (!init || !patient?.id || f?.type !== 'session') return;
+    let active = true;
+    api.get('/clinic/plans/', { params: { patient: patient.id, status: 'active' } })
+      .then(({ data }) => { if (active) setPlans(data.results || data || []); })
+      .catch((e) => { if (active) setPlansError(errMsg(e)); });
+    return () => { active = false; };
+  }, [init, patient?.id, f?.type]);
   if (!init || !f) return null;
   const list = (services.data?.results || services.data || []).filter((s) => s.is_active);
   const toggle = (id) => setF((s) => ({ ...s, service_ids: s.service_ids.includes(id) ? s.service_ids.filter((x) => x !== id) : [...s.service_ids, id] }));
+  const availableSessions = plans.flatMap((p) => (p.sessions || []).filter((s) => s.status === 'pending' && !s.has_active_booking && p.service).map((s) => ({ ...s, plan: p })));
+  const chosenSession = availableSessions.find((s) => String(s.id) === String(sessionId));
   const total = list.filter((s) => f.service_ids.includes(s.id)).reduce((a, s) => a + s.price, 0);
   const mins = list.filter((s) => f.service_ids.includes(s.id)).reduce((a, s) => a + s.duration, 0);
   const submit = async () => {
-    setBusy(true); setErr('');
+    setErr('');
+    if (f.type === 'session' && !chosenSession) { setErr('Vui lòng chọn buổi liệu trình hợp lệ trước khi đặt.'); return; }
+    if (!patient) { setErr('Vui lòng chọn bệnh nhân.'); return; }
+    setBusy(true);
     try {
-      await api.post('/bookings/', { patient: patient.id, staff: f.staff, appointment: new Date(`${f.date}T${f.time}`).toISOString(),
-        appointment_type: f.type, service_ids: f.service_ids, note: f.note });
+      await api.post('/bookings/', { patient: patient.id, ...(f.type === 'session' ? { treatment_session_id: chosenSession.id } : { staff: f.staff, service_ids: f.service_ids }), appointment: new Date(`${f.date}T${f.time}`).toISOString(),
+        appointment_type: f.type, note: f.note });
       onSaved();
     } catch (e) { setErr(errMsg(e)); } finally { setBusy(false); }
   };
   return <Modal open wide title="Đặt lịch hẹn" subtitle="Chọn bệnh nhân, bác sĩ, thời gian và dịch vụ." onClose={onClose}
-    footer={<><Btn onClick={onClose}>Đóng</Btn><Btn kind="primary" disabled={!patient || !f.staff || !f.service_ids.length || busy} onClick={submit}>{busy ? 'Đang lưu…' : 'Đặt lịch'}</Btn></>}>
+    footer={<><Btn onClick={onClose}>Đóng</Btn><Btn kind="primary" disabled={!patient || (f.type === 'session' ? !chosenSession : !f.staff || (f.type === 'procedure' && !f.service_ids.length)) || busy} onClick={submit}>{busy ? 'Đang lưu…' : 'Đặt lịch'}</Btn></>}>
     {err && <div className="cl-alert error">{err}</div>}
     <PatientPicker value={patient} onPick={setPatient} />
     <div className="cl-form-grid" style={{ marginTop: 16 }}>
-      <Field label="Bác sĩ"><select value={f.staff || ''} onChange={(e) => setF({ ...f, staff: Number(e.target.value) })}><option value="">— Chọn bác sĩ —</option>{doctors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></Field>
+      {f.type !== 'session' && <Field label="Bác sĩ"><select value={f.staff || ''} onChange={(e) => setF({ ...f, staff: Number(e.target.value) })}><option value="">— Chọn bác sĩ —</option>{doctors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></Field>}
       <Field label="Loại lịch hẹn"><select value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}>{Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
       <Field label="Ngày"><input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
       <Field label="Giờ"><input type="time" step={900} value={f.time} onChange={(e) => setF({ ...f, time: e.target.value })} /></Field>
-      <Field label={`Dịch vụ${mins ? ` · ${mins} phút` : ''}`} span="2">
+      {f.type === 'session' && <Field label="Buổi liệu trình đã được chỉ định" span="2"><select value={sessionId} onChange={(e) => setSessionId(e.target.value)}><option value="">— Chọn buổi chưa đặt —</option>{availableSessions.map((session) => <option key={session.id} value={session.id}>{session.plan.title} · Buổi {session.number}/{session.plan.total_sessions} · {session.plan.service_name || 'Dịch vụ theo phác đồ'}</option>)}</select>{plansError && <small role="alert">{plansError}</small>}{!plansError && patient && !availableSessions.length && <small>Không có buổi liệu trình đang hiệu lực và chưa được đặt lịch.</small>}</Field>}
+      {f.type !== 'session' && <Field label={`Dịch vụ${mins ? ` · ${mins} phút` : ''}`} span="2">
         <div className="cl-check-grid">{list.map((s) => <label key={s.id} className={f.service_ids.includes(s.id) ? 'on' : ''}>
-          <input type="checkbox" checked={f.service_ids.includes(s.id)} onChange={() => toggle(s.id)} /><span><strong>{s.name}</strong><small>{s.duration} phút · {new Intl.NumberFormat('vi-VN').format(s.price)}đ</small></span></label>)}</div></Field>
+          <input type="checkbox" checked={f.service_ids.includes(s.id)} onChange={() => toggle(s.id)} /><span><strong>{s.name}</strong><small>{s.duration} phút · {new Intl.NumberFormat('vi-VN').format(s.price)}đ</small></span></label>)}</div></Field>}
       <Field label="Ghi chú" span="2"><input value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} placeholder="Ghi chú cho bác sĩ / lễ tân" /></Field>
     </div>
-    {total > 0 && <p className="cl-hint">Tạm tính: <b>{new Intl.NumberFormat('vi-VN').format(total)}đ</b></p>}
+    {f.type !== 'session' && total > 0 && <p className="cl-hint">Tạm tính: <b>{new Intl.NumberFormat('vi-VN').format(total)}đ</b></p>}
   </Modal>;
 }

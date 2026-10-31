@@ -333,12 +333,20 @@ class BookingSerializer(serializers.ModelSerializer):
         treatment_session_id = attrs.get('treatment_session_id')
         session = None
         follow_up_visit_id = attrs.pop('follow_up_visit_id', None)
+        clinic_scheduler = bool(
+            request and request.user.is_authenticated
+            and request.user.role in {'consultant', 'manager', 'doctor'}
+        )
         if appointment_type == Booking.APPOINTMENT_TYPE_FOLLOW_UP:
-            if not request or not request.user.is_authenticated or request.user.role != 'customer':
+            if not request or not request.user.is_authenticated or not (
+                request.user.role == 'customer' or clinic_scheduler
+            ):
                 raise serializers.ValidationError({
-                    'appointment_type': 'Để đặt lịch tái khám, vui lòng đăng nhập tài khoản bệnh nhân.',
+                    'appointment_type': 'Lịch tái khám cần tài khoản bệnh nhân hoặc người điều phối phòng khám.',
                 })
-            patient = Patient.objects.filter(user=request.user).first()
+            patient = attrs.get('patient') if clinic_scheduler else Patient.objects.filter(user=request.user).first()
+            if clinic_scheduler and not patient:
+                raise serializers.ValidationError({'patient': 'Chọn hồ sơ bệnh nhân cần tái khám.'})
             if follow_up_visit_id:
                 previous_visit = Visit.objects.filter(
                     pk=follow_up_visit_id,
@@ -354,18 +362,24 @@ class BookingSerializer(serializers.ModelSerializer):
             elif patient:
                 attrs['patient'] = patient
         if appointment_type == Booking.APPOINTMENT_TYPE_SESSION:
-            if not request or not request.user.is_authenticated or request.user.role != 'customer':
+            if not request or not request.user.is_authenticated or not (
+                request.user.role == 'customer' or clinic_scheduler
+            ):
                 raise serializers.ValidationError({
-                    'treatment_session_id': 'Đặt buổi liệu trình cần đăng nhập tài khoản khách hàng.',
+                    'treatment_session_id': 'Đặt buổi liệu trình cần tài khoản bệnh nhân hoặc người điều phối phòng khám.',
                 })
+            if clinic_scheduler and not attrs.get('patient'):
+                raise serializers.ValidationError({'patient': 'Chọn hồ sơ bệnh nhân thuộc liệu trình.'})
             if not treatment_session_id:
                 raise serializers.ValidationError({
                     'treatment_session_id': 'Vui lòng chọn buổi trong liệu trình của bạn.',
                 })
-            session = TreatmentSession.objects.select_related('plan__service', 'plan__doctor').filter(
-                pk=treatment_session_id,
-                plan__patient__user=request.user,
-            ).first()
+            sessions = TreatmentSession.objects.select_related('plan__service', 'plan__doctor')
+            if clinic_scheduler:
+                sessions = sessions.filter(plan__patient=attrs['patient'])
+            else:
+                sessions = sessions.filter(plan__patient__user=request.user)
+            session = sessions.filter(pk=treatment_session_id).first()
             if not session:
                 raise serializers.ValidationError({
                     'treatment_session_id': 'Không tìm thấy buổi liệu trình thuộc hồ sơ của bạn.',
@@ -392,8 +406,9 @@ class BookingSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({
                     'treatment_session_id': 'Buổi này đã có lịch hẹn. Vui lòng chọn buổi khác.',
                 })
+            attrs['patient'] = session.plan.patient
             requested_staff = attrs.get('staff')
-            if requested_staff:
+            if requested_staff and not clinic_scheduler:
                 raise serializers.ValidationError({
                     'staff': 'Phòng khám sẽ phân công bác sĩ/người thực hiện theo chỉ định của bác sĩ phụ trách.',
                 })
@@ -498,7 +513,17 @@ class BookingSerializer(serializers.ModelSerializer):
             ).first()
             if (
                 not treatment_session
-                or treatment_session.plan.patient.user_id != request.user.id
+                or (
+                    request.user.role == 'customer'
+                    and treatment_session.plan.patient.user_id != request.user.id
+                )
+                or (
+                    request.user.role in {'consultant', 'manager', 'doctor'}
+                    and (
+                        not validated_data.get('patient')
+                        or validated_data['patient'].pk != treatment_session.plan.patient_id
+                    )
+                )
                 or treatment_session.plan.status != TreatmentPlan.ACTIVE
                 or treatment_session.status != TreatmentSession.PENDING
                 or not treatment_session.plan.doctor_id
