@@ -49,6 +49,7 @@ export default function CalendarPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const canBook = ['consultant', 'manager', 'doctor'].includes(user.role);
+  const canRestore = user.role === 'manager';
   const [date, setDate] = useState(isoDay());
   const [viewMode, setViewMode] = useState(() => searchParams.get('view') === 'list' || searchParams.has('status') ? 'list' : 'calendar');
   const [listStatus, setListStatus] = useState(() => LIST_STATUS_OPTIONS.some((option) => option.value === searchParams.get('status')) ? searchParams.get('status') : 'all');
@@ -119,9 +120,16 @@ export default function CalendarPage() {
   const applyFavorite = (state) => { setQ(state.search || ''); setDoctorFilter(state.filters?.doctor || ''); setTypeFilter(state.filters?.type || ''); setStatusFilter(state.filters?.status || ''); };
   const runListAction = async (booking, action, successMessage) => {
     if (action === 'cancel' && !window.confirm(`Bạn có chắc muốn hủy lịch hẹn của ${booking.customer_name}?`)) return;
+    let body = {};
+    if (action === 'restore') {
+      const reason = window.prompt('Lý do khôi phục lịch đã hủy (ít nhất 5 ký tự):');
+      if (reason === null) return;
+      if (reason.trim().length < 5) { setListActionError('Cần nhập lý do khôi phục ít nhất 5 ký tự.'); return; }
+      body = { reason: reason.trim() };
+    }
     setListActionError('');
     try {
-      await api.post(`/bookings/${booking.id}/${action}/`);
+      await api.post(`/bookings/${booking.id}/${action}/`, body);
       toast(successMessage);
       reload();
     } catch (error) {
@@ -230,6 +238,7 @@ export default function CalendarPage() {
                 {canManageBooking && booking.status === 'pending' && <Btn size="sm" kind="primary" onClick={() => runListAction(booking, 'confirm', 'Đã xác nhận lịch hẹn.')}>Xác nhận</Btn>}
                 {canManageBooking && <Btn size="sm" onClick={() => setSel(booking)}>Đổi lịch / Chi tiết</Btn>}
                 {canManageBooking && <Btn size="sm" onClick={() => runListAction(booking, 'cancel', 'Đã hủy lịch hẹn.')}>Hủy</Btn>}
+                {canRestore && booking.status === 'cancelled' && <Btn size="sm" onClick={() => runListAction(booking, 'restore', 'Đã gửi lịch về chờ xác nhận.')}>Khôi phục</Btn>}
               </div>
             </article>;
           })}</div>
@@ -240,13 +249,13 @@ export default function CalendarPage() {
           </nav>}
         </> : <div className="cl-booking-list-empty"><strong>Không tìm thấy lịch hẹn</strong><span>Thử đổi trạng thái, ngày hẹn hoặc từ khóa tìm kiếm.</span></div>}
     </section>}
-    <BookingDetail booking={sel} canBook={canBook} onClose={closeBooking} onChanged={(msg) => { setSel(null); toast(msg); reload(); }} doctors={doctors} staffMembers={staff.data?.results || staff.data || []} />
+    <BookingDetail booking={sel} canBook={canBook} canRestore={canRestore} onClose={closeBooking} onChanged={(msg) => { setSel(null); toast(msg); reload(); }} doctors={doctors} staffMembers={staff.data?.results || staff.data || []} />
     <BookingForm init={creating} doctors={doctors} onClose={() => setCreating(null)} onSaved={() => { setCreating(null); toast('Đã đặt lịch hẹn.'); reload(); }} />
     {toastNode}
   </>;
 }
 
-function BookingDetail({ booking: b, canBook, onClose, onChanged, doctors, staffMembers }) {
+function BookingDetail({ booking: b, canBook, canRestore, onClose, onChanged, doctors, staffMembers }) {
   const [err, setErr] = useState('');
   const [resched, setResched] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -310,7 +319,9 @@ function BookingDetail({ booking: b, canBook, onClose, onChanged, doctors, staff
           <Btn kind="primary" disabled={!resched.staff || !assignmentOptions.length || busy} onClick={() => run(() => api.post(`/bookings/${b.id}/reschedule/`, { appointment: new Date(`${resched.date}T${resched.time}`).toISOString(), staff: resched.staff }), 'Đã đổi lịch hẹn.')}>Lưu giờ mới</Btn>
         </div>}
       </div>
-      {canAct && <footer className="cl-booking-drawer-footer">
+      {(canAct || (canRestore && b.status === 'cancelled')) && <footer className="cl-booking-drawer-footer">
+      {canRestore && b.status === 'cancelled' && <Btn disabled={busy} kind="primary" onClick={() => { const reason = window.prompt('Lý do khôi phục lịch đã hủy (ít nhất 5 ký tự):'); if (reason === null) return; if (reason.trim().length < 5) { setErr('Cần nhập lý do khôi phục ít nhất 5 ký tự.'); return; } run(() => api.post(`/bookings/${b.id}/restore/`, { reason: reason.trim() }), 'Lịch đã chuyển về chờ xác nhận.'); }}>Khôi phục lịch</Btn>}
+      {canAct && <>
       <Btn disabled={busy} onClick={() => {
         if (window.confirm(`Bạn có chắc muốn hủy lịch hẹn của ${b.customer_name}?`)) {
           run(() => api.post(`/bookings/${b.id}/cancel/`), 'Đã hủy lịch hẹn.');
@@ -319,7 +330,8 @@ function BookingDetail({ booking: b, canBook, onClose, onChanged, doctors, staff
       <Btn disabled={busy} onClick={() => setResched({ date: isoDay(new Date(b.appointment)), time: fmtTime(b.appointment), staff: assignmentOptions.some((person) => person.id === b.staff) ? b.staff : assignmentOptions[0]?.id || '' })}>Đổi giờ</Btn>
       {b.status === 'pending' && <Btn disabled={busy} kind="primary" onClick={() => run(() => api.post(`/bookings/${b.id}/confirm/`), 'Đã xác nhận lịch hẹn.')}>Xác nhận</Btn>}
       {new Date(b.appointment) <= new Date() && <Btn disabled={busy} onClick={() => run(() => api.post(`/bookings/${b.id}/no_show/`), 'Đã ghi nhận khách không đến.')}>Không đến</Btn>}
-      <Btn disabled={busy} kind="primary" onClick={() => run(() => api.post('/clinic/visits/from-booking/', { booking_id: b.id }), 'Đã đón bệnh nhân — đang chờ ở sảnh.')}>Bệnh nhân đã đến</Btn></footer>}
+      <Btn disabled={busy} kind="primary" onClick={() => run(() => api.post('/clinic/visits/from-booking/', { booking_id: b.id }), 'Đã đón bệnh nhân — đang chờ ở sảnh.')}>Bệnh nhân đã đến</Btn></>}
+      </footer>}
     </aside>
   </div>;
 }
