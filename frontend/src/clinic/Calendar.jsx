@@ -51,8 +51,8 @@ export default function CalendarPage() {
   const canBook = ['consultant', 'manager', 'doctor'].includes(user.role);
   const canRestore = user.role === 'manager';
   const [date, setDate] = useState(isoDay());
-  const [viewMode, setViewMode] = useState(() => searchParams.get('view') === 'list' || searchParams.has('status') ? 'list' : 'calendar');
-  const [listStatus, setListStatus] = useState(() => LIST_STATUS_OPTIONS.some((option) => option.value === searchParams.get('status')) ? searchParams.get('status') : 'all');
+  const [viewMode, setViewMode] = useState(() => searchParams.get('view') === 'calendar' ? 'calendar' : (searchParams.get('view') === 'list' || searchParams.has('status') || ['consultant', 'manager'].includes(user.role) ? 'list' : 'calendar'));
+  const [listStatus, setListStatus] = useState(() => LIST_STATUS_OPTIONS.some((option) => option.value === searchParams.get('status')) ? searchParams.get('status') : (['consultant', 'manager'].includes(user.role) ? 'pending' : 'all'));
   const [listDate, setListDate] = useState('');
   const [listDoctor, setListDoctor] = useState('');
   const [listQuery, setListQuery] = useState('');
@@ -147,8 +147,7 @@ export default function CalendarPage() {
   };
 
   return <>
-    <PageHead title={user.role === 'doctor' ? 'Lịch hẹn của tôi' : 'Lịch hẹn bác sĩ'} subtitle="Bấm vào ô trống để đặt lịch, bấm vào lịch hẹn để xem chi tiết hoặc đón khách."
-      actions={canBook && <Btn kind="primary" icon={<AddRounded />} onClick={() => setCreating({ staff: doctors[0]?.id || '', date, time: '09:00' })}>Đặt lịch hẹn</Btn>} />
+    <PageHead actions={canBook && <Btn kind="primary" icon={<AddRounded />} onClick={() => setCreating({ staff: doctors[0]?.id || '', date, time: '09:00' })}>Đặt lịch hẹn</Btn>} />
     <div className="cl-view-tabs" role="tablist" aria-label="Chế độ xem lịch hẹn">
       <button type="button" role="tab" aria-selected={viewMode === 'list'} className={viewMode === 'list' ? 'on' : ''} onClick={() => setViewMode('list')}>Danh sách</button>
       <button type="button" role="tab" aria-selected={viewMode === 'calendar'} className={viewMode === 'calendar' ? 'on' : ''} onClick={() => setViewMode('calendar')}>Calendar</button>
