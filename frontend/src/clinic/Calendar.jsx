@@ -328,36 +328,54 @@ function BookingForm({ init, doctors, onClose, onSaved }) {
   const services = useLoad(async () => (await api.get('/services/')).data, []);
   const [f, setF] = useState(null);
   const [patient, setPatient] = useState(null);
+  const [plans, setPlans] = useState([]);
+  const [sessionId, setSessionId] = useState('');
+  const [plansError, setPlansError] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (init) { setF({ type: 'consult', service_ids: [], note: '', ...init }); setPatient(null); setErr(''); } }, [init]);
+  useEffect(() => {
+    setSessionId(''); setPlans([]); setPlansError('');
+    if (!init || !patient?.id || f?.type !== 'session') return;
+    let active = true;
+    api.get('/clinic/plans/', { params: { patient: patient.id, status: 'active' } })
+      .then(({ data }) => { if (active) setPlans(data.results || data || []); })
+      .catch((e) => { if (active) setPlansError(errMsg(e)); });
+    return () => { active = false; };
+  }, [init, patient?.id, f?.type]);
   if (!init || !f) return null;
   const list = (services.data?.results || services.data || []).filter((s) => s.is_active);
   const toggle = (id) => setF((s) => ({ ...s, service_ids: s.service_ids.includes(id) ? s.service_ids.filter((x) => x !== id) : [...s.service_ids, id] }));
+  const availableSessions = plans.flatMap((p) => (p.sessions || []).filter((s) => s.status === 'pending' && !s.has_active_booking && p.service).map((s) => ({ ...s, plan: p })));
+  const chosenSession = availableSessions.find((s) => String(s.id) === String(sessionId));
   const total = list.filter((s) => f.service_ids.includes(s.id)).reduce((a, s) => a + s.price, 0);
   const mins = list.filter((s) => f.service_ids.includes(s.id)).reduce((a, s) => a + s.duration, 0);
   const submit = async () => {
-    setBusy(true); setErr('');
+    setErr('');
+    if (f.type === 'session' && !chosenSession) { setErr('Vui lòng chọn buổi liệu trình hợp lệ trước khi đặt.'); return; }
+    if (!patient) { setErr('Vui lòng chọn bệnh nhân.'); return; }
+    setBusy(true);
     try {
-      await api.post('/bookings/', { patient: patient.id, staff: f.staff, appointment: new Date(`${f.date}T${f.time}`).toISOString(),
-        appointment_type: f.type, service_ids: f.service_ids, note: f.note });
+      await api.post('/bookings/', { patient: patient.id, ...(f.type === 'session' ? { treatment_session_id: chosenSession.id } : { staff: f.staff, service_ids: f.service_ids }), appointment: new Date(`${f.date}T${f.time}`).toISOString(),
+        appointment_type: f.type, note: f.note });
       onSaved();
     } catch (e) { setErr(errMsg(e)); } finally { setBusy(false); }
   };
   return <Modal open wide title="Đặt lịch hẹn" subtitle="Chọn bệnh nhân, bác sĩ, thời gian và dịch vụ." onClose={onClose}
-    footer={<><Btn onClick={onClose}>Đóng</Btn><Btn kind="primary" disabled={!patient || !f.staff || !f.service_ids.length || busy} onClick={submit}>{busy ? 'Đang lưu…' : 'Đặt lịch'}</Btn></>}>
+    footer={<><Btn onClick={onClose}>Đóng</Btn><Btn kind="primary" disabled={!patient || (f.type === 'session' ? !chosenSession : !f.staff || (f.type === 'procedure' && !f.service_ids.length)) || busy} onClick={submit}>{busy ? 'Đang lưu…' : 'Đặt lịch'}</Btn></>}>
     {err && <div className="cl-alert error">{err}</div>}
     <PatientPicker value={patient} onPick={setPatient} />
     <div className="cl-form-grid" style={{ marginTop: 16 }}>
-      <Field label="Bác sĩ"><select value={f.staff || ''} onChange={(e) => setF({ ...f, staff: Number(e.target.value) })}><option value="">— Chọn bác sĩ —</option>{doctors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></Field>
+      {f.type !== 'session' && <Field label="Bác sĩ"><select value={f.staff || ''} onChange={(e) => setF({ ...f, staff: Number(e.target.value) })}><option value="">— Chọn bác sĩ —</option>{doctors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></Field>}
       <Field label="Loại lịch hẹn"><select value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}>{Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
       <Field label="Ngày"><input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
       <Field label="Giờ"><input type="time" step={900} value={f.time} onChange={(e) => setF({ ...f, time: e.target.value })} /></Field>
-      <Field label={`Dịch vụ${mins ? ` · ${mins} phút` : ''}`} span="2">
+      {f.type === 'session' && <Field label="Buổi liệu trình đã được chỉ định" span="2"><select value={sessionId} onChange={(e) => setSessionId(e.target.value)}><option value="">— Chọn buổi chưa đặt —</option>{availableSessions.map((session) => <option key={session.id} value={session.id}>{session.plan.title} · Buổi {session.number}/{session.plan.total_sessions} · {session.plan.service_name || 'Dịch vụ theo phác đồ'}</option>)}</select>{plansError && <small role="alert">{plansError}</small>}{!plansError && patient && !availableSessions.length && <small>Không có buổi liệu trình đang hiệu lực và chưa được đặt lịch.</small>}</Field>}
+      {f.type !== 'session' && <Field label={`Dịch vụ${mins ? ` · ${mins} phút` : ''}`} span="2">
         <div className="cl-check-grid">{list.map((s) => <label key={s.id} className={f.service_ids.includes(s.id) ? 'on' : ''}>
-          <input type="checkbox" checked={f.service_ids.includes(s.id)} onChange={() => toggle(s.id)} /><span><strong>{s.name}</strong><small>{s.duration} phút · {new Intl.NumberFormat('vi-VN').format(s.price)}đ</small></span></label>)}</div></Field>
+          <input type="checkbox" checked={f.service_ids.includes(s.id)} onChange={() => toggle(s.id)} /><span><strong>{s.name}</strong><small>{s.duration} phút · {new Intl.NumberFormat('vi-VN').format(s.price)}đ</small></span></label>)}</div></Field>}
       <Field label="Ghi chú" span="2"><input value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} placeholder="Ghi chú cho bác sĩ / lễ tân" /></Field>
     </div>
-    {total > 0 && <p className="cl-hint">Tạm tính: <b>{new Intl.NumberFormat('vi-VN').format(total)}đ</b></p>}
+    {f.type !== 'session' && total > 0 && <p className="cl-hint">Tạm tính: <b>{new Intl.NumberFormat('vi-VN').format(total)}đ</b></p>}
   </Modal>;
 }
