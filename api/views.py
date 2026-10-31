@@ -621,6 +621,69 @@ class BookingViewSet(viewsets.ModelViewSet):
         broadcast_dashboard('booking.cancelled', data)
         return Response(self.get_serializer(booking).data)
 
+    @action(detail=True, methods=['post'], permission_classes=[IsManagerRole])
+    def restore(self, request, pk=None):
+        """Khôi phục lịch hủy nhầm: chỉ Manager, phải ghi lý do và kiểm tra lại slot."""
+        from core.availability import has_conflict, qualified_staff
+        from clinic.models import TreatmentPlan, TreatmentSession
+
+        if request.user.role != 'manager':
+            return Response({'detail': 'Chỉ quản lý vận hành được khôi phục lịch hẹn.'}, status=403)
+        reason = str(request.data.get('reason') or '').strip()
+        if len(reason) < 5 or len(reason) > 255:
+            return Response({'reason': 'Vui lòng nhập lý do khôi phục từ 5 đến 255 ký tự.'}, status=400)
+        with transaction.atomic():
+            booking = Booking.objects.select_for_update().select_related(
+                'staff', 'treatment_session__plan__doctor', 'treatment_session__plan__service',
+            ).get(pk=self.get_object().pk)
+            if booking.status != Booking.CANCELLED:
+                return Response({'detail': 'Chỉ khôi phục được lịch đã hủy.'}, status=400)
+            if booking.appointment <= timezone.now():
+                return Response({'detail': 'Lịch đã qua thời gian hẹn, vui lòng tạo yêu cầu mới.'}, status=400)
+            if hasattr(booking, 'visit') and booking.visit is not None:
+                return Response({'detail': 'Lịch đã có lượt khám, không thể khôi phục tự động.'}, status=400)
+            if booking.treatment_session_id:
+                session = TreatmentSession.objects.select_for_update().select_related(
+                    'plan__doctor', 'plan__service',
+                ).get(pk=booking.treatment_session_id)
+                if (
+                    session.status != TreatmentSession.PENDING
+                    or session.plan.status != TreatmentPlan.ACTIVE
+                    or not session.plan.doctor_id or not session.plan.doctor.is_active
+                    or not session.plan.service_id or not session.plan.service.is_active
+                    or session.bookings.exclude(pk=booking.pk).filter(status__in=Booking.ACTIVE_STATUSES).exists()
+                ):
+                    return Response({'detail': 'Buổi liệu trình không còn khả dụng.'}, status=409)
+            service_ids = list(booking.items.values_list('service_id', flat=True))
+            if booking.appointment_type in {Booking.APPOINTMENT_TYPE_CONSULT, Booking.APPOINTMENT_TYPE_FOLLOW_UP}:
+                candidates = Staff.objects.filter(is_active=True, user__is_active=True, user__role='doctor')
+            else:
+                candidates = qualified_staff(
+                    Staff.objects.filter(is_active=True, user__is_active=True),
+                    service_ids,
+                )
+                if booking.treatment_session_id and not session.allow_staff_delegation:
+                    candidates = candidates.filter(user_id=session.plan.doctor_id)
+            staff = booking.staff
+            if not staff or not candidates.filter(pk=staff.pk).exists():
+                return Response({'detail': 'Nhân sự cũ không còn đủ điều kiện. Hãy đặt lịch mới.'}, status=409)
+            staff = Staff.objects.select_for_update().get(pk=staff.pk)
+            duration = 60 if booking.appointment_type in {Booking.APPOINTMENT_TYPE_CONSULT, Booking.APPOINTMENT_TYPE_FOLLOW_UP} else booking.duration_minutes or 60
+            if has_conflict(staff, booking.appointment, duration, exclude_booking_id=booking.pk):
+                return Response({'detail': 'Khung giờ đã có lịch khác hoặc nhân sự không còn khả dụng.'}, status=409)
+            previous = booking.status
+            booking.status = Booking.PENDING
+            booking.save(update_fields=['status'])
+            BookingHistory.objects.create(
+                booking=booking, actor=request.user, event='restored',
+                old_status=previous, new_status=booking.status,
+                old_appointment=booking.appointment, new_appointment=booking.appointment,
+                reason=reason,
+            )
+        _queue_email(booking, request, 'rescheduled')
+        broadcast_dashboard('booking.restored', {'booking_id': booking.pk, 'status': booking.status})
+        return Response(self.get_serializer(booking).data)
+
     @action(detail=True, methods=['post'], permission_classes=[IsStaffRole])
     def no_show(self, request, pk=None):
         with transaction.atomic():
