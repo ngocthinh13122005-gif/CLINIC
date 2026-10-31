@@ -150,7 +150,7 @@ export default function CalendarPage() {
     <PageHead actions={canBook && <Btn kind="primary" icon={<AddRounded />} onClick={() => setCreating({ staff: doctors[0]?.id || '', date, time: '09:00' })}>Đặt lịch hẹn</Btn>} />
     <div className="cl-view-tabs" role="tablist" aria-label="Chế độ xem lịch hẹn">
       <button type="button" role="tab" aria-selected={viewMode === 'list'} className={viewMode === 'list' ? 'on' : ''} onClick={() => setViewMode('list')}>Danh sách</button>
-      <button type="button" role="tab" aria-selected={viewMode === 'calendar'} className={viewMode === 'calendar' ? 'on' : ''} onClick={() => setViewMode('calendar')}>Calendar</button>
+      <button type="button" role="tab" aria-selected={viewMode === 'calendar'} className={viewMode === 'calendar' ? 'on' : ''} onClick={() => setViewMode('calendar')}>Lịch bác sĩ</button>
     </div>
     {viewMode === 'calendar' && <>
       <SmartFilterBar id="calendar" search={q} onSearch={setQ} placeholder="Tìm bệnh nhân, số điện thoại, bác sĩ hoặc dịch vụ…" filters={calendarFilters} onApplyFavorite={applyFavorite}/>
