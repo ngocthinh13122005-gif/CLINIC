@@ -19,8 +19,10 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.models import PasswordResetCode
-from core.models import Attendance, Booking, BookingHistory, Category, Conversation, ConversationSession, LeaveRequest, Message, Notification, Service, Staff, Voucher, VoucherRedemption, WorkingHours, RosterShift, Tag, QuickReply, AgentPresence, ChatSetting, InternalNote, ConversationEvent, ConversationRead
+from accounts.models import ActivityLog, PasswordResetCode
+from core.models import Attendance, Booking, BookingHistory, Category, Conversation, ConversationSession, LeaveRequest, Message, Notification, Service, Staff, Voucher, VoucherRedemption, WorkingHours, RosterShift, Tag, QuickReply, AgentPresence, ChatSetting, InternalNote, ConversationEvent, ConversationRead, ClinicSettingAudit, ClinicSettingValue
+from core.operational_settings import clinic_setting
+from core.role_permissions import view_action_allowed
 from . import chatbot
 from .firebase import create_custom_token, mirror_message, sync_conversation, mark_notification_read
 from .events import broadcast_dashboard, notify_roles, notify_users
@@ -32,9 +34,6 @@ from .serializers import (
 )
 
 User = get_user_model()
-CUSTOMER_BOOKING_CHANGE_NOTICE = timedelta(hours=24)
-
-
 def _queue_email(booking, request, event):
     try:
         from .tasks import send_booking_email_task
@@ -318,7 +317,7 @@ class BookingViewSet(viewsets.ModelViewSet):
     pagination_class = BookingListPagination
     http_method_names = ['get', 'post', 'head', 'options']
 
-    def get_queryset(self):
+    def get_queryset(self, apply_status=True):
         user = self.request.user
         qs = Booking.objects.select_related(
             'user', 'staff', 'patient', 'visit', 'follow_up_visit', 'treatment_session__plan',
@@ -340,7 +339,7 @@ class BookingViewSet(viewsets.ModelViewSet):
             qs = qs.filter(appointment__date__lte=end_date)
         if p.get('patient'):
             qs = qs.filter(patient_id=p['patient'])
-        if p.get('status'):
+        if apply_status and p.get('status'):
             statuses = [value.strip() for value in p['status'].split(',') if value.strip()]
             valid_statuses = {value for value, _ in Booking.STATUS}
             invalid_statuses = set(statuses) - valid_statuses
@@ -385,6 +384,11 @@ class BookingViewSet(viewsets.ModelViewSet):
         if request.query_params.get('view') != 'list':
             serializer = self.get_serializer(queryset, many=True)
             return Response(serializer.data)
+        status_counts = {
+            row['status']: row['count']
+            for row in self.filter_queryset(self.get_queryset(apply_status=False))
+            .order_by().values('status').annotate(count=Count('pk'))
+        }
         if 'pending' in {value.strip() for value in request.query_params.get('status', '').split(',')}:
             queryset = queryset.order_by('appointment', 'pk')
         else:
@@ -392,9 +396,81 @@ class BookingViewSet(viewsets.ModelViewSet):
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            response = self.get_paginated_response(serializer.data)
+            response.data['status_counts'] = status_counts
+            return response
         serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
+        return Response({'results': serializer.data, 'status_counts': status_counts})
+
+    def _assignment_candidates(self, booking):
+        from core.availability import qualified_staff
+        from clinic.models import TreatmentPlan, TreatmentSession
+
+        service_ids = list(booking.items.values_list('service_id', flat=True))
+        if not service_ids:
+            return None, 0, 'Lịch hẹn chưa có dịch vụ để xác minh nhân sự phù hợp.'
+        if booking.appointment_type in {
+            Booking.APPOINTMENT_TYPE_CONSULT,
+            Booking.APPOINTMENT_TYPE_FOLLOW_UP,
+        }:
+            candidates = Staff.objects.filter(
+                is_active=True,
+                user__is_active=True,
+                user__role='doctor',
+            )
+            duration = 60
+        else:
+            candidates = qualified_staff(
+                Staff.objects.filter(
+                    is_active=True,
+                    user__is_active=True,
+                    user__role__in=['doctor', 'staff'],
+                ),
+                service_ids,
+            )
+            duration = booking.duration_minutes or 60
+        if booking.treatment_session_id:
+            session = TreatmentSession.objects.select_for_update().select_related(
+                'plan__doctor', 'plan__service',
+            ).get(pk=booking.treatment_session_id)
+            if (
+                session.status != TreatmentSession.PENDING
+                or session.plan.status != TreatmentPlan.ACTIVE
+                or not session.plan.doctor_id
+                or not session.plan.doctor.is_active
+                or not session.plan.service_id
+                or not session.plan.service.is_active
+                or service_ids != [session.plan.service_id]
+            ):
+                return None, duration, 'Buổi liệu trình không còn đủ điều kiện phân công.'
+            candidates = qualified_staff(
+                Staff.objects.filter(
+                    is_active=True,
+                    user__is_active=True,
+                    user__role__in=['doctor', 'staff'],
+                ),
+                service_ids,
+            )
+            if not session.allow_staff_delegation:
+                candidates = candidates.filter(user_id=session.plan.doctor_id)
+        return candidates, duration, ''
+
+    def _available_assigned_staff(self, booking, staff_id):
+        from core.availability import has_conflict
+
+        candidates, duration, error = self._assignment_candidates(booking)
+        if error:
+            return None, error
+        try:
+            staff_id = int(staff_id)
+        except (TypeError, ValueError):
+            return None, 'Nhân sự được chọn không hợp lệ.'
+        candidate_ids = list(candidates.filter(pk=staff_id).values_list('pk', flat=True))
+        locked_candidates = Staff.objects.select_for_update().filter(pk__in=candidate_ids).order_by('pk')
+        for candidate in locked_candidates:
+            if not has_conflict(candidate, booking.appointment, duration, exclude_booking_id=booking.pk):
+                return candidate, ''
+        return None, 'Nhân sự không đủ điều kiện hoặc khung giờ đã có lịch trùng.'
 
     def get_permissions(self):
         if self.action == 'create':
@@ -538,15 +614,8 @@ class BookingViewSet(viewsets.ModelViewSet):
                 }, status=400)
             old_status = booking.status
             booking.status = Booking.COMPLETED
-            if booking.user and not booking.loyalty_awarded:
-                points = (
-                    max(1, int(booking.total / max(1, settings.LOYALTY_VND_PER_POINT)))
-                    if booking.total else 0
-                )
-                booking.user.loyalty_points = (booking.user.loyalty_points or 0) + points
-                booking.user.save(update_fields=['loyalty_points'])
-                booking.loyalty_awarded = True
-                booking.loyalty_points_earned = points
+            from core.loyalty import award_booking_points
+            award_booking_points(booking)
             booking.save(update_fields=['status', 'loyalty_awarded', 'loyalty_points_earned'])
             BookingHistory.objects.create(
                 booking=booking, actor=request.user, event='completed',
@@ -583,17 +652,23 @@ class BookingViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     @transaction.atomic
     def cancel(self, request, pk=None):
+        if not view_action_allowed(request, self, 'booking', 'cancel'):
+            return Response({'detail': 'Thao tác hủy lịch đã bị giới hạn theo vai trò.'}, status=403)
         with transaction.atomic():
             booking = Booking.objects.select_for_update().get(pk=self.get_object().pk)
             if booking.status not in {Booking.PENDING, Booking.CONFIRMED}:
                 return Response({'detail': 'Chỉ lịch đang chờ hoặc đã xác nhận mới có thể hủy.'}, status=400)
+            notice_hours = int(clinic_setting('booking.customer_cancel_notice_hours'))
             if (
                 request.user.role == 'customer'
-                and booking.appointment < timezone.now() + CUSTOMER_BOOKING_CHANGE_NOTICE
+                and booking.appointment < timezone.now() + timedelta(hours=notice_hours)
             ):
                 return Response({
-                    'detail': 'Bạn chỉ có thể tự hủy lịch trước giờ hẹn ít nhất 24 giờ. Vui lòng liên hệ phòng khám để được hỗ trợ.',
+                    'detail': f'Bạn chỉ có thể tự hủy lịch trước giờ hẹn ít nhất {notice_hours} giờ. Vui lòng liên hệ phòng khám để được hỗ trợ.',
                 }, status=400)
+            reason = (request.data.get('reason') or '').strip()
+            if request.user.role == 'customer' and clinic_setting('booking.require_cancel_reason') and len(reason) < 5:
+                return Response({'detail': 'Vui lòng nhập lý do hủy lịch (ít nhất 5 ký tự).'}, status=400)
             old_status = booking.status
             booking.status = Booking.CANCELLED
             booking.save(update_fields=['status'])
@@ -601,7 +676,7 @@ class BookingViewSet(viewsets.ModelViewSet):
                 booking=booking, actor=request.user if request.user.is_authenticated else None,
                 event='cancelled', old_status=old_status, new_status=booking.status,
                 old_appointment=booking.appointment, new_appointment=booking.appointment,
-                reason=(request.data.get('reason') or '')[:255],
+                reason=reason[:255],
             )
         redemption = getattr(booking, 'voucher_redemption', None)
         if redemption:
@@ -627,8 +702,9 @@ class BookingViewSet(viewsets.ModelViewSet):
             booking = Booking.objects.select_for_update().get(pk=self.get_object().pk)
             if booking.status not in {Booking.PENDING, Booking.CONFIRMED}:
                 return Response({'detail': 'Chỉ lịch chưa check-in mới có thể ghi nhận khách không đến.'}, status=400)
-            if booking.appointment > timezone.now():
-                return Response({'detail': 'Chỉ ghi nhận khách không đến sau giờ hẹn.'}, status=400)
+            grace = int(clinic_setting('reception.no_show_grace_minutes'))
+            if booking.appointment + timedelta(minutes=grace) > timezone.now():
+                return Response({'detail': f'Chỉ ghi nhận khách không đến sau giờ hẹn và {grace} phút chờ.' if grace else 'Chỉ ghi nhận khách không đến sau giờ hẹn.'}, status=400)
             old_status = booking.status
             booking.status = Booking.NO_SHOW
             booking.save(update_fields=['status'])
@@ -643,6 +719,8 @@ class BookingViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def reschedule(self, request, pk=None):
+        if not view_action_allowed(request, self, 'booking', 'update'):
+            return Response({'detail': 'Thao tác đổi lịch đã bị giới hạn theo vai trò.'}, status=403)
         from core.availability import has_conflict, qualified_staff
         from clinic.models import TreatmentPlan, TreatmentSession
 
@@ -663,19 +741,22 @@ class BookingViewSet(viewsets.ModelViewSet):
             ).get(pk=self.get_object().pk)
             if booking.status not in {Booking.PENDING, Booking.CONFIRMED}:
                 return Response({'detail': 'Chỉ lịch đang chờ hoặc đã xác nhận mới có thể đổi lịch.'}, status=400)
+            change_notice = timedelta(hours=int(clinic_setting('booking.customer_change_notice_hours')))
             if (
                 request.user.role == 'customer'
-                and booking.appointment < timezone.now() + CUSTOMER_BOOKING_CHANGE_NOTICE
+                and booking.appointment < timezone.now() + change_notice
             ):
+                notice_hours = int(clinic_setting('booking.customer_change_notice_hours'))
                 return Response({
-                    'detail': 'Bạn chỉ có thể tự đổi lịch trước giờ hẹn ít nhất 24 giờ. Vui lòng liên hệ phòng khám để được hỗ trợ.',
+                    'detail': f'Bạn chỉ có thể tự đổi lịch trước giờ hẹn ít nhất {notice_hours} giờ. Vui lòng liên hệ phòng khám để được hỗ trợ.',
                 }, status=400)
             if (
                 request.user.role == 'customer'
-                and new_appointment < timezone.now() + CUSTOMER_BOOKING_CHANGE_NOTICE
+                and new_appointment < timezone.now() + change_notice
             ):
+                notice_hours = int(clinic_setting('booking.customer_change_notice_hours'))
                 return Response({
-                    'detail': 'Thời gian mới phải cách hiện tại ít nhất 24 giờ.',
+                    'detail': f'Thời gian mới phải cách hiện tại ít nhất {notice_hours} giờ.',
                 }, status=400)
             treatment_session = None
             if booking.treatment_session_id:
@@ -692,6 +773,15 @@ class BookingViewSet(viewsets.ModelViewSet):
             }
             duration = 60 if clinician_required else booking.duration_minutes or 60
             staff_id = request.data.get('staff')
+            if request.user.role == 'manager' and staff_id is not None:
+                try:
+                    changes_staff = int(staff_id) != booking.staff_id
+                except (TypeError, ValueError):
+                    changes_staff = True
+                if changes_staff:
+                    return Response({
+                        'detail': 'Manager cần dùng thao tác Điều phối nhân sự để nhập lý do và lưu nhật ký.',
+                    }, status=400)
             if staff_id is not None and request.user.role == 'customer':
                 return Response({'detail': 'Phòng khám điều phối người thực hiện; bạn chỉ có thể yêu cầu đổi thời gian.'}, status=403)
             session = treatment_session
@@ -758,6 +848,92 @@ class BookingViewSet(viewsets.ModelViewSet):
             )
 
         _queue_email(booking, request, 'rescheduled')
+        return Response(self.get_serializer(booking).data)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsManagerRole])
+    def reassign(self, request, pk=None):
+        if request.user.role != 'manager':
+            return Response({'detail': 'Thao tác này chỉ dành cho Manager.'}, status=403)
+        reason = str(request.data.get('reason') or '').strip()
+        if not reason:
+            return Response({'detail': 'Vui lòng nhập lý do điều phối lại nhân sự.'}, status=400)
+        if len(reason) > 200:
+            return Response({'detail': 'Lý do tối đa 200 ký tự.'}, status=400)
+        if request.data.get('confirmed') is not True:
+            return Response({'detail': 'Vui lòng xác nhận điều phối lại nhân sự.'}, status=400)
+
+        with transaction.atomic():
+            booking = Booking.objects.select_for_update().select_related(
+                'treatment_session__plan__doctor', 'treatment_session__plan__service',
+            ).get(pk=self.get_object().pk)
+            if booking.status not in {Booking.PENDING, Booking.CONFIRMED, Booking.CANCELLED}:
+                return Response({'detail': 'Không thể điều phối lại lịch đã check-in hoặc đã kết thúc.'}, status=400)
+            if booking.appointment <= timezone.now():
+                return Response({'detail': 'Không thể điều phối lịch đã qua giờ hẹn.'}, status=400)
+            if str(request.data.get('staff', '')).strip() == str(booking.staff_id):
+                return Response({'detail': 'Hãy chọn nhân sự khác với người đang được phân công.'}, status=400)
+            new_staff, error = self._available_assigned_staff(booking, request.data.get('staff'))
+            if error:
+                return Response({'detail': error}, status=409)
+            old_staff = booking.staff_id
+            booking.staff = new_staff
+            booking.save(update_fields=['staff'])
+            BookingHistory.objects.create(
+                booking=booking, actor=request.user, event='reassigned',
+                old_status=booking.status, new_status=booking.status,
+                old_appointment=booking.appointment, new_appointment=booking.appointment,
+                reason=reason,
+            )
+            ActivityLog.objects.create(
+                user=request.user,
+                action='booking.reassigned',
+                detail=f'booking={booking.pk}; staff={old_staff}->{new_staff.pk}; reason={reason}'[:255],
+            )
+        return Response(self.get_serializer(booking).data)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsManagerRole])
+    def restore(self, request, pk=None):
+        if request.user.role != 'manager':
+            return Response({'detail': 'Thao tác này chỉ dành cho Manager.'}, status=403)
+        reason = str(request.data.get('reason') or '').strip()
+        if not reason:
+            return Response({'detail': 'Vui lòng nhập lý do khôi phục lịch.'}, status=400)
+        if len(reason) > 200:
+            return Response({'detail': 'Lý do tối đa 200 ký tự.'}, status=400)
+        if request.data.get('confirmed') is not True:
+            return Response({'detail': 'Vui lòng xác nhận khôi phục lịch.'}, status=400)
+
+        with transaction.atomic():
+            booking = Booking.objects.select_for_update().select_related(
+                'treatment_session__plan__doctor', 'treatment_session__plan__service',
+            ).get(pk=self.get_object().pk)
+            if booking.status != Booking.CANCELLED:
+                return Response({'detail': 'Chỉ có thể khôi phục lịch đã hủy.'}, status=400)
+            minimum_lead = int(clinic_setting('booking.minimum_advance_minutes'))
+            if booking.appointment < timezone.now() + timedelta(minutes=minimum_lead):
+                return Response({'detail': 'Không thể khôi phục lịch quá gần hoặc đã qua giờ hẹn.'}, status=400)
+            if not booking.staff_id:
+                return Response({'detail': 'Lịch chưa được phân công nhân sự; hãy điều phối nhân sự trước.'}, status=409)
+            assigned_staff, error = self._available_assigned_staff(booking, booking.staff_id)
+            if error:
+                return Response({'detail': error}, status=409)
+            booking.status = Booking.PENDING
+            booking.save(update_fields=['status'])
+            BookingHistory.objects.create(
+                booking=booking, actor=request.user, event='restored',
+                old_status=Booking.CANCELLED, new_status=Booking.PENDING,
+                old_appointment=booking.appointment, new_appointment=booking.appointment,
+                reason=reason,
+            )
+            ActivityLog.objects.create(
+                user=request.user,
+                action='booking.restored',
+                detail=f'booking={booking.pk}; staff={assigned_staff.pk}; reason={reason}'[:255],
+            )
+        data = {'booking_id': booking.pk, 'status': booking.status}
+        if booking.user:
+            notify_users([booking.user], 'booking.pending', 'Lịch hẹn được khôi phục', f'Lịch hẹn #{booking.pk} đã được khôi phục và đang chờ xác nhận.', data)
+        broadcast_dashboard('booking.restored', data)
         return Response(self.get_serializer(booking).data)
 
 
@@ -1575,25 +1751,47 @@ class ConversationViewSet(viewsets.ModelViewSet):
         cfg = ChatSetting.load()
         if request.method == 'PATCH':
             fields = []
+            previous = {}
             for name in ('auto_csat_enabled', 'auto_close_daily'):
                 if name in request.data:
-                    setattr(cfg, name, bool(request.data.get(name)))
-                    fields.append(name)
+                    value = request.data.get(name)
+                    if not isinstance(value, bool):
+                        return Response({'detail': f'{name} phải là giá trị bật/tắt.'}, status=400)
+                    previous[name] = getattr(cfg, name)
+                    setattr(cfg, name, value)
+                    if previous[name] != value:
+                        fields.append(name)
             if 'sla_minutes' in request.data:
                 try:
+                    previous['sla_minutes'] = cfg.sla_minutes
                     cfg.sla_minutes = min(240, max(1, int(request.data.get('sla_minutes'))))
-                    fields.append('sla_minutes')
+                    if previous['sla_minutes'] != cfg.sla_minutes:
+                        fields.append('sla_minutes')
                 except (TypeError, ValueError):
                     return Response({'detail': 'SLA phải là số phút hợp lệ.'}, status=400)
             for name in ('business_start', 'business_end'):
                 if name in request.data:
                     try:
+                        previous[name] = str(getattr(cfg, name))[:5]
                         setattr(cfg, name, datetime.strptime(str(request.data.get(name)), '%H:%M').time())
-                        fields.append(name)
+                        if previous[name] != str(getattr(cfg, name))[:5]:
+                            fields.append(name)
                     except ValueError:
                         return Response({'detail': 'Giờ làm việc phải có định dạng HH:MM.'}, status=400)
             if fields:
                 cfg.save(update_fields=[*set(fields)])
+                reason = str(request.data.get('reason') or 'Cập nhật tại Hộp thư tư vấn').strip()[:255]
+                for name in fields:
+                    key = f'support.{name}'
+                    version = ClinicSettingAudit.objects.filter(scope=ClinicSettingValue.SCOPE_CLINIC,
+                                                                 scope_key='default', setting_key=key).order_by('-version').values_list('version', flat=True).first() or 0
+                    old_value = previous[name]
+                    new_value = getattr(cfg, name)
+                    if hasattr(new_value, 'strftime'):
+                        new_value = new_value.strftime('%H:%M')
+                    ClinicSettingAudit.objects.create(setting_key=key, scope=ClinicSettingValue.SCOPE_CLINIC,
+                                                      scope_key='default', old_value=old_value, new_value=new_value,
+                                                      actor=request.user, reason=reason, version=version + 1)
         return Response({
             'auto_csat_enabled': cfg.auto_csat_enabled,
             'auto_close_daily': cfg.auto_close_daily,
@@ -1987,6 +2185,10 @@ def availability(request):
     from core.availability import available_slots, qualified_staff
     from clinic.models import TreatmentPlan, TreatmentSession
 
+    is_public_booking = not request.user.is_authenticated or request.user.role == 'customer'
+    if is_public_booking and not clinic_setting('booking.online_enabled'):
+        return Response({'detail': 'Phòng khám hiện tạm ngưng nhận đặt lịch trực tuyến.'}, status=403)
+
     raw_ids = (request.query_params.get('service_ids') or '').split(',')
     try:
         service_ids = sorted({int(v) for v in raw_ids if v.strip()})
@@ -1997,6 +2199,10 @@ def availability(request):
         day = date.fromisoformat(day_raw)
     except ValueError:
         return Response({'detail': 'date phải có dạng YYYY-MM-DD.'}, status=400)
+    if is_public_booking:
+        max_days = int(clinic_setting('booking.maximum_advance_days'))
+        if max_days and day > timezone.localdate() + timedelta(days=max_days):
+            return Response({'detail': f'Chỉ nhận lịch trong {max_days} ngày tới.'}, status=400)
     appointment_type = request.query_params.get('appointment_type', Booking.APPOINTMENT_TYPE_CONSULT)
     treatment_session_id = request.query_params.get('treatment_session_id')
     session = None

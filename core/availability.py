@@ -13,8 +13,7 @@ from datetime import datetime, timedelta
 from django.db.models import Count, Q
 from django.utils import timezone
 
-SLOT_STEP_MINUTES = 15
-MIN_LEAD_MINUTES = 30  # phải đặt trước ít nhất 30 phút so với giờ hiện tại
+from .operational_settings import clinic_setting
 
 
 def qualified_staff(staff_qs, service_ids):
@@ -75,11 +74,16 @@ def has_conflict(staff, start, duration_minutes, exclude_booking_id=None):
     if not staff.is_active or _on_approved_leave(staff, start.date()) or _off_duty_by_roster(staff, start.date()):
         return True
     end = start + timedelta(minutes=duration_minutes)
+    buffer = timedelta(minutes=int(clinic_setting('booking.buffer_minutes')))
     windows = _working_windows(staff, start.date())
     if not any(w_start <= start and end <= w_end for w_start, w_end in windows):
         return True
     for b_start, b_end in _busy_intervals(staff, start.date(), exclude_booking_id):
         if start < b_end and b_start < end:
+            return True
+        if start >= b_end and start - b_end < buffer:
+            return True
+        if b_start >= end and b_start - end < buffer:
             return True
     return False
 
@@ -92,14 +96,22 @@ def available_slots(staff, day, duration_minutes, exclude_booking_id=None):
     if not windows:
         return []
     busy = _busy_intervals(staff, day, exclude_booking_id)
-    now_floor = timezone.now() + timedelta(minutes=MIN_LEAD_MINUTES)
+    now_floor = timezone.now() + timedelta(minutes=int(clinic_setting('booking.minimum_advance_minutes')))
     dur = timedelta(minutes=duration_minutes)
-    step = timedelta(minutes=SLOT_STEP_MINUTES)
+    buffer = timedelta(minutes=int(clinic_setting('booking.buffer_minutes')))
+    step = timedelta(minutes=int(clinic_setting('booking.slot_interval_minutes')))
     slots = []
     for w_start, w_end in windows:
         cursor = w_start
         while cursor + dur <= w_end:
-            if cursor >= now_floor and not any(cursor < b_end and b_start < cursor + dur for b_start, b_end in busy):
+            end = cursor + dur
+            overlap = any(
+                (cursor < b_end and b_start < end)
+                or (cursor >= b_end and cursor - b_end < buffer)
+                or (b_start >= end and b_start - end < buffer)
+                for b_start, b_end in busy
+            )
+            if cursor >= now_floor and end + buffer <= w_end and not overlap:
                 slots.append(cursor)
             cursor += step
     return slots

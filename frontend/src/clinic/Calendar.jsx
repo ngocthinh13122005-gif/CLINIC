@@ -13,13 +13,13 @@ import SmartFilterBar from './SmartFilterBar';
 const START_H = 7, END_H = 19, PPM = 1.5;           // px mỗi phút
 const TYPES = { consult: 'Khám / tư vấn', follow_up: 'Tái khám', procedure: 'Thủ thuật', session: 'Buổi liệu trình' };
 const LIST_STATUS_OPTIONS = [
-  { value: 'all', label: 'Tất cả' },
   { value: 'pending', label: 'Chờ xác nhận' },
   { value: 'confirmed', label: 'Đã xác nhận' },
   { value: 'arrived', label: 'Đã đến' },
   { value: 'completed', label: 'Hoàn thành' },
   { value: 'cancelled', label: 'Đã hủy' },
   { value: 'no_show', label: 'Không đến' },
+  { value: 'all', label: 'Tất cả' },
 ];
 const mondayOf = (iso) => { const d = new Date(iso + 'T00:00:00'); const w = (d.getDay() + 6) % 7; return addDays(iso, -w); };
 const minutesOf = (iso) => { const d = new Date(iso); return d.getHours() * 60 + d.getMinutes(); };
@@ -50,6 +50,7 @@ export default function CalendarPage() {
   const [searchParams] = useSearchParams();
   const canBook = ['consultant', 'manager', 'doctor'].includes(user.role);
   const [date, setDate] = useState(isoDay());
+  const hasExplicitView = searchParams.has('view') || searchParams.has('status');
   const [viewMode, setViewMode] = useState(() => searchParams.get('view') === 'list' || searchParams.has('status') ? 'list' : 'calendar');
   const [listStatus, setListStatus] = useState(() => LIST_STATUS_OPTIONS.some((option) => option.value === searchParams.get('status')) ? searchParams.get('status') : 'all');
   const [listDate, setListDate] = useState('');
@@ -66,6 +67,17 @@ export default function CalendarPage() {
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    if (hasExplicitView) return undefined;
+    let active = true;
+    api.get('/settings/user/').then(({ data }) => {
+      const preference = data.values?.['ui.calendar_view'];
+      if (active && ['calendar', 'list'].includes(preference)) setViewMode(preference);
+    }).catch(() => {
+      if (active) toast('Không tải được chế độ xem đã lưu; đang dùng lịch theo bác sĩ.');
+    });
+    return () => { active = false; };
+  }, [hasExplicitView]);
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 60000); return () => clearInterval(t); }, []);
   const weekStart = mondayOf(date);
   const staff = useLoad(async () => (await api.get('/staff/')).data, []);
@@ -130,6 +142,12 @@ export default function CalendarPage() {
   };
   const listBookings = list.data?.results || [];
   const listPageCount = Math.max(1, Math.ceil((list.data?.count || 0) / 20));
+  const countsByStatus = list.data?.status_counts || {};
+  const statusCount = (status) => status === 'all'
+    ? Object.values(countsByStatus).reduce((total, count) => total + count, 0)
+    : status === 'arrived'
+      ? (countsByStatus.checked_in || 0) + (countsByStatus.in_progress || 0)
+      : countsByStatus[status] || 0;
 
   const clickCol = (e, doc) => {
     if (!canBook) return;
@@ -141,9 +159,9 @@ export default function CalendarPage() {
   return <>
     <PageHead title={user.role === 'doctor' ? 'Lịch hẹn của tôi' : 'Lịch hẹn bác sĩ'} subtitle="Bấm vào ô trống để đặt lịch, bấm vào lịch hẹn để xem chi tiết hoặc đón khách."
       actions={canBook && <Btn kind="primary" icon={<AddRounded />} onClick={() => setCreating({ staff: doctors[0]?.id || '', date, time: '09:00' })}>Đặt lịch hẹn</Btn>} />
-    <div className="cl-view-tabs" role="tablist" aria-label="Chế độ xem lịch hẹn">
+    <div className="cl-tabs" role="tablist" aria-label="Chế độ xem lịch hẹn">
       <button type="button" role="tab" aria-selected={viewMode === 'list'} className={viewMode === 'list' ? 'on' : ''} onClick={() => setViewMode('list')}>Danh sách</button>
-      <button type="button" role="tab" aria-selected={viewMode === 'calendar'} className={viewMode === 'calendar' ? 'on' : ''} onClick={() => setViewMode('calendar')}>Calendar</button>
+      <button type="button" role="tab" aria-selected={viewMode === 'calendar'} className={viewMode === 'calendar' ? 'on' : ''} onClick={() => setViewMode('calendar')}>Lịch bác sĩ</button>
     </div>
     {viewMode === 'calendar' && <>
       <SmartFilterBar id="calendar" search={q} onSearch={setQ} placeholder="Tìm bệnh nhân, số điện thoại, bác sĩ hoặc dịch vụ…" filters={calendarFilters} onApplyFavorite={applyFavorite}/>
@@ -204,35 +222,45 @@ export default function CalendarPage() {
         <label><span>Ngày hẹn</span><input type="date" value={listDate} onChange={(event) => { setListDate(event.target.value); setListPage(1); }} /></label>
         <label><span>Bác sĩ</span><select value={listDoctor} onChange={(event) => { setListDoctor(event.target.value); setListPage(1); }}><option value="">Tất cả bác sĩ</option>{doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.name}</option>)}</select></label>
       </div>
-      <div className="cl-booking-status-tabs" role="tablist" aria-label="Lọc trạng thái lịch hẹn">
+      <div className="cl-booking-status-row">
+        <div className="cl-tabs-pill cl-booking-status-tabs" role="tablist" aria-label="Lọc trạng thái lịch hẹn">
         {LIST_STATUS_OPTIONS.map((option) => <button key={option.value} type="button" role="tab" aria-selected={listStatus === option.value}
-          className={listStatus === option.value ? 'on' : ''} onClick={() => { setListStatus(option.value); setListPage(1); }}>{option.label}</button>)}
+          className={listStatus === option.value ? 'on' : ''} onClick={() => { setListStatus(option.value); setListPage(1); }}>{option.label}<b>{statusCount(option.value)}</b></button>)}
+        </div>
       </div>
       {listActionError && <div className="cl-alert error" role="alert">{listActionError}<button type="button" aria-label="Đóng thông báo" onClick={() => setListActionError('')}>×</button></div>}
       {list.loading ? <Loading text="Đang tải danh sách lịch hẹn…" /> : list.error ? <div className="cl-alert error" role="alert">{list.error}<Btn onClick={() => list.reload()}>Thử lại</Btn></div> :
         listBookings.length ? <>
-          <div className="cl-booking-list-summary">Tổng cộng {list.data.count} lịch hẹn</div>
-          <div className="cl-booking-list-rows">{listBookings.map((booking) => {
-            const session = booking.treatment_session_details;
-            const services = (booking.items || []).map((item) => item.service_name || item.service?.name).filter(Boolean).join(', ');
-            const canManageBooking = canBook && ['pending', 'confirmed'].includes(booking.status) && !booking.visit_id;
-            return <article className="cl-booking-list-row" key={booking.id}>
-              <button type="button" className="cl-booking-row-main" onClick={() => setSel(booking)} aria-label={`Xem lịch hẹn ${booking.id} của ${booking.customer_name}`}>
-                <span className="cl-booking-row-time"><strong>{fmtTime(booking.appointment)}</strong><small>{new Date(booking.appointment).toLocaleDateString('vi-VN')}</small></span>
-                <span className="cl-booking-row-customer"><strong>{booking.customer_name || 'Khách hàng'}</strong><small>{booking.customer_phone || 'Chưa có số điện thoại'} · Mã lịch #{booking.id}</small></span>
-                <span className="cl-booking-row-type"><strong>{booking.appointment_type_label || TYPES[booking.appointment_type] || 'Lịch hẹn'}</strong>
-                  {booking.appointment_type === 'session' && session ? <small>{session.plan_title} · Buổi {session.session_number}/{session.total_sessions} · Buổi: {session.session_status_label} · Liệu trình: {session.plan_status_label}</small> : <small>{services || 'Chưa có dịch vụ'}</small>}
-                </span>
-                <span className="cl-booking-row-doctor"><strong>{booking.staff_name || 'Chưa phân công'}</strong><small>{booking.visit_status === 'waiting' ? 'Đã đến phòng khám' : booking.visit_status === 'in_consult' ? 'Đang khám' : ''}</small></span>
-                <Pill tone={statusTone(booking.status)}>{booking.status_label}</Pill>
-              </button>
-              <div className="cl-booking-list-actions">
-                {canManageBooking && booking.status === 'pending' && <Btn size="sm" kind="primary" onClick={() => runListAction(booking, 'confirm', 'Đã xác nhận lịch hẹn.')}>Xác nhận</Btn>}
-                {canManageBooking && <Btn size="sm" onClick={() => setSel(booking)}>Đổi lịch / Chi tiết</Btn>}
-                {canManageBooking && <Btn size="sm" onClick={() => runListAction(booking, 'cancel', 'Đã hủy lịch hẹn.')}>Hủy</Btn>}
-              </div>
-            </article>;
-          })}</div>
+          <div className="cl-booking-list-summary">
+            <span><strong>{list.data.count}</strong> lịch phù hợp<small>{listStatus === 'pending' ? 'CSKH xử lý lịch chờ xác nhận' : 'Danh sách lịch hẹn'}</small></span>
+            <button type="button" className="cl-link" onClick={() => { setListStatus('all'); setListDate(''); setListDoctor(''); setListQuery(''); setListPage(1); }}>Xóa bộ lọc</button>
+          </div>
+          <div className="cl-booking-table-wrap"><table className="cl-booking-table">
+            <thead><tr><th>Mã</th><th>Ngày giờ</th><th>Bệnh nhân</th><th>Loại lịch / dịch vụ</th><th>Bác sĩ</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
+            <tbody>{listBookings.map((booking) => {
+              const session = booking.treatment_session_details;
+              const services = (booking.items || []).map((item) => item.service_name || item.service?.name).filter(Boolean).join(', ');
+              const canManageBooking = canBook && ['pending', 'confirmed'].includes(booking.status) && !booking.visit_id;
+              return <tr key={booking.id}>
+                <td><strong>#{booking.id}</strong></td>
+                <td><strong>{fmtTime(booking.appointment)}</strong><small>{new Date(booking.appointment).toLocaleDateString('vi-VN')}</small></td>
+                <td><strong>{booking.customer_name || 'Khách hàng'}</strong><small>{booking.customer_phone || 'Chưa có số điện thoại'}</small></td>
+                <td><strong>{booking.appointment_type_label || TYPES[booking.appointment_type] || 'Lịch hẹn'}</strong>
+                  <small>{booking.appointment_type === 'session' && session
+                    ? `${session.plan_title} · Buổi ${session.session_number}/${session.total_sessions} · ${session.session_status_label}`
+                    : services || 'Chưa có dịch vụ'}</small></td>
+                <td><strong>{booking.staff_name || 'Chưa phân công'}</strong></td>
+                <td><Pill tone={statusTone(booking.status)}>{booking.status_label}</Pill></td>
+                <td className="cl-booking-table-actions">
+                  {canManageBooking && booking.status === 'pending' && <Btn size="sm" kind="primary" onClick={() => runListAction(booking, 'confirm', 'Đã xác nhận lịch hẹn.')}>Xác nhận</Btn>}
+                  {canManageBooking && <Btn size="sm" onClick={() => setSel(booking)}>Chi tiết</Btn>}
+                  {canManageBooking && <Btn size="sm" onClick={() => runListAction(booking, 'cancel', 'Đã hủy lịch hẹn.')}>Hủy</Btn>}
+                  {user.role === 'manager' && booking.status === 'cancelled' && <Btn size="sm" kind="primary" onClick={() => setSel(booking)}>Khôi phục</Btn>}
+                  {!(canManageBooking || (user.role === 'manager' && booking.status === 'cancelled')) && <Btn size="sm" onClick={() => setSel(booking)}>Chi tiết</Btn>}
+                </td>
+              </tr>;
+            })}</tbody>
+          </table></div>
           {listPageCount > 1 && <nav className="cl-booking-pagination" aria-label="Phân trang lịch hẹn">
             <span>Trang {listPage}/{listPageCount}</span>
             <Btn size="sm" disabled={listPage <= 1} onClick={() => setListPage((page) => page - 1)}>Trước</Btn>
@@ -240,19 +268,25 @@ export default function CalendarPage() {
           </nav>}
         </> : <div className="cl-booking-list-empty"><strong>Không tìm thấy lịch hẹn</strong><span>Thử đổi trạng thái, ngày hẹn hoặc từ khóa tìm kiếm.</span></div>}
     </section>}
-    <BookingDetail booking={sel} canBook={canBook} onClose={closeBooking} onChanged={(msg) => { setSel(null); toast(msg); reload(); }} doctors={doctors} staffMembers={staff.data?.results || staff.data || []} />
+    <BookingDetail booking={sel} canBook={canBook} isManager={user.role === 'manager'} onClose={closeBooking} onChanged={(msg) => { setSel(null); toast(msg); reload(); }} doctors={doctors} staffMembers={staff.data?.results || staff.data || []} />
     <BookingForm init={creating} doctors={doctors} onClose={() => setCreating(null)} onSaved={() => { setCreating(null); toast('Đã đặt lịch hẹn.'); reload(); }} />
     {toastNode}
   </>;
 }
 
-function BookingDetail({ booking: b, canBook, onClose, onChanged, doctors, staffMembers }) {
+function BookingDetail({ booking: b, canBook, isManager, onClose, onChanged, doctors, staffMembers }) {
   const [err, setErr] = useState('');
   const [resched, setResched] = useState(null);
+  const [exceptionAction, setExceptionAction] = useState('');
+  const [exceptionReason, setExceptionReason] = useState('');
+  const [exceptionStaff, setExceptionStaff] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     setErr('');
     setResched(null);
+    setExceptionAction('');
+    setExceptionReason('');
+    setExceptionStaff('');
     if (!b) return undefined;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -273,17 +307,38 @@ function BookingDetail({ booking: b, canBook, onClose, onChanged, doctors, staff
   const canAct = canBook && ['pending', 'confirmed'].includes(b.status) && !b.visit_id;
   const sessionPolicy = b.treatment_session_policy;
   const sessionServiceId = Number(sessionPolicy?.service_id);
-  const sessionPerformers = (staffMembers || []).filter((person) =>
-    person.is_active &&
-    person.user_id &&
-    ['doctor', 'staff'].includes(person.account_role) &&
-    (person.service_ids_current || []).some((id) => Number(id) === sessionServiceId) &&
-    (sessionPolicy?.allow_staff_delegation || person.user_id === sessionPolicy?.doctor_user_id),
-  );
-  const assignmentOptions = b.appointment_type === 'session' ? sessionPerformers : doctors;
+  const bookingServiceIds = (b.items || []).map((item) => Number(item.service)).filter(Boolean);
+  const assignmentOptions = b.appointment_type === 'consult' || b.appointment_type === 'follow_up'
+    ? doctors
+    : (staffMembers || []).filter((person) => {
+      if (!person.is_active || !person.user_id || !['doctor', 'staff'].includes(person.account_role)) return false;
+      if (b.appointment_type === 'session' && !sessionPolicy?.allow_staff_delegation && person.user_id !== sessionPolicy?.doctor_user_id) return false;
+      const requiredServices = b.appointment_type === 'session' ? [sessionServiceId] : bookingServiceIds;
+      return requiredServices.length > 0 && requiredServices.every((id) => (person.service_ids_current || []).some((serviceId) => Number(serviceId) === id));
+    });
+  const rescheduleOptions = isManager ? assignmentOptions.filter((person) => person.id === b.staff) : assignmentOptions;
   const sessionDetails = b.treatment_session_details;
   const serviceNames = b.items?.map((item) => item.service_name || item.service?.name).filter(Boolean).join(', ');
   const closeWithBackdrop = (event) => { if (event.target === event.currentTarget) onClose(); };
+  const runManagerException = async () => {
+    const reason = exceptionReason.trim();
+    if (!reason || !exceptionAction) {
+      setErr('Vui lòng nhập lý do trước khi thực hiện.');
+      return;
+    }
+    if (exceptionAction === 'reassign' && !exceptionStaff) {
+      setErr('Vui lòng chọn nhân sự đủ điều kiện.');
+      return;
+    }
+    const message = exceptionAction === 'restore' ? 'Xác nhận khôi phục lịch này về trạng thái chờ xác nhận?' : 'Xác nhận điều phối lịch sang nhân sự đã chọn?';
+    if (!window.confirm(`${message}\n\nLý do: ${reason}`)) return;
+    const endpoint = exceptionAction === 'restore' ? 'restore' : 'reassign';
+    await run(() => api.post(`/bookings/${b.id}/${endpoint}/`, {
+      reason,
+      confirmed: true,
+      ...(exceptionAction === 'reassign' ? { staff: Number(exceptionStaff) } : {}),
+    }), exceptionAction === 'restore' ? 'Đã khôi phục lịch về trạng thái chờ xác nhận.' : 'Đã điều phối lại nhân sự.');
+  };
   return <div className="cl-drawer-backdrop" onMouseDown={closeWithBackdrop}>
     <aside className="cl-booking-drawer" role="dialog" aria-modal="true" aria-label={`Chi tiết lịch hẹn ${b.id}`}>
       <header className="cl-booking-drawer-header">
@@ -301,14 +356,29 @@ function BookingDetail({ booking: b, canBook, onClose, onChanged, doctors, staff
           <div className="span2"><dt>Dịch vụ</dt><dd>{serviceNames || (b.appointment_type === 'session' ? sessionDetails?.plan_title : null) || '—'}</dd></div>
           {b.note && <div className="span2"><dt>Ghi chú</dt><dd>{b.note}</dd></div>}
         </dl>
-        {b.history?.length > 0 && <section className="cl-booking-history"><h3>Lịch sử cập nhật</h3><ol>{b.history.map((item, index) => <li key={`${item.event}-${item.created_at}-${index}`}><strong>{item.event === 'rescheduled' ? 'Đổi lịch' : item.event === 'confirmed' ? 'Xác nhận' : item.event === 'checked_in' ? 'Check-in' : item.event === 'in_progress' ? 'Bắt đầu phục vụ' : item.event === 'cancelled' ? 'Hủy lịch' : item.event === 'no_show' ? 'Không đến' : item.event === 'completed' ? 'Hoàn thành lịch' : 'Tạo lịch'}</strong><span>{item.actor_name || 'Khách hàng'} · {new Date(item.created_at).toLocaleString('vi-VN')}</span>{item.old_appointment && item.new_appointment && item.old_appointment !== item.new_appointment && <small>{new Date(item.old_appointment).toLocaleString('vi-VN')} → {new Date(item.new_appointment).toLocaleString('vi-VN')}</small>}{item.reason && <small>{item.reason}</small>}</li>)}</ol></section>}
+        {b.history?.length > 0 && <section className="cl-booking-history"><h3>Lịch sử cập nhật</h3><ol>{b.history.map((item, index) => <li key={`${item.event}-${item.created_at}-${index}`}><strong>{item.event === 'rescheduled' ? 'Đổi lịch' : item.event === 'reassigned' ? 'Điều phối nhân sự' : item.event === 'restored' ? 'Khôi phục lịch' : item.event === 'confirmed' ? 'Xác nhận' : item.event === 'checked_in' ? 'Check-in' : item.event === 'in_progress' ? 'Bắt đầu phục vụ' : item.event === 'cancelled' ? 'Hủy lịch' : item.event === 'no_show' ? 'Không đến' : item.event === 'completed' ? 'Hoàn thành lịch' : 'Tạo lịch'}</strong><span>{item.actor_name || 'Khách hàng'} · {new Date(item.created_at).toLocaleString('vi-VN')}</span>{item.old_appointment && item.new_appointment && item.old_appointment !== item.new_appointment && <small>{new Date(item.old_appointment).toLocaleString('vi-VN')} → {new Date(item.new_appointment).toLocaleString('vi-VN')}</small>}{item.reason && <small>{item.reason}</small>}</li>)}</ol></section>}
         {b.patient ? <Link className="cl-link" to={`/benh-nhan/${b.patient}`}>Mở hồ sơ {b.patient_code}</Link> : <small className="cl-muted">Chưa liên kết hồ sơ bệnh nhân — sẽ tự tạo khi đón.</small>}
         {resched && <div className="cl-form-grid cl-drawer-reschedule">
           <Field label="Ngày"><input type="date" value={resched.date} onChange={(e) => setResched({ ...resched, date: e.target.value })} /></Field>
           <Field label="Giờ"><input type="time" step={900} value={resched.time} onChange={(e) => setResched({ ...resched, time: e.target.value })} /></Field>
-          <Field label={b.appointment_type === 'session' ? 'Người thực hiện' : 'Bác sĩ'} span="2"><select value={resched.staff || ''} disabled={!assignmentOptions.length} onChange={(e) => setResched({ ...resched, staff: Number(e.target.value) })}><option value="">— Chọn người đủ điều kiện —</option>{assignmentOptions.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select>{b.appointment_type === 'session' && <small className="cl-muted">{sessionPolicy?.allow_staff_delegation ? 'Bác sĩ phụ trách đã cho phép điều phối bác sĩ/nhân sự có dịch vụ phù hợp.' : 'Chỉ bác sĩ phụ trách liệu trình được thực hiện buổi này.'}</small>}</Field>
-          <Btn kind="primary" disabled={!resched.staff || !assignmentOptions.length || busy} onClick={() => run(() => api.post(`/bookings/${b.id}/reschedule/`, { appointment: new Date(`${resched.date}T${resched.time}`).toISOString(), staff: resched.staff }), 'Đã đổi lịch hẹn.')}>Lưu giờ mới</Btn>
+          <Field label={b.appointment_type === 'session' ? 'Người thực hiện' : 'Bác sĩ'} span="2"><select value={resched.staff || ''} disabled={!rescheduleOptions.length} onChange={(e) => setResched({ ...resched, staff: Number(e.target.value) })}><option value="">— Chọn người đủ điều kiện —</option>{rescheduleOptions.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select>{isManager && <small className="cl-muted">Thay đổi nhân sự cần dùng thao tác Điều phối ngoại lệ để ghi lý do và nhật ký.</small>}{b.appointment_type === 'session' && <small className="cl-muted">{sessionPolicy?.allow_staff_delegation ? 'Bác sĩ phụ trách đã cho phép điều phối bác sĩ/nhân sự có dịch vụ phù hợp.' : 'Chỉ bác sĩ phụ trách liệu trình được thực hiện buổi này.'}</small>}</Field>
+          <Btn kind="primary" disabled={!resched.staff || !rescheduleOptions.length || busy} onClick={() => run(() => api.post(`/bookings/${b.id}/reschedule/`, { appointment: new Date(`${resched.date}T${resched.time}`).toISOString(), staff: resched.staff }), 'Đã đổi lịch hẹn.')}>Lưu giờ mới</Btn>
         </div>}
+        {isManager && ['pending', 'confirmed', 'cancelled'].includes(b.status) && <section className="cl-manager-exceptions">
+          <h3>Điều phối ngoại lệ · Manager</h3>
+          <p>Thao tác được kiểm tra lại tình trạng lịch, chuyên môn và xung đột tại máy chủ.</p>
+          {!exceptionAction ? <div className="cl-manager-exception-buttons">
+            <Btn disabled={busy || !assignmentOptions.some((person) => person.id !== b.staff)} onClick={() => { setExceptionAction('reassign'); setExceptionStaff(assignmentOptions.find((person) => person.id !== b.staff)?.id || ''); }}>Điều phối nhân sự</Btn>
+            {b.status === 'cancelled' && <Btn kind="primary" disabled={busy} onClick={() => setExceptionAction('restore')}>Khôi phục lịch</Btn>}
+          </div> : <div className="cl-manager-exception-form">
+            {exceptionAction === 'reassign' && <Field label="Nhân sự đủ điều kiện"><select value={exceptionStaff} onChange={(event) => setExceptionStaff(event.target.value)}><option value="">— Chọn nhân sự —</option>{assignmentOptions.filter((person) => person.id !== b.staff).map((person) => <option key={person.id} value={person.id}>{person.name} · {person.position}</option>)}</select>{b.appointment_type === 'session' && <small className="cl-muted">{sessionPolicy?.allow_staff_delegation ? 'Chỉ chọn bác sĩ/nhân viên đủ điều kiện theo dịch vụ và chỉ định.' : 'Chỉ bác sĩ phụ trách liệu trình được phân công.'}</small>}</Field>}
+            <Field label="Lý do (bắt buộc)"><textarea rows="3" maxLength="200" value={exceptionReason} onChange={(event) => setExceptionReason(event.target.value)} placeholder="Ghi rõ lý do điều phối hoặc khôi phục lịch" /></Field>
+            <div className="cl-manager-exception-buttons">
+              <Btn disabled={busy} onClick={() => { setExceptionAction(''); setExceptionReason(''); }}>Đóng</Btn>
+              <Btn kind="primary" disabled={busy || !exceptionReason.trim() || (exceptionAction === 'reassign' && !exceptionStaff)} onClick={runManagerException}>{busy ? 'Đang xử lý…' : exceptionAction === 'restore' ? 'Xác nhận khôi phục' : 'Xác nhận điều phối'}</Btn>
+            </div>
+          </div>}
+        </section>}
       </div>
       {canAct && <footer className="cl-booking-drawer-footer">
       <Btn disabled={busy} onClick={() => {
@@ -334,7 +404,9 @@ function BookingForm({ init, doctors, onClose, onSaved }) {
   if (!init || !f) return null;
   const list = (services.data?.results || services.data || []).filter((s) => s.is_active);
   const toggle = (id) => setF((s) => ({ ...s, service_ids: s.service_ids.includes(id) ? s.service_ids.filter((x) => x !== id) : [...s.service_ids, id] }));
-  const total = list.filter((s) => f.service_ids.includes(s.id)).reduce((a, s) => a + s.price, 0);
+  const selectedServices = list.filter((s) => f.service_ids.includes(s.id));
+  const pricingComplete = selectedServices.every((service) => service.price != null && Number.isFinite(Number(service.price)));
+  const total = selectedServices.reduce((amount, service) => amount + (Number(service.price) || 0), 0);
   const mins = list.filter((s) => f.service_ids.includes(s.id)).reduce((a, s) => a + s.duration, 0);
   const submit = async () => {
     setBusy(true); setErr('');
@@ -353,11 +425,13 @@ function BookingForm({ init, doctors, onClose, onSaved }) {
       <Field label="Loại lịch hẹn"><select value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}>{Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
       <Field label="Ngày"><input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
       <Field label="Giờ"><input type="time" step={900} value={f.time} onChange={(e) => setF({ ...f, time: e.target.value })} /></Field>
-      <Field label={`Dịch vụ${mins ? ` · ${mins} phút` : ''}`} span="2">
-        <div className="cl-check-grid">{list.map((s) => <label key={s.id} className={f.service_ids.includes(s.id) ? 'on' : ''}>
-          <input type="checkbox" checked={f.service_ids.includes(s.id)} onChange={() => toggle(s.id)} /><span><strong>{s.name}</strong><small>{s.duration} phút · {new Intl.NumberFormat('vi-VN').format(s.price)}đ</small></span></label>)}</div></Field>
+      <div className="cl-field span2 cl-service-field">
+        <span id="booking-services-label">Dịch vụ{mins ? ` · ${mins} phút` : ''}</span>
+        <div className="cl-check-grid" role="group" aria-labelledby="booking-services-label">{list.map((s) => <label key={s.id} className={f.service_ids.includes(s.id) ? 'on' : ''}>
+          <input type="checkbox" checked={f.service_ids.includes(s.id)} onChange={() => toggle(s.id)} /><span className="cl-check-option-copy"><strong>{s.name}</strong><small>{s.duration} phút · {s.price == null ? 'Chưa có giá' : `${new Intl.NumberFormat('vi-VN').format(Number(s.price))}đ`}</small></span></label>)}</div>
+      </div>
       <Field label="Ghi chú" span="2"><input value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} placeholder="Ghi chú cho bác sĩ / lễ tân" /></Field>
     </div>
-    {total > 0 && <p className="cl-hint">Tạm tính: <b>{new Intl.NumberFormat('vi-VN').format(total)}đ</b></p>}
+    {selectedServices.length > 0 && pricingComplete && <p className="cl-hint">Tạm tính: <b>{new Intl.NumberFormat('vi-VN').format(total)}đ</b></p>}
   </Modal>;
 }

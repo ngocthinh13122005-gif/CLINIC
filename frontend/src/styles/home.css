@@ -1,4 +1,4 @@
-.home-page{--home-ink:#213b48;--home-text:#4d626b;--home-muted:#75858b;--home-teal:#287d84;--home-teal-dark:#1d646c;--home-line:#e4ebee;--home-soft:#f5f8fa;color:var(--home-text);background:#fff}
+.home-page{--home-ink:#243b4e;--home-text:#4c6070;--home-muted:#738292;--home-teal:#526d80;--home-teal-dark:#425c6f;--home-line:#dfe6eb;--home-soft:#f5f7f8;color:var(--home-text);background:#fff}
 .home-page *{box-sizing:border-box}
 .home-container{width:min(1160px,100%);margin:0 auto;padding:0 24px}
 .home-hero{background:linear-gradient(115deg,#f7fafb 0%,#f3f8fa 100%);border-bottom:1px solid #edf2f4}

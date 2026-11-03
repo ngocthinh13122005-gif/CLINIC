@@ -39,7 +39,14 @@ function InvoiceForm({ patient, visitId, invoice, onClose, onSaved }) {
   useEffect(() => {
     (async () => {
       if (invoice) { setItems(invoice.items); setDiscount(invoice.discount); setNote(invoice.note); setPaymentTerm(invoice.payment_term || 'immediate'); setDueDate(invoice.due_date || ''); }
-      else if (visitId) { try { const { data } = await api.get('/clinic/invoices/draft-from-visit/', { params: { visit: visitId } }); setItems(data.items); } catch (e) { setErr(errMsg(e)); } }
+      else {
+        try {
+          const { data: clinicSettings } = await api.get('/settings/clinic/');
+          const defaultDays = Number(clinicSettings.values?.['billing.default_due_days'] || 0);
+          setPaymentTerm(({ 0: 'immediate', 7: '7d', 15: '15d', 30: '30d' })[defaultDays] || 'immediate');
+        } catch { /* retain the safe immediate-payment default if settings are unavailable */ }
+        if (visitId) { try { const { data } = await api.get('/clinic/invoices/draft-from-visit/', { params: { visit: visitId } }); setItems(data.items); } catch (e) { setErr(errMsg(e)); } }
+      }
       setReady(true);
     })();
   }, [invoice, visitId]);

@@ -3,14 +3,17 @@ import json
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.test import override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient, APITestCase
 
+from accounts.models import ActivityLog
 from clinic.models import Patient, TreatmentPlan, TreatmentSession, Visit
-from core.models import Booking, Category, Conversation, ConversationSession, LeaveRequest, Service, Staff, Voucher, VoucherRedemption, WorkingHours, Message, AgentPresence, ChatSetting
+from core.models import Booking, BookingItem, Category, Conversation, ConversationSession, LeaveRequest, Service, Staff, Voucher, VoucherRedemption, WorkingHours, Message, AgentPresence, ChatSetting
+from core.booking_notifications import send_booking_email
 
 User = get_user_model()
 
@@ -28,6 +31,42 @@ class AkinaClinicApiIntegrationTests(APITestCase):
         self.service = Service.objects.create(
             category=self.category, name='Facial test', price=350000, duration=60
         )
+
+    @override_settings(
+        EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+        FRONTEND_BASE_URL='https://clinic.example',
+    )
+    def test_booking_email_has_readable_contrast_and_does_not_show_unknown_consult_fee_as_zero(self):
+        booking = Booking.objects.create(
+            appointment=self.slot(),
+            appointment_type=Booking.APPOINTMENT_TYPE_CONSULT,
+            guest_name='<Khách Test>',
+            guest_email='guest@example.com',
+        )
+
+        self.assertTrue(send_booking_email(booking.pk))
+        sent_email = mail.outbox[-1]
+        html_body = sent_email.alternatives[0][0]
+
+        self.assertIn('bgcolor="#0a5964"', html_body)
+        self.assertIn('color:#ffffff', html_body)
+        self.assertIn('Phí khám được thông báo sau khi bác sĩ tư vấn', html_body)
+        self.assertNotIn('0đ', html_body)
+        self.assertIn('&lt;Khách Test&gt;', html_body)
+        self.assertEqual(len(sent_email.attachments), 1)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_booking_email_describes_treatment_session_cost_as_included_in_plan(self):
+        booking = Booking.objects.create(
+            appointment=self.slot(),
+            appointment_type=Booking.APPOINTMENT_TYPE_SESSION,
+            guest_name='Khách Test',
+            guest_email='guest@example.com',
+        )
+
+        self.assertTrue(send_booking_email(booking.pk))
+
+        self.assertIn('Đã bao gồm trong gói liệu trình', mail.outbox[-1].alternatives[0][0])
 
     def make_staff(self):
         from datetime import time as _t
@@ -282,13 +321,19 @@ class AkinaClinicApiIntegrationTests(APITestCase):
             {'appointment': booking.appointment.isoformat(), 'staff': nurse.pk},
             format='json',
         )
-        self.assertEqual(unapproved_assignment.status_code, 409, unapproved_assignment.data)
+        self.assertEqual(unapproved_assignment.status_code, 400, unapproved_assignment.data)
+        unapproved_exception = self.client.post(
+            f'/api/bookings/{booking.pk}/reassign/',
+            {'staff': nurse.pk, 'reason': 'Phân công ngoại lệ.', 'confirmed': True},
+            format='json',
+        )
+        self.assertEqual(unapproved_exception.status_code, 409, unapproved_exception.data)
 
         session.allow_staff_delegation = True
         session.save(update_fields=['allow_staff_delegation'])
         assigned = self.client.post(
-            f'/api/bookings/{booking.pk}/reschedule/',
-            {'appointment': booking.appointment.isoformat(), 'staff': nurse.pk},
+            f'/api/bookings/{booking.pk}/reassign/',
+            {'staff': nurse.pk, 'reason': 'Bác sĩ cho phép điều dưỡng thực hiện buổi.', 'confirmed': True},
             format='json',
         )
         self.assertEqual(assigned.status_code, 200, assigned.data)
@@ -312,7 +357,7 @@ class AkinaClinicApiIntegrationTests(APITestCase):
         self.assertEqual(completed.status_code, 200, completed.data)
         session.refresh_from_db()
         self.assertEqual(session.performed_by, nurse_user)
-        self.assertEqual(queue_email.call_count, 3)
+        self.assertEqual(queue_email.call_count, 2)
 
     @patch('api.views._queue_email')
     def test_consultation_can_be_booked_without_selecting_a_service(self, queue_email):
@@ -655,6 +700,7 @@ class AkinaClinicApiIntegrationTests(APITestCase):
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data['count'], 1)
         self.assertEqual([row['id'] for row in response.data['results']], [matching.pk])
+        self.assertEqual(response.data['status_counts']['pending'], 1)
 
         page_one = self.client.get('/api/bookings/', {
             'view': 'list',
@@ -674,6 +720,7 @@ class AkinaClinicApiIntegrationTests(APITestCase):
             'page': 2,
         })
         self.assertEqual(page_one.data['count'], 2)
+        self.assertEqual(page_one.data['status_counts']['pending'], 2)
         self.assertIsNotNone(page_one.data['next'])
         self.assertEqual([row['id'] for row in page_one.data['results']], [matching.pk])
         self.assertEqual([row['id'] for row in page_two.data['results']], [next_pending.pk])
@@ -691,6 +738,126 @@ class AkinaClinicApiIntegrationTests(APITestCase):
 
         self.assertEqual(invalid_status.status_code, 400)
         self.assertEqual(invalid_date.status_code, 400)
+
+    def test_manager_can_restore_cancelled_booking_with_reason_and_audit(self):
+        staff = self.make_staff()
+        booking = Booking.objects.create(
+            user=self.customer,
+            staff=staff,
+            appointment=self.slot(days=3),
+            status=Booking.CANCELLED,
+        )
+        BookingItem.objects.create(booking=booking, service=self.service, price=self.service.price)
+        self.auth(self.manager)
+
+        response = self.client.post(f'/api/bookings/{booking.pk}/restore/', {
+            'reason': 'Hủy nhầm khi xác nhận.',
+            'confirmed': True,
+        }, format='json')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        booking.refresh_from_db()
+        self.assertEqual(booking.status, Booking.PENDING)
+        self.assertEqual(booking.history.get(event='restored').reason, 'Hủy nhầm khi xác nhận.')
+        self.assertTrue(ActivityLog.objects.filter(
+            user=self.manager, action='booking.restored', detail__contains=f'booking={booking.pk}',
+        ).exists())
+
+    def test_manager_restore_rejects_missing_reason_and_slot_conflict(self):
+        staff = self.make_staff()
+        appointment = self.slot(days=3)
+        booking = Booking.objects.create(
+            user=self.customer, staff=staff, appointment=appointment, status=Booking.CANCELLED,
+        )
+        BookingItem.objects.create(booking=booking, service=self.service, price=self.service.price)
+        Booking.objects.create(
+            user=self.customer, staff=staff, appointment=appointment, status=Booking.CONFIRMED,
+        )
+        self.auth(self.manager)
+
+        missing_reason = self.client.post(
+            f'/api/bookings/{booking.pk}/restore/',
+            {'confirmed': True},
+            format='json',
+        )
+        conflict = self.client.post(
+            f'/api/bookings/{booking.pk}/restore/',
+            {'reason': 'Khách yêu cầu khôi phục.', 'confirmed': True},
+            format='json',
+        )
+
+        self.assertEqual(missing_reason.status_code, 400)
+        self.assertEqual(conflict.status_code, 409)
+        booking.refresh_from_db()
+        self.assertEqual(booking.status, Booking.CANCELLED)
+        self.assertFalse(ActivityLog.objects.filter(action='booking.restored').exists())
+
+    def test_manager_reassignment_requires_role_reason_confirmation_and_qualified_staff(self):
+        current_staff = self.make_staff()
+        doctor_user = User.objects.create_user(
+            username='booking-doctor-alternate', password='pass12345', role='doctor',
+        )
+        alternate_staff = Staff.objects.create(user=doctor_user, name='Bác sĩ dự phòng', position='Bác sĩ')
+        alternate_staff.services.add(self.service)
+        from datetime import time as _t
+        for weekday in range(7):
+            WorkingHours.objects.create(
+                staff=alternate_staff, weekday=weekday, start_time=_t(8, 0), end_time=_t(20, 0),
+            )
+        unqualified_user = User.objects.create_user(
+            username='booking-unqualified', password='pass12345', role='staff',
+        )
+        unqualified_staff = Staff.objects.create(user=unqualified_user, name='Nhân viên không phù hợp', position='Nhân viên')
+        for weekday in range(7):
+            WorkingHours.objects.create(
+                staff=unqualified_staff, weekday=weekday, start_time=_t(8, 0), end_time=_t(20, 0),
+            )
+        booking = Booking.objects.create(
+            user=self.customer,
+            staff=current_staff,
+            appointment=self.slot(days=3),
+            status=Booking.CONFIRMED,
+        )
+        BookingItem.objects.create(booking=booking, service=self.service, price=self.service.price)
+        consultant = User.objects.create_user(
+            username='booking-consultant', password='pass12345', role='consultant',
+        )
+        self.auth(consultant)
+        denied = self.client.post(f'/api/bookings/{booking.pk}/reassign/', {
+            'staff': alternate_staff.pk, 'reason': 'Điều phối ngoại lệ.', 'confirmed': True,
+        }, format='json')
+        self.assertEqual(denied.status_code, 403)
+
+        self.auth(self.manager)
+        bypass_confirmation = self.client.post(f'/api/bookings/{booking.pk}/reschedule/', {
+            'appointment': self.slot(days=4).isoformat(),
+            'staff': alternate_staff.pk,
+        }, format='json')
+        missing_reason = self.client.post(f'/api/bookings/{booking.pk}/reassign/', {
+            'staff': alternate_staff.pk, 'confirmed': True,
+        }, format='json')
+        no_confirmation = self.client.post(f'/api/bookings/{booking.pk}/reassign/', {
+            'staff': alternate_staff.pk, 'reason': 'Điều phối ngoại lệ.',
+        }, format='json')
+        unqualified = self.client.post(f'/api/bookings/{booking.pk}/reassign/', {
+            'staff': unqualified_staff.pk, 'reason': 'Thử phân công.', 'confirmed': True,
+        }, format='json')
+        self.assertEqual(bypass_confirmation.status_code, 400)
+        self.assertEqual(missing_reason.status_code, 400)
+        self.assertEqual(no_confirmation.status_code, 400)
+        self.assertEqual(unqualified.status_code, 409)
+
+        reassigned = self.client.post(f'/api/bookings/{booking.pk}/reassign/', {
+            'staff': alternate_staff.pk, 'reason': 'Bác sĩ chính nghỉ đột xuất.', 'confirmed': True,
+        }, format='json')
+        self.assertEqual(reassigned.status_code, 200, reassigned.data)
+        booking.refresh_from_db()
+        self.assertEqual(booking.staff_id, alternate_staff.pk)
+        self.assertEqual(booking.status, Booking.CONFIRMED)
+        self.assertEqual(booking.history.get(event='reassigned').reason, 'Bác sĩ chính nghỉ đột xuất.')
+        self.assertTrue(ActivityLog.objects.filter(
+            user=self.manager, action='booking.reassigned', detail__contains=f'booking={booking.pk}',
+        ).exists())
 
     def test_customer_booking_includes_treatment_plan_session_details(self):
         patient = Patient.objects.create(
@@ -1204,6 +1371,33 @@ class AkinaClinicApiIntegrationTests(APITestCase):
         self.assertEqual(generate.call_args.kwargs['model'], 'gemini-3.5-flash-lite')
         self.assertIsNotNone(generate.call_args.kwargs['json_schema'])
         self.assertIn('Hotline chung: 0919 005 523', generate.call_args.kwargs['system_instruction'])
+        self.assertIn('Trò chuyện tự nhiên, thân thiện', generate.call_args.kwargs['system_instruction'])
+        self.assertIn('không tự chuyển sang đặt lịch', generate.call_args.kwargs['system_instruction'])
+        self.assertEqual(generate.call_args.kwargs['max_tokens'], 700)
+
+    @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
+    @patch('api.chatbot.ai._generate')
+    def test_chatbot_agent_uses_recent_conversation_for_follow_up_questions(self, generate):
+        generate.return_value = json.dumps({
+            'intent': 'answer',
+            'reply': 'Có, dịch vụ đó thường mất khoảng 45 phút.',
+            'reason': 'Trả lời câu hỏi tiếp nối dựa trên hội thoại.',
+        })
+
+        first = self.client.post(
+            '/api/chatbot/message/',
+            {'visitor_key': self.KEY, 'text': 'Điều trị mụn viêm mất bao lâu?'},
+            format='json',
+        )
+        self.assertEqual(first.status_code, 200, first.data)
+        self.client.post(
+            '/api/chatbot/message/',
+            {'visitor_key': self.KEY, 'text': 'Còn cần nghỉ dưỡng không?'},
+            format='json',
+        )
+
+        self.assertIn('Điều trị mụn viêm mất bao lâu?', generate.call_args.args[0][0]['text'])
+        self.assertIn('Còn cần nghỉ dưỡng không?', generate.call_args.args[0][0]['text'])
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
     @patch('api.chatbot.ai._generate')
@@ -1403,6 +1597,28 @@ class AkinaClinicApiIntegrationTests(APITestCase):
         self.assertEqual(Conversation.objects.count(), 1)
         self.assertIn('Mở cuộc trò chuyện với CSKH', self._bot(text='tôi muốn gặp bác sĩ'))
         self.assertEqual(Conversation.objects.count(), 1)
+
+    @patch.dict('os.environ', {'GEMINI_API_KEY': '', 'GOOGLE_API_KEY': ''})
+    def test_chatbot_understands_natural_question_about_my_upcoming_appointments(self):
+        appointment = self.slot()
+        booking = Booking.objects.create(
+            user=self.customer,
+            appointment=appointment,
+            guest_name='',
+            guest_phone='',
+            total=0,
+        )
+        BookingItem.objects.create(booking=booking, service=self.service, price=0)
+
+        guest_reply = self._bot(text='tôi đang có lịch hẹn nào')
+        self.assertIn('đăng nhập', guest_reply)
+        self.assertNotIn(booking.confirm_code, guest_reply)
+
+        self.auth(self.customer)
+        customer_reply = self._bot(text='tôi đang có lịch hẹn nào')
+        self.assertIn('Lịch hẹn sắp tới của bạn', customer_reply)
+        self.assertIn(appointment.strftime('%H:%M %d/%m/%Y'), customer_reply)
+        self.assertIn(self.service.name, customer_reply)
 
     def test_payroll_uses_staff_commission_rate_and_exposes_basis(self):
         staff_user = User.objects.create_user(username='doctor-commission', password='pass12345', role='doctor')

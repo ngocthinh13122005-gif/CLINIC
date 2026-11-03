@@ -340,6 +340,9 @@ class VisitViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Crea
             raise serializers.ValidationError({'doctor': 'Người được chọn không phải bác sĩ.'})
 
     def perform_create(self, serializer):
+        from core.operational_settings import clinic_setting
+        if not clinic_setting('reception.allow_walk_ins'):
+            raise serializers.ValidationError({'detail': 'Phòng khám hiện không tiếp nhận lượt khám chưa có lịch hẹn.'})
         patient = serializer.validated_data['patient']
         if Visit.objects.filter(patient=patient, status__in=[Visit.WAITING, Visit.IN_CONSULT]).exists():
             raise serializers.ValidationError({'detail': 'Bệnh nhân này đang có một lượt khám chưa kết thúc.'})
@@ -436,15 +439,9 @@ class VisitViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Crea
             if old_status != Booking.COMPLETED:
                 v.booking.status = Booking.COMPLETED
                 update_fields = ['status']
-                if v.booking.user_id and not v.booking.loyalty_awarded:
-                    points = (
-                        max(1, int(v.booking.total / max(1, settings.LOYALTY_VND_PER_POINT)))
-                        if v.booking.total else 0
-                    )
-                    v.booking.user.loyalty_points = (v.booking.user.loyalty_points or 0) + points
-                    v.booking.user.save(update_fields=['loyalty_points'])
-                    v.booking.loyalty_awarded = True
-                    v.booking.loyalty_points_earned = points
+                from core.loyalty import award_booking_points
+                award_booking_points(v.booking)
+                if v.booking.user_id:
                     update_fields.extend(['loyalty_awarded', 'loyalty_points_earned'])
                 v.booking.save(update_fields=update_fields)
                 BookingHistory.objects.create(
@@ -494,6 +491,10 @@ class VisitViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Crea
             return deny('Lịch hẹn đã hủy.', 400)
         if b.status in {Booking.COMPLETED, Booking.NO_SHOW}:
             return deny('Lịch hẹn đã kết thúc, không thể check-in.', 400)
+        from core.operational_settings import clinic_setting
+        early_minutes = int(clinic_setting('reception.checkin_early_minutes'))
+        if early_minutes and timezone.now() < b.appointment - timedelta(minutes=early_minutes):
+            return deny(f'Bệnh nhân có thể check-in từ {early_minutes} phút trước giờ hẹn.', 400)
         if Visit.objects.filter(booking=b).exists():
             return deny('Lịch hẹn này đã được tiếp đón.', 400)
         phone = norm_phone(b.customer_phone)

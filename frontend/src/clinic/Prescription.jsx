@@ -9,17 +9,21 @@ import { Btn, Card, Empty, Field, Loading, Pill, errMsg, fmtDate, fmtDateTime, m
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-export function printHtml(title, body, css = '') {
+export async function printHtml(title, body, css = '') {
   const w = window.open('', '_blank', 'width=820,height=1000');
   if (!w) return;
+  let clinic = { brand_name: CLINIC.name, address: CLINIC.address, hotline: CLINIC.phone, license: CLINIC.license };
+  try { clinic = { ...clinic, ...(await api.get('/clinic/profile/')).data }; } catch { /* use configured fallback if the endpoint is unavailable */ }
+  const header = `<b>${esc(clinic.brand_name || CLINIC.name)}</b>${clinic.legal_name ? `<br>${esc(clinic.legal_name)}` : ''}<br>${esc(clinic.address || CLINIC.address)} · ĐT: ${esc(clinic.hotline || CLINIC.phone)}${clinic.license ? `<br>Giấy phép HĐ: ${esc(clinic.license)}` : ''}${clinic.tax_code ? ` · Mã số thuế: ${esc(clinic.tax_code)}` : ''}${clinic.medical_director ? `<br>Người chịu trách nhiệm chuyên môn: ${esc(clinic.medical_director)}` : ''}`;
+  w.document.open();
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>
-  body{font-family:Arial,sans-serif;color:#10253a;padding:34px 44px;font-size:14px;line-height:1.55}h1{text-align:center;margin:0 0 4px;font-size:22px}
-  .sub{text-align:center;color:#5b6b7c;margin-bottom:20px}h3{margin:16px 0 4px;font-size:13px;text-transform:uppercase;color:#0a5f6c;letter-spacing:.05em}
-  table{width:100%;border-collapse:collapse;margin-top:6px}td,th{border:1px solid #d5dee6;padding:6px 8px;text-align:left;font-size:13px}
-  .meta{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;border:1px solid #d5dee6;border-radius:8px;padding:10px 14px}.r{text-align:right}
-  .lh{text-align:center;font-size:12px;color:#34495e;border-bottom:2px solid #0a5f6c;padding-bottom:8px;margin-bottom:14px}.lh b{font-size:15px;color:#0a5f6c;letter-spacing:.04em}
-  .sign{margin-top:36px;text-align:right}.tot td{font-weight:700;background:#f4f8fa}${css}</style></head><body><div class="lh"><b>${esc(CLINIC.name)}</b><br>${esc(CLINIC.address)} · ĐT: ${esc(CLINIC.phone)}<br>Giấy phép HĐ: ${esc(CLINIC.license)}</div>${body}</body></html>`);
-  w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
+    body{font-family:Arial,sans-serif;color:#10253a;padding:34px 44px;font-size:14px;line-height:1.55}h1{text-align:center;margin:0 0 4px;font-size:22px}
+    .sub{text-align:center;color:#5b6b7c;margin-bottom:20px}h3{margin:16px 0 4px;font-size:13px;text-transform:uppercase;color:#0a5f6c;letter-spacing:.05em}
+    table{width:100%;border-collapse:collapse;margin-top:6px}td,th{border:1px solid #d5dee6;padding:6px 8px;text-align:left;font-size:13px}
+    .meta{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;border:1px solid #d5dee6;border-radius:8px;padding:10px 14px}.r{text-align:right}
+    .lh{text-align:center;font-size:12px;color:#34495e;border-bottom:2px solid #0a5f6c;padding-bottom:8px;margin-bottom:14px}.lh b{font-size:15px;color:#0a5f6c;letter-spacing:.04em}
+    .sign{margin-top:36px;text-align:right}.tot td{font-weight:700;background:#f4f8fa}${css}</style></head><body><div class="lh">${header}</div>${body}</body></html>`);
+  w.document.close(); w.focus(); setTimeout(() => { if (!w.closed) w.print(); }, 300);
 }
 
 export function printPrescription(rx, patient) {

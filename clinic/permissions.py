@@ -1,4 +1,5 @@
 from rest_framework.permissions import BasePermission
+from core.role_permissions import view_action_allowed
 
 CLINIC_ROLES = {'manager', 'doctor', 'consultant', 'staff'}  # sysadmin là tài khoản kỹ thuật, không truy cập dữ liệu y tế
 CLINICAL_READ = {'doctor', 'manager'}          # được xem nội dung bệnh án
@@ -13,9 +14,11 @@ def role_of(request):
 
 class _RoleSet(BasePermission):
     roles = set()
+    module = ''
+    action = None
 
     def has_permission(self, request, view):
-        return role_of(request) in self.roles
+        return role_of(request) in self.roles and view_action_allowed(request, view, self.module, self.action)
 
 
 class IsClinicStaff(_RoleSet):
@@ -24,11 +27,14 @@ class IsClinicStaff(_RoleSet):
 
 class CanReadClinical(_RoleSet):
     roles = CLINICAL_READ
+    module, action = 'clinical', 'view'
 
 
 class CanWriteClinical(_RoleSet):
     roles = CLINICAL_WRITE
+    module, action = 'clinical', 'update'
 
 
 class CanReception(_RoleSet):
     roles = RECEPTION
+    module = 'reception'

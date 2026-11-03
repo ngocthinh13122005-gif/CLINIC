@@ -2,10 +2,10 @@ import { createTheme } from '@mui/material/styles';
 export const theme=createTheme({
   palette:{
     mode:'light',
-    primary:{main:'#0d7a8a',dark:'#0a5f6c',light:'#e5f3f5'},
-    background:{default:'#f5f8fa',paper:'#ffffff'},
-    text:{primary:'#10253a',secondary:'#6b7c8d'},
-    divider:'#e3eaf0'
+    primary:{main:'#526d80',dark:'#425c6f',light:'#eaf0f3'},
+    background:{default:'#f5f7f8',paper:'#ffffff'},
+    text:{primary:'#243b4e',secondary:'#738292'},
+    divider:'#dfe6eb'
   },
   typography:{fontFamily:'"Inter","Segoe UI", Roboto, Arial, sans-serif',fontSize:14,htmlFontSize:16,body1:{fontSize:14},body2:{fontSize:13},caption:{fontSize:12},button:{textTransform:'none',fontSize:14}},
   shape:{borderRadius:12},

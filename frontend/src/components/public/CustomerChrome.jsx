@@ -9,6 +9,13 @@ import MenuRounded from '@mui/icons-material/MenuRounded';
 import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded';
 import SpaOutlined from '@mui/icons-material/SpaOutlined';
 import NotificationBell from '../NotificationBell';
+import api from '../../api/client';
+
+function useClinicProfile() {
+  const [profile, setProfile] = useState(null);
+  useEffect(() => { let active = true; api.get('/clinic/profile/').then(({ data }) => { if (active) setProfile(data); }).catch(() => {}); return () => { active = false; }; }, []);
+  return profile;
+}
 
 const ACCOUNT_LINKS = [
   { to: '/ho-so-suc-khoe', label: 'Hồ sơ sức khỏe' },
@@ -18,6 +25,7 @@ const ACCOUNT_LINKS = [
 ];
 
 export function CustomerHeader({ user, onLogout }) {
+  const clinic = useClinicProfile();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef(null);
@@ -49,14 +57,14 @@ export function CustomerHeader({ user, onLogout }) {
     <div className="ak-utility">
       <div className="ak-header-inner">
         <span><SpaOutlined/> Phòng khám Da liễu &amp; Thẩm mỹ chuẩn y khoa</span>
-        <a href="tel:0919005523"><HeadsetMicOutlined/> Tư vấn: <strong>0919 005 523</strong></a>
+        <a href={`tel:${(clinic?.hotline || '0919 005 523').replace(/[^+\d]/g, '')}`}><HeadsetMicOutlined/> Tư vấn: <strong>{clinic?.hotline || '0919 005 523'}</strong></a>
       </div>
     </div>
     <div className="ak-mainbar">
       <div className="ak-header-inner">
         <Link to="/" className="ak-brand" onClick={closeMenus} aria-label="AkinaClinic - trang chủ">
           <span className="ak-brand-mark">A</span>
-          <span className="ak-brand-copy"><strong>AkinaClinic</strong><small>DA LIỄU &amp; THẨM MỸ</small></span>
+          <span className="ak-brand-copy"><strong>{clinic?.brand_name || 'AkinaClinic'}</strong><small>DA LIỄU &amp; THẨM MỸ</small></span>
         </Link>
         <button className="ak-mobile-toggle" type="button" onClick={() => setMobileOpen((value) => !value)}
           aria-label={mobileOpen ? 'Đóng menu' : 'Mở menu'} aria-expanded={mobileOpen}>
@@ -109,12 +117,13 @@ export function CustomerHeader({ user, onLogout }) {
 }
 
 export function CustomerFooter() {
+  const clinic = useClinicProfile();
   return <footer className="ak-footer">
     <div className="ak-footer-main">
-      <Link to="/" className="ak-footer-brand"><span className="ak-brand-mark">A</span><strong>AkinaClinic</strong></Link>
+      <Link to="/" className="ak-footer-brand"><span className="ak-brand-mark">A</span><strong>{clinic?.brand_name || 'AkinaClinic'}</strong></Link>
       <p>Chăm sóc da liễu chuẩn y khoa, đồng hành cùng vẻ đẹp khỏe mạnh và bền vững.</p>
-      <a href="tel:0919005523" className="ak-footer-hotline"><HeadsetMicOutlined/>0919 005 523</a>
+      <a href={`tel:${(clinic?.hotline || '0919 005 523').replace(/[^+\d]/g, '')}`} className="ak-footer-hotline"><HeadsetMicOutlined/>{clinic?.hotline || '0919 005 523'}</a>
     </div>
-    <div className="ak-footer-bottom"><span>© AkinaClinic · Phòng khám da liễu &amp; thẩm mỹ</span><span>An toàn · Chất lượng · Tận tâm</span></div>
+    <div className="ak-footer-bottom"><span>© {clinic?.brand_name || 'AkinaClinic'} · Phòng khám da liễu &amp; thẩm mỹ</span><span>An toàn · Chất lượng · Tận tâm</span></div>
   </footer>;
 }

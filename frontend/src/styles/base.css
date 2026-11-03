@@ -1,5 +1,21 @@
 /* Thang chữ và font dùng chung toàn hệ thống: mọi nơi dùng các biến này, không đặt cỡ chữ tùy ý. */
 :root{
+  --ak-primary:#526d80;
+  --ak-primary-hover:#425c6f;
+  --ak-primary-active:#354d60;
+  --ak-primary-soft:#eaf0f3;
+  --ak-text:#243b4e;
+  --ak-text-secondary:#4c6070;
+  --ak-text-muted:#738292;
+  --ak-bg:#f5f7f8;
+  --ak-surface:#fff;
+  --ak-surface-secondary:#f1f4f5;
+  --ak-border:#dfe6eb;
+  --ak-border-strong:#cbd5dc;
+  --ak-success:#287d58;
+  --ak-warning:#a86b21;
+  --ak-danger:#be4545;
+  --ak-info:#526d80;
   --font:"Inter","Segoe UI",Roboto,Arial,sans-serif;
   --fs-xs:12px;   /* nhãn phụ, thời gian, badge */
   --fs-sm:13px;   /* mô tả, bảng, nút nhỏ */

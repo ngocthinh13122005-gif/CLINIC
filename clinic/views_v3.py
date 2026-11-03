@@ -21,11 +21,12 @@ from .serializers import uname
 from .views import deny
 from rest_framework.permissions import BasePermission
 from .views_v2 import perm
+from core.role_permissions import view_action_allowed
 
 
 def pc(roles):
     """Lớp quyền theo vai trò (dùng cho decorator cần class, không phải instance)."""
-    return type('RolePC', (BasePermission,), {'has_permission': lambda self, request, view: role_of(request) in roles})
+    return type('RolePC', (BasePermission,), {'has_permission': lambda self, request, view: role_of(request) in roles and view_action_allowed(request, view)})
 
 MANAGER = {'manager'}
 FRONT = {'manager', 'consultant'}
@@ -96,7 +97,10 @@ class LotViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         if p.get('all') != '1':
             qs = qs.filter(quantity__gt=0)
         if p.get('expiring'):
-            qs = qs.filter(expiry_date__isnull=False, expiry_date__lte=timezone.localdate() + timedelta(days=_int(p['expiring'], 90)))
+            from core.operational_settings import clinic_setting
+            warning_days = int(clinic_setting('inventory.expiry_warning_days'))
+            requested_days = warning_days if p['expiring'] == 'default' else _int(p['expiring'], warning_days)
+            qs = qs.filter(expiry_date__isnull=False, expiry_date__lte=timezone.localdate() + timedelta(days=requested_days))
         return qs.order_by(F('expiry_date').asc(nulls_last=True), 'id')
 
     @action(detail=True, methods=['post'], permission_classes=[pc(MANAGER)])
@@ -333,13 +337,16 @@ def stock_card(request):
 @permission_classes([IsClinicStaff])
 def inventory_overview(request):
     today = timezone.localdate()
+    from core.operational_settings import clinic_setting
+    warning_days = int(clinic_setting('inventory.expiry_warning_days'))
     meds = Medicine.objects.filter(is_active=True)
     lots = StockLot.objects.filter(quantity__gt=0)
     return Response({
         'items': meds.count(),
         'low': meds.filter(stock__lte=F('min_stock')).count(),
         'value': sum(m.stock * m.cost for m in meds) if role_of(request) in MANAGER else None,
-        'expiring': lots.filter(expiry_date__isnull=False, expiry_date__lte=today + timedelta(days=90), expiry_date__gte=today).count(),
+        'expiring': lots.filter(expiry_date__isnull=False, expiry_date__lte=today + timedelta(days=warning_days), expiry_date__gte=today).count(),
+        'expiry_warning_days': warning_days,
         'expired': lots.filter(expiry_date__isnull=False, expiry_date__lt=today).count(),
         'open_orders': PurchaseOrder.objects.filter(status__in=[PurchaseOrder.ORDERED, PurchaseOrder.PARTIAL]).count(),
         'open_counts': StockCount.objects.filter(status=StockCount.DRAFT).count(),

@@ -4,6 +4,14 @@ from .firebase import mirror_notification, publish_system_event
 
 User = get_user_model()
 
+OPTIONAL_NOTIFICATION_SETTINGS = {
+    'profile.updated': 'notification.profile_updates',
+    'payroll.updated': 'notification.payroll_updates',
+    'loyalty.adjusted': 'notification.loyalty_updates',
+    'loyalty.tier': 'notification.loyalty_updates',
+    'marketing.campaign': 'notification.marketing_updates',
+}
+
 
 def notify_users(users, event_type, title, message='', data=None):
     seen = set()
@@ -12,6 +20,13 @@ def notify_users(users, event_type, title, message='', data=None):
         if not user or not getattr(user, 'pk', None) or user.pk in seen:
             continue
         seen.add(user.pk)
+        # Only optional notices have a personal switch. Appointment, clinical,
+        # inbox, safety, and approval notifications always remain enabled.
+        preference = OPTIONAL_NOTIFICATION_SETTINGS.get(event_type)
+        if preference:
+            from core.operational_settings import setting_value
+            if not setting_value('user', preference, user=user):
+                continue
         item = Notification.objects.create(
             user=user, event_type=event_type, title=title, message=message, data=data or {},
         )

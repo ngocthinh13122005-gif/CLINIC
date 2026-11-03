@@ -1,6 +1,6 @@
 /* AkinaClinic Clinic — giao diện trắng sáng, tông xanh teal y khoa */
-.cl-app{--bg:#f4f7f9;--surf:#fff;--ink:#14283b;--ink2:#354b5f;--muted:#6c7e8f;--line:#dde6ec;--line2:#edf2f5;
-  --pri:#0f7280;--pri-d:#0a5964;--pri-soft:#e7f2f4;--pri-ink:#0a5660;--red:#b54747;--red-soft:#f8eaea;
+.cl-app{--bg:#f5f7f8;--surf:#fff;--ink:#243b4e;--ink2:#4c6070;--muted:#738292;--line:#dfe6eb;--line2:#edf1f3;
+  --pri:#526d80;--pri-d:#425c6f;--pri-soft:#eaf0f3;--pri-ink:#354d60;--red:#b54747;--red-soft:#f8eaea;
   --amber:#506b80;--amber-soft:#eaf0f4;--blue:#315f9e;--blue-soft:#e8eef7;--green:#237453;--green-soft:#e3f2ea;--gray-soft:#eef3f6;
   --r:14px;--sh:0 1px 2px rgba(16,37,58,.04),0 4px 14px rgba(16,37,58,.05);
   font-family:"Be Vietnam Pro","Inter","Segoe UI",Roboto,Arial,sans-serif;color:var(--ink);background:var(--bg);min-height:100vh;font-size:14px;line-height:1.5}
@@ -12,12 +12,12 @@
 /* ---- khung ---- */
 .cl-side{position:fixed;inset:0 auto 0 0;width:264px;background:var(--surf);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:18px 14px;z-index:60;overflow-y:auto}
 .cl-brand{display:flex;gap:11px;align-items:center;text-decoration:none;color:var(--ink);padding:4px 8px 18px}
-.cl-brand-mark{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,#0d7a8a,#0a5f6c);color:#fff;display:grid;place-items:center;font-weight:700;font-size:19px}
+.cl-brand-mark{width:38px;height:38px;border-radius:11px;background:#526d80;color:#fff;display:grid;place-items:center;font-weight:700;font-size:19px}
 .cl-brand strong{display:block;font-size:17px;letter-spacing:.025em}.cl-brand small{display:block;color:var(--muted);font-size:12px;margin-top:-2px}
 .cl-side nav{display:flex;flex-direction:column;gap:2px;flex:1}
 .cl-nav-section{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.095em;color:#8393a2;padding:17px 10px 6px}
-.cl-nav{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:10px;color:var(--ink2);text-decoration:none;font-size:13.5px;font-weight:500;transition:background .12s,color .12s}
-.cl-nav svg{font-size:20px;color:#7c8c9c}.cl-nav:hover{background:var(--gray-soft)}
+.cl-nav{display:flex;align-items:center;gap:8px;padding:9px 11px;border-radius:8px;color:var(--ink2);text-decoration:none;font-size:13.5px;font-weight:500;transition:background .12s,color .12s}
+.cl-nav svg{font-size:18px;flex:0 0 auto}.cl-nav:hover{background:var(--gray-soft)}
 .cl-nav.active{background:var(--pri-soft);color:var(--pri-ink);font-weight:600}.cl-nav.active svg{color:var(--pri)}
 .cl-side-foot{display:flex;align-items:center;gap:6px;border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
 .cl-me{display:flex;align-items:center;gap:10px;flex:1;min-width:0;text-decoration:none;color:var(--ink);padding:4px;border-radius:10px}.cl-me:hover{background:var(--gray-soft)}
@@ -171,19 +171,20 @@
 .cl-nowline{position:absolute;left:0;right:0;border-top:2px dashed #e5484d;z-index:4;pointer-events:none}
 .cl-dl{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:0 0 14px}.cl-dl dt{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.cl-dl dd{margin:2px 0 0;font-weight:600}.cl-dl .span2{grid-column:1/-1}
 .cl-booking-history{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}.cl-booking-history h3{font-size:14px;margin:0 0 8px}.cl-booking-history ol{display:grid;gap:8px;margin:0;padding-left:18px}.cl-booking-history li{padding-left:3px}.cl-booking-history li span,.cl-booking-history li small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
-.cl-view-tabs{display:flex;gap:4px;width:max-content;max-width:100%;margin:0 0 16px;padding:4px;background:#f1f5f7;border:1px solid var(--line);border-radius:10px}
-.cl-view-tabs button{height:36px;border:0;border-radius:7px;background:transparent;padding:0 16px;color:var(--ink2);font:inherit;font-weight:600;cursor:pointer}
-.cl-view-tabs button.on{background:#fff;color:var(--pri-ink);box-shadow:0 1px 3px rgba(16,37,58,.12)}
 .cl-booking-list{background:#fff;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden}
 .cl-booking-list-filters{display:grid;grid-template-columns:minmax(240px,1fr) minmax(150px,200px) minmax(180px,230px);gap:12px;padding:16px;border-bottom:1px solid var(--line)}
 .cl-booking-list-filters label{display:flex;flex-direction:column;gap:5px;min-width:0}
 .cl-booking-list-filters label>span{font-size:12px;color:var(--ink2);font-weight:600}
 .cl-booking-list-filters input,.cl-booking-list-filters select{height:40px;width:100%;min-width:0;padding:0 11px;border:1px solid #d5dee6;border-radius:9px;background:#fff;color:var(--ink);font:inherit}
-.cl-booking-status-tabs{display:flex;gap:6px;overflow-x:auto;padding:12px 16px;border-bottom:1px solid var(--line);scrollbar-width:thin}
-.cl-booking-status-tabs button{height:34px;flex:0 0 auto;padding:0 12px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--ink2);font:inherit;font-size:13px;font-weight:600;white-space:nowrap;cursor:pointer}
-.cl-booking-status-tabs button:hover{background:#f5f8f9}
-.cl-booking-status-tabs button.on{border-color:#b9dce1;background:var(--pri-soft);color:var(--pri-ink)}
-.cl-booking-list-summary{padding:12px 16px 0;color:var(--muted);font-size:13px}
+.cl-booking-status-row{overflow:visible;padding:10px 16px;border-bottom:1px solid var(--line)}
+.cl-booking-status-tabs{width:100%!important;flex-wrap:wrap;justify-content:center;overflow:visible!important;margin:0!important}
+.cl-booking-status-tabs>button{display:flex;align-items:center;gap:7px!important}
+.cl-booking-status-tabs>button>b{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:#e6edf1;color:var(--ink2);font-size:11px;line-height:1;font-weight:700}
+.cl-booking-status-tabs>button.on>b{background:var(--pri-soft);color:var(--pri-ink)}
+.cl-booking-list-summary{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 16px;background:#fafcfd;border-bottom:1px solid var(--line);color:var(--muted);font-size:13px}
+.cl-booking-list-summary>span{display:flex;align-items:baseline;gap:6px;min-width:0;flex-wrap:wrap}
+.cl-booking-list-summary>span strong{color:var(--ink);font-size:14px;font-weight:700}
+.cl-booking-list-summary>span small{color:var(--muted);font-size:12px}
 .cl-booking-list-rows{display:flex;flex-direction:column}
 .cl-booking-list-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line2)}
 .cl-booking-row-main{display:grid;grid-template-columns:88px minmax(160px,1.15fr) minmax(180px,1.3fr) minmax(130px,.8fr) auto;align-items:center;gap:12px;flex:1;min-width:0;padding:0;border:0;background:transparent;text-align:left;color:var(--ink);font:inherit;cursor:pointer}
@@ -211,9 +212,30 @@
 .cl-booking-drawer-body .cl-dl small{display:block;margin-top:4px;color:var(--muted);font-size:12px}
 .cl-booking-drawer-footer{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;padding:14px 20px;border-top:1px solid var(--line);background:#fff}
 .cl-drawer-reschedule{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
-.cl-check-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:210px;overflow:auto}
-.cl-check-grid label{display:flex;gap:9px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:9px 11px;cursor:pointer}.cl-check-grid label.on{border-color:var(--pri);background:var(--pri-soft)}
-.cl-check-grid strong,.cl-check-grid small{display:block;font-size:13px}.cl-check-grid small{color:var(--muted);font-size:12px}.cl-check-grid input{margin-top:3px}
+.cl-booking-table-wrap{overflow-x:auto}
+.cl-booking-table{width:100%;min-width:920px;border-collapse:collapse;text-align:left}
+.cl-booking-table th{height:40px;padding:0 12px;background:#f7fafb;border-top:1px solid var(--line);border-bottom:1px solid var(--line);color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.035em;text-transform:uppercase;white-space:nowrap}
+.cl-booking-table td{padding:12px;border-bottom:1px solid var(--line2);vertical-align:middle}
+.cl-booking-table tbody tr:hover{background:#fbfdfd}
+.cl-booking-table td strong,.cl-booking-table td small{display:block}
+.cl-booking-table td strong{font-size:12.5px;font-weight:650}
+.cl-booking-table td small{margin-top:3px;color:var(--muted);font-size:11.5px;line-height:1.45}
+.cl-booking-table td:first-child strong,.cl-booking-table td:nth-child(2)>strong{color:var(--pri-ink)}
+.cl-booking-table-actions{display:flex;align-items:center;gap:5px;white-space:nowrap}
+.cl-booking-table-actions .cl-btn{height:30px;padding:0 9px;font-size:11.5px}
+.cl-manager-exceptions{margin-top:20px;padding:16px;border:1px solid var(--line);border-radius:11px;background:#fbfdfd}
+.cl-manager-exceptions h3{margin:0;font-size:14px}
+.cl-manager-exceptions>p{margin:4px 0 12px;color:var(--muted);font-size:12px;line-height:1.5}
+.cl-manager-exception-buttons{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:10px}
+.cl-manager-exception-form{display:grid;gap:12px}
+.cl-manager-exception-form textarea{width:100%;border:1px solid #d5dee6;border-radius:9px;padding:9px 11px;font:inherit;resize:vertical}
+.cl-check-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-height:210px;overflow:auto}
+.cl-check-grid label{display:flex;gap:10px;align-items:center;min-width:0;min-height:62px;border:1px solid var(--line);border-radius:9px;padding:9px 11px;background:#fff;cursor:pointer}
+.cl-check-grid label:hover{border-color:#b7cbd0;background:#fbfdfd}
+.cl-check-grid label.on{border-color:var(--pri);background:var(--pri-soft)}
+.cl-check-option-copy{display:block;min-width:0}
+.cl-check-grid strong,.cl-check-grid small{display:block;font-size:13px;line-height:1.4;overflow-wrap:anywhere}.cl-check-grid small{margin-top:2px;color:var(--muted);font-size:12px}
+.cl-check-grid input{flex:0 0 16px;width:16px;height:16px;min-height:0;margin:0;padding:0;accent-color:var(--pri)}
 
 /* ---- bệnh nhân ---- */
 .cl-toolbar{padding:14px 16px;border-bottom:1px solid var(--line)}.cl-toolbar .cl-input-icon{max-width:460px}
@@ -325,12 +347,12 @@
 .bm-legend .s1{background:rgba(229,72,77,.22)}.bm-legend .s2{background:rgba(229,72,77,.42)}.bm-legend .s3{background:rgba(229,72,77,.65)}.bm-legend .s0{background:#fff}
 
 /* ---- trang cũ (hộp thư, dịch vụ, nhân sự…) đổi tông cho đồng bộ ---- */
-.cl-legacy{--adm-bg:var(--bg);--adm-ink:#10253a;--adm-muted:#6b7c8d;--adm-line:#e3eaf0;--adm-gold:#0d7a8a;--adm-dark:#0d7a8a;--adm-blue:#1d4ed8}
+.cl-legacy{--adm-bg:var(--bg);--adm-ink:var(--ink);--adm-muted:var(--muted);--adm-line:var(--line);--adm-gold:var(--pri);--adm-dark:var(--pri-d);--adm-blue:var(--pri)}
 .cl-legacy .adm-btn.dark,.cl-legacy .adm-view-tabs .active,.cl-legacy .adm-tier-tabs button.active,.cl-legacy .adm-status-actions .confirm{background:var(--pri);border-color:var(--pri);color:#fff}
 .cl-legacy .adm-card,.cl-legacy .adm-kpi,.cl-legacy .adm-crm-tools{border-color:var(--line);border-radius:14px;box-shadow:var(--sh)}
 .cl-legacy .adm-eyebrow,.cl-legacy .adm-sync-note strong{color:var(--pri)}.cl-legacy .adm-pill,.cl-legacy .adm-tags span{background:var(--pri-soft);color:var(--pri-ink)}
 .cl-legacy .adm-table th{color:var(--muted)}.cl-legacy .adm-page-head{border-bottom-color:var(--line)}
-.cl-legacy .cs-page{--accent:#0d7a8a;--dark:#0d7a8a;--soft:#f5f8fa;--line:#e3eaf0;--sel:#e5f3f5;height:calc(100dvh - 112px)}
+.cl-legacy .cs-page{--accent:#526d80;--dark:#354d60;--soft:#f5f7f8;--line:#dfe6eb;--sel:#eaf0f3;height:calc(100dvh - 112px)}
 .cl-legacy .adm-shell-main{margin:0;padding:0}
 
 .cl-marks li>b{grid-column:1/-1}.cl-marks li>select:nth-of-type(1){grid-column:1}.cl-marks li>select:nth-of-type(2){grid-column:2}
@@ -345,13 +367,17 @@
   .cl-booking-list-row{align-items:flex-start;flex-direction:column}.cl-booking-row-main{width:100%;grid-template-columns:72px minmax(0,1fr) auto;column-gap:10px;row-gap:8px}
   .cl-booking-row-customer{grid-column:2}.cl-booking-row-main>.cl-pill{grid-column:3;grid-row:1}
   .cl-booking-row-type{grid-column:2}.cl-booking-row-doctor{grid-column:2}.cl-booking-list-actions{align-self:flex-end}}
-@media (max-width:560px){.cl-view-tabs{width:100%}.cl-view-tabs button{flex:1}
+@media (max-width:560px){
   .cl-booking-list-filters{grid-template-columns:1fr;padding:12px}.cl-booking-search{grid-column:auto}
-  .cl-booking-status-tabs{padding:10px 12px}.cl-booking-row-main{grid-template-columns:64px minmax(0,1fr);align-items:start}
+  .cl-booking-status-row{overflow-x:auto;padding:10px 12px}
+  .cl-booking-status-tabs{width:max-content!important;max-width:none;flex-wrap:nowrap}
+  .cl-booking-row-main{grid-template-columns:64px minmax(0,1fr);align-items:start}
   .cl-booking-row-customer,.cl-booking-row-type,.cl-booking-row-doctor{grid-column:2}.cl-booking-row-main>.cl-pill{grid-column:2;grid-row:auto}
   .cl-booking-row-main small{white-space:normal}.cl-booking-list-actions{width:100%;justify-content:flex-end;flex-wrap:wrap}
   .cl-booking-drawer-header{padding:18px 16px 14px}.cl-booking-drawer-body{padding:16px}.cl-booking-drawer-footer{padding:12px}
-  .cl-booking-drawer-footer .cl-btn{flex:1 1 calc(50% - 8px)}}
+  .cl-booking-drawer-footer .cl-btn{flex:1 1 calc(50% - 8px)}.cl-booking-list-summary{align-items:flex-start}
+  .cl-check-grid{grid-template-columns:1fr}
+  .cl-booking-table-wrap{overflow-x:auto}.cl-booking-table{min-width:860px}}
 .cl-cal-times span:first-child{transform:none}
 
 /* ---- v2: đơn thuốc, kho, hóa đơn ---- */
@@ -418,7 +444,11 @@ em.out{color:var(--red);font-style:normal;font-weight:600}em.low{color:#8b5961;f
 
 /* ---- thanh bên thu gọn ---- */
 .cl-side,.cl-main-wrap{transition:width .18s ease,margin-left .18s ease}
-.cl-collapse{display:inline-grid;margin-left:-8px}
+.cl-collapse{display:inline-grid;margin-left:-6px;width:32px;height:32px;border:1px solid #d6e0e7;border-radius:8px;background:#fff;color:#526779;box-shadow:0 1px 2px rgba(16,37,58,.04);transition:background .16s ease,border-color .16s ease,color .16s ease,box-shadow .16s ease,transform .16s ease}
+.cl-collapse svg{font-size:19px;transition:transform .18s ease}
+.cl-collapse:hover{background:#f4f7f9;border-color:#b9c8d2;color:#213d52;box-shadow:0 2px 5px rgba(16,37,58,.09)}
+.cl-collapse:focus-visible{outline:2px solid #6c8293;outline-offset:2px}
+.cl-collapse.is-collapsed svg{transform:rotate(180deg)}
 .cl-app.mini .cl-side{width:68px;padding:14px 10px;overflow-x:hidden}
 .cl-app.mini .cl-main-wrap{margin-left:68px}
 .cl-app.mini .cl-brand{justify-content:center;padding:4px 0 14px}.cl-app.mini .cl-brand>span:last-child{display:none}
@@ -515,7 +545,7 @@ em.out{color:var(--red);font-style:normal;font-weight:600}em.low{color:#8b5961;f
 .cl-nav-group{display:flex;flex-direction:column;gap:2px}
 .cl-nav-group-toggle{width:100%;min-height:38px;display:flex;align-items:center;gap:11px;border:0;border-radius:8px;background:transparent;color:var(--ink2);padding:9px 11px;text-align:left;font-size:13.5px;font-weight:600}
 .cl-nav-group-toggle:hover{background:var(--gray-soft)}
-.cl-nav-group-toggle>svg:first-child{font-size:20px;color:#748697;flex:none}
+.cl-nav-group-toggle>svg:first-child{display:block;flex:0 0 auto}
 .cl-nav-group.active>.cl-nav-group-toggle{color:var(--pri-ink);background:#f2f7f8}
 .cl-nav-group.active>.cl-nav-group-toggle>svg:first-child{color:var(--pri)}
 .cl-nav-group-toggle span{flex:1;min-width:0}
@@ -524,7 +554,7 @@ em.out{color:var(--red);font-style:normal;font-weight:600}em.low{color:#8b5961;f
 .cl-nav-children{display:flex;flex-direction:column;gap:2px;max-height:0;opacity:0;overflow:hidden;transition:max-height .18s ease,opacity .14s ease;margin-left:20px;border-left:1px solid var(--line)}
 .cl-nav-children.open{max-height:160px;opacity:1}
 .cl-nav-child{margin-left:5px;padding:8px 9px;font-size:13px}
-.cl-nav-child svg{font-size:17px}
+.cl-nav-child svg{display:block;flex:0 0 auto}
 
 .cl-app.mini .cl-nav-group-toggle{display:none}
 .cl-app.mini .cl-nav-children{max-height:none;opacity:1;margin:0;border:0;overflow:visible}
@@ -538,6 +568,24 @@ em.out{color:var(--red);font-style:normal;font-weight:600}em.low{color:#8b5961;f
 .cl-table th,.cl-legacy .adm-table th{font-size:11px;font-weight:700;letter-spacing:.055em;color:#657889}
 .cl-table td,.cl-legacy .adm-table td{font-size:13px;line-height:1.45;color:var(--ink2)}
 .cl-legacy .adm-form label,.cl-legacy .adm-member-edit label{font-size:12.5px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--ink2)}
+
+/* Menu tài khoản dùng chung trong thanh tiêu đề. */
+.cl-top.has-account-menu{z-index:80}
+.cl-account-wrap{position:relative;flex:none}
+.cl-account-trigger{width:40px;height:40px;display:flex;align-items:center;justify-content:center;gap:1px;padding:4px;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--ink2)}
+.cl-account-trigger:hover,.cl-account-trigger.active{border-color:var(--line);background:var(--bg)}
+.cl-account-chevron{font-size:17px!important;color:var(--muted)}
+.cl-account-dismiss{position:fixed;inset:0;z-index:69;width:100vw;height:100vh;padding:0;border:0;background:transparent;cursor:default}
+.cl-account-menu{position:absolute;top:calc(100% + 8px);right:0;z-index:70;display:flex;flex-direction:column;width:min(320px,calc(100vw - 24px));max-height:min(560px,calc(100vh - 84px));overflow:auto;padding:8px;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:0 16px 40px rgba(22,43,55,.18);color:var(--ink)}
+.cl-account-identity{display:flex;align-items:center;gap:11px;min-width:0;padding:10px;border-bottom:1px solid var(--line);margin-bottom:5px}
+.cl-account-identity>span{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}
+.cl-account-identity strong{overflow:hidden;color:var(--ink);font-size:13px;font-weight:650;text-overflow:ellipsis;white-space:nowrap}
+.cl-account-identity small{overflow:hidden;color:var(--muted);font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.cl-account-menu>a,.cl-account-menu>button{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:9px 10px;border:0;border-radius:7px;background:transparent;color:var(--ink2);font:inherit;font-size:12.5px;text-align:left;text-decoration:none;cursor:pointer}
+.cl-account-menu>a:hover,.cl-account-menu>button:hover{background:var(--bg);color:var(--ink)}
+.cl-account-menu>a>svg,.cl-account-menu>button>svg{flex:none;font-size:18px;color:#6d808e}
+.cl-account-divider{height:1px;margin:5px 3px;background:var(--line)}
+@media(max-width:520px){.cl-account-menu{right:-4px;width:min(300px,calc(100vw - 20px));max-height:calc(100vh - 76px)}}
 
 /* Các trang quản trị cũ dùng chung một hệ màu y khoa, không dùng nền vàng/be. */
 .cl-legacy{--adm-bg:var(--bg);--adm-card:#fff;--adm-ink:var(--ink);--adm-muted:var(--muted);--adm-line:var(--line);--adm-gold:var(--pri);--adm-dark:var(--pri-d);--adm-green:var(--green);--adm-yellow:var(--amber);--adm-red:var(--red);--adm-blue:var(--blue)}

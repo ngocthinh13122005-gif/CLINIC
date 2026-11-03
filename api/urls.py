@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 
 from . import views
 from .messenger import messenger_webhook
+from .settings_views import SettingsAuditView, SettingsScopeView, SupportSettingsView, clinic_profile
 
 router = DefaultRouter()
 router.register('categories', views.CategoryViewSet, basename='category')
@@ -20,6 +21,10 @@ router.register('notifications', views.NotificationViewSet, basename='notificati
 
 urlpatterns = [
     path('integrations/meta/webhook/', messenger_webhook, name='meta-messenger-webhook'),
+    path('settings/audit/', SettingsAuditView.as_view(), name='api-settings-audit'),
+    path('settings/support/', SupportSettingsView.as_view(), name='api-settings-support'),
+    path('settings/<str:scope>/', SettingsScopeView.as_view(), name='api-settings-scope'),
+    path('clinic/profile/', clinic_profile, name='api-clinic-profile'),
     path('auth/register/', views.RegisterView.as_view(), name='api-register'),
     path('auth/login/', views.LoginView.as_view(), name='api-login'),
     path('auth/logout/', views.LogoutView.as_view(), name='api-logout'),

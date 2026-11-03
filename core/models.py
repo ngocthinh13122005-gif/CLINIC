@@ -727,3 +727,42 @@ class ChatbotMessage(models.Model):
 
     def __str__(self):
         return f'{self.get_role_display()} · {self.content[:50]}'
+
+
+class ClinicSettingValue(models.Model):
+    """Validated settings values. Definitions and permissions live in core.settings_registry."""
+    SCOPE_USER = 'user'
+    SCOPE_CLINIC = 'clinic'
+    SCOPE_SYSTEM = 'system'
+    SCOPES = [(SCOPE_USER, 'Người dùng'), (SCOPE_CLINIC, 'Phòng khám'), (SCOPE_SYSTEM, 'Hệ thống')]
+
+    scope = models.CharField(max_length=12, choices=SCOPES, db_index=True)
+    scope_key = models.CharField(max_length=64, default='default')
+    key = models.CharField(max_length=100)
+    value = models.JSONField()
+    version = models.PositiveIntegerField(default=1)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+                                   related_name='clinic_settings_updated')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=('scope', 'scope_key', 'key'), name='uniq_clinic_setting_scope_key')]
+        indexes = [models.Index(fields=('scope', 'scope_key'), name='clinic_setting_scope_idx')]
+        ordering = ('scope', 'key')
+
+
+class ClinicSettingAudit(models.Model):
+    setting_key = models.CharField(max_length=100, db_index=True)
+    scope = models.CharField(max_length=12, choices=ClinicSettingValue.SCOPES)
+    scope_key = models.CharField(max_length=64, default='default')
+    old_value = models.JSONField(null=True, blank=True)
+    new_value = models.JSONField()
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+                              related_name='clinic_settings_audit')
+    reason = models.CharField(max_length=255, blank=True)
+    version = models.PositiveIntegerField()
+    effective_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ('-effective_at', '-pk')
+        indexes = [models.Index(fields=('scope', 'scope_key', 'setting_key'), name='clinic_setting_audit_idx')]

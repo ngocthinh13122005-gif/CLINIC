@@ -37,12 +37,12 @@ export default function ClinicHome() {
       <Card title="Lượt khám 14 ngày gần đây" subtitle="Không tính lượt đã hủy">
         <div className="cl-chart"><ResponsiveContainer width="100%" height={260}>
           <AreaChart data={d.visits_14d} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-            <defs><linearGradient id="clg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0d7a8a" stopOpacity={0.28} /><stop offset="100%" stopColor="#0d7a8a" stopOpacity={0.02} /></linearGradient></defs>
+            <defs><linearGradient id="clg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#526d80" stopOpacity={0.28} /><stop offset="100%" stopColor="#526d80" stopOpacity={0.02} /></linearGradient></defs>
             <CartesianGrid vertical={false} stroke="#e8eef3" />
             <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: '#6b7c8d' }} interval={1} />
             <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: '#6b7c8d' }} />
             <Tooltip formatter={(v) => [`${v} lượt`, 'Khám']} labelStyle={{ color: '#10253a' }} />
-            <Area type="monotone" dataKey="count" stroke="#0d7a8a" strokeWidth={2.5} fill="url(#clg)" />
+            <Area type="monotone" dataKey="count" stroke="#526d80" strokeWidth={2.5} fill="url(#clg)" />
           </AreaChart></ResponsiveContainer></div>
       </Card>
       <Card title="Cần xử lý">

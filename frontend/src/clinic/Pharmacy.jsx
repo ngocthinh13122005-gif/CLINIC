@@ -39,11 +39,13 @@ export function StockModal({ med, mode, onClose, onSaved }) {
   const [v, setV] = useState('');
   const [note, setNote] = useState('');
   const [cost, setCost] = useState('');
+  const [lotNo, setLotNo] = useState('');
+  const [expiry, setExpiry] = useState('');
   const [err, setErr] = useState('');
   const submit = async () => {
     try {
       const { data } = mode === 'in'
-        ? await api.post(`/clinic/medicines/${med.id}/receive/`, { quantity: Number(v), note, cost: cost || undefined })
+        ? await api.post(`/clinic/medicines/${med.id}/receive/`, { quantity: Number(v), note, cost: cost || undefined, lot_no: lotNo, expiry: expiry || null })
         : await api.post(`/clinic/medicines/${med.id}/adjust/`, { actual: Number(v), note });
       onSaved(data);
     } catch (e) { setErr(errMsg(e)); }
@@ -54,6 +56,8 @@ export function StockModal({ med, mode, onClose, onSaved }) {
     <div className="cl-form-grid">
       <Field label={mode === 'in' ? `Số lượng nhập (${med.unit})` : `Số đếm thực tế (${med.unit})`} required><input type="number" min={mode === 'in' ? 1 : 0} autoFocus value={v} onChange={(e) => setV(e.target.value)} /></Field>
       {mode === 'in' && <Field label="Giá nhập mới (VNĐ)" hint="Để trống nếu không đổi"><input type="number" min={0} value={cost} onChange={(e) => setCost(e.target.value)} /></Field>}
+      {mode === 'in' && <Field label="Số lô"><input value={lotNo} onChange={(e) => setLotNo(e.target.value)} placeholder="Nhập theo quy định kho" /></Field>}
+      {mode === 'in' && <Field label="Hạn dùng"><input type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} /></Field>}
       <Field label="Ghi chú" span="2"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder={mode === 'in' ? 'Nhà cung cấp, số phiếu nhập…' : 'Lý do chênh lệch'} /></Field>
     </div>
   </Modal>;

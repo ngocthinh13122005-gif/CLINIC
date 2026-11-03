@@ -16,13 +16,15 @@ import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded';
 import SearchRounded from '@mui/icons-material/SearchRounded';
 import LogoutRounded from '@mui/icons-material/LogoutRounded';
 import MenuRounded from '@mui/icons-material/MenuRounded';
-import MenuOpenRounded from '@mui/icons-material/MenuOpenRounded';
+import KeyboardDoubleArrowLeftRounded from '@mui/icons-material/KeyboardDoubleArrowLeftRounded';
 import AssessmentRounded from '@mui/icons-material/AssessmentRounded';
 import SupportAgentRounded from '@mui/icons-material/SupportAgentRounded';
 import ShieldRounded from '@mui/icons-material/ShieldRounded';
 import VerifiedUserRounded from '@mui/icons-material/VerifiedUserRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ManageAccountsRounded from '@mui/icons-material/ManageAccountsRounded';
+import SettingsRounded from '@mui/icons-material/SettingsRounded';
+import HelpOutlineRounded from '@mui/icons-material/HelpOutlineRounded';
 import LocalOfferRounded from '@mui/icons-material/LocalOfferRounded';
 import MarkEmailReadRounded from '@mui/icons-material/MarkEmailReadRounded';
 import { useAuth } from '../context/AuthContext';
@@ -101,7 +103,7 @@ const MENUS = {
 
 const TITLES = [['/dashboard', 'Tổng quan'], ['/tiep-don', 'Tiếp đón'], ['/lich-hen', 'Lịch hẹn'], ['/benh-nhan', 'Bệnh nhân'], ['/kham', 'Khám bệnh'], ['/lieu-trinh', 'Liệu trình'],
   ['/thu-ngan', 'Thu ngân & công nợ'], ['/kho-thuoc', 'Kho & nhập hàng'], ['/cham-soc', 'Chăm sóc sau điều trị'], ['/bao-cao', 'Báo cáo quản trị'], ['/nhat-ky', 'Nhật ký hệ thống'], ['/tuan-thu', 'Tuân thủ & bảo mật'], ['/admin/services', 'Dịch vụ & bảng giá'], ['/admin/staff', 'Nhân sự'], ['/admin/attendance', 'Chấm công'],
-  ['/admin/payroll', 'Bảng lương'], ['/admin/crm', 'Khách hàng thành viên'], ['/admin/vouchers', 'Ưu đãi & voucher'], ['/admin/email-marketing', 'Email Marketing'], ['/admin/conversations', 'Hộp thư tư vấn'], ['/cskh', 'Hộp thư tư vấn'], ['/bac-si/tu-van', 'Tư vấn'], ['/profile', 'Hồ sơ cá nhân'], ['/change-password', 'Đổi mật khẩu']];
+  ['/admin/payroll', 'Bảng lương'], ['/admin/crm', 'Khách hàng thành viên'], ['/admin/vouchers', 'Ưu đãi & voucher'], ['/admin/email-marketing', 'Email Marketing'], ['/admin/conversations', 'Hộp thư tư vấn'], ['/cskh', 'Hộp thư tư vấn'], ['/bac-si/tu-van', 'Tư vấn'], ['/settings', 'Cài đặt'], ['/profile', 'Hồ sơ cá nhân'], ['/change-password', 'Đổi mật khẩu']];
 const titleOf = (path) => (TITLES.find(([p]) => path === p || path.startsWith(p + '/')) || [])[1] || '';
 
 function GlobalSearch() {
@@ -138,10 +140,29 @@ export default function ClinicShell() {
   const nav = useNavigate();
   const loc = useLocation();
   const [open, setOpen] = useState(false);
-  const [mini, setMini] = useState(() => { try { return localStorage.getItem('cl_mini') === '1'; } catch { return false; } });
+  const [mini, setMini] = useState(false);
+  const [showDate, setShowDate] = useState(true);
   const [closedGroups, setClosedGroups] = useState({});
-  const toggleMini = () => setMini((v) => { const n = !v; try { localStorage.setItem('cl_mini', n ? '1' : '0'); } catch { /* bỏ qua */ } return n; });
+  const [accountOpen, setAccountOpen] = useState(false);
+  const toggleMini = () => setMini((v) => !v);
   useEffect(() => setOpen(false), [loc.pathname]);
+  useEffect(() => setAccountOpen(false), [loc.pathname]);
+  useEffect(() => {
+    if (!accountOpen) return undefined;
+    const closeOnEscape = (event) => { if (event.key === 'Escape') setAccountOpen(false); };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [accountOpen]);
+  useEffect(() => {
+    let live = true;
+    if (user?.id) api.get('/settings/user/').then(({ data }) => {
+      if (!live) return;
+      setMini(Boolean(data.values['ui.compact_sidebar']));
+      setShowDate(data.values['ui.show_date'] !== false);
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [user?.id]);
+  useEffect(() => { const sync = (e) => { if (typeof e.detail?.compactNav === 'boolean') setMini(e.detail.compactNav); if (typeof e.detail?.showDate === 'boolean') setShowDate(e.detail.showDate); }; window.addEventListener('akina-settings-updated', sync); return () => window.removeEventListener('akina-settings-updated', sync); }, []);
   const items = MENUS[user?.role] || MENUS.staff;
   const bookings = loc.pathname.startsWith('/lich-hen');
   return <div className={`cl-app ${mini ? 'mini' : ''}`}>
@@ -176,16 +197,30 @@ export default function ClinicShell() {
     </aside>
     {open && <div className="cl-scrim" onClick={() => setOpen(false)} />}
     <div className="cl-main-wrap">
-      <header className="cl-top">
+      <header className={`cl-top ${accountOpen ? 'has-account-menu' : ''}`}>
         <button className="cl-icon-btn cl-burger" onClick={() => setOpen(true)} aria-label="Mở menu"><MenuRounded /></button>
-        <button className="cl-icon-btn cl-collapse" onClick={toggleMini} aria-label={mini ? 'Mở rộng thanh bên' : 'Thu gọn thanh bên'} title={mini ? 'Mở rộng thanh bên' : 'Thu gọn thanh bên'}><MenuOpenRounded style={{ transform: mini ? 'scaleX(-1)' : 'none' }} /></button>
+        <button className={`cl-icon-btn cl-collapse ${mini ? 'is-collapsed' : ''}`} onClick={toggleMini} aria-label={mini ? 'Mở rộng thanh bên' : 'Thu gọn thanh bên'} title={mini ? 'Mở rộng thanh bên' : 'Thu gọn thanh bên'}>
+          <KeyboardDoubleArrowLeftRounded />
+        </button>
         <h1 className="cl-top-title">{titleOf(loc.pathname)}</h1>
         <GlobalSearch />
         <div id="cl-top-actions" className="cl-top-actions" />
         <div className="cl-top-right">
-          <span className="cl-today">{new Date().toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+          {showDate && <span className="cl-today">{new Date().toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}</span>}
           <NotificationBell user={user} />
-          <NavLink to="/profile" className="cl-icon-btn" title="Hồ sơ cá nhân"><PersonOutlineRounded /></NavLink>
+          <div className="cl-account-wrap">
+            <button className={`cl-icon-btn cl-account-trigger ${accountOpen ? 'active' : ''}`} onClick={() => setAccountOpen(v => !v)} aria-label="Mở menu tài khoản" aria-expanded={accountOpen} aria-controls="cl-account-menu">
+              <Avatar name={user?.full_name || user?.username} size={28} /><ExpandMoreRounded className="cl-account-chevron" />
+            </button>
+            {accountOpen && <><button className="cl-account-dismiss" aria-label="Đóng menu tài khoản" onClick={() => setAccountOpen(false)} /><section id="cl-account-menu" className="cl-account-menu" aria-label="Menu tài khoản">
+              <div className="cl-account-identity"><Avatar name={user?.full_name || user?.username} size={38}/><span><strong>{user?.full_name || user?.username}</strong><small>{roleLabel(user?.role)} · AkinaClinic</small></span></div>
+              <NavLink to="/profile"><PersonOutlineRounded/> Hồ sơ cá nhân</NavLink>
+              <NavLink to="/settings?scope=personal"><SettingsRounded/> Cài đặt cá nhân</NavLink>
+              {user?.role === 'manager' && <NavLink to="/settings?scope=clinic"><MedicalServicesRounded/> Cài đặt phòng khám</NavLink>}
+              <div className="cl-account-divider"/><a href="mailto:support@akinaclinic.vn"><HelpOutlineRounded/> Trợ giúp</a>
+              <button onClick={async () => { await logout(); nav('/login'); }}><LogoutRounded/> Đăng xuất</button>
+            </section></>}
+          </div>
         </div>
       </header>
       <main className={`cl-main ${bookings ? 'full' : ''} ${loc.pathname.startsWith('/admin') || loc.pathname.includes('/tu-van') || loc.pathname.startsWith('/cskh') ? 'cl-legacy' : ''}`}><Outlet /></main>

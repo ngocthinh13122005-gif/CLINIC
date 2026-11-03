@@ -9,6 +9,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 
 from core.models import Service
+from core.role_permissions import view_action_allowed
 from .audit import audit
 from .models import (CashierShift, DebtFollowUp, Invoice, InvoiceItem, Medicine, Patient, Payment, Prescription,
                      PrescriptionItem, Refund, StockMovement, Visit)
@@ -28,7 +29,7 @@ class RolePerm(permissions.BasePermission):
         self.roles = roles
 
     def has_permission(self, request, view):
-        return role_of(request) in self.roles
+        return role_of(request) in self.roles and view_action_allowed(request, view)
 
 
 def perm(roles):
@@ -370,7 +371,13 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         if 'note' in d:
             invoice.note = (d.get('note') or '')[:255]
         if creating or 'payment_term' in d or 'due_date' in d:
-            term = d.get('payment_term') or Invoice.TERM_IMMEDIATE
+            if creating and 'payment_term' not in d:
+                from core.operational_settings import clinic_setting
+                default_days = int(clinic_setting('billing.default_due_days'))
+                term = {0: Invoice.TERM_IMMEDIATE, 7: Invoice.TERM_7,
+                        15: Invoice.TERM_15, 30: Invoice.TERM_30}.get(default_days, Invoice.TERM_IMMEDIATE)
+            else:
+                term = d.get('payment_term') or Invoice.TERM_IMMEDIATE
             days = {Invoice.TERM_IMMEDIATE: 0, Invoice.TERM_7: 7, Invoice.TERM_15: 15, Invoice.TERM_30: 30}
             if term == Invoice.TERM_CUSTOM:
                 try:
@@ -553,7 +560,12 @@ class CashierShiftViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
         except (TypeError, ValueError):
             return deny('Tiền kiểm đếm không hợp lệ.', 400)
         shift.expected_cash = max(shift.opening_cash + shift.cash_total(), 0)
-        shift.counted_cash, shift.difference = counted, counted - shift.expected_cash
+        difference = counted - shift.expected_cash
+        from core.operational_settings import clinic_setting
+        approval_threshold = int(clinic_setting('billing.cash_close_variance_manager_threshold'))
+        if approval_threshold and abs(difference) > approval_threshold and role_of(request) != 'manager':
+            return deny(f'Chênh lệch quỹ {abs(difference):,}đ vượt ngưỡng {approval_threshold:,}đ. Quản lý cần duyệt hoặc đóng ca này.'.replace(',', '.'), 403)
+        shift.counted_cash, shift.difference = counted, difference
         shift.note = (request.data.get('note') or '')[:255]
         shift.status, shift.closed_at, shift.closed_by = CashierShift.CLOSED, timezone.now(), request.user
         shift.save()

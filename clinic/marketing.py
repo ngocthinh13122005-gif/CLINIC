@@ -9,6 +9,7 @@ from rest_framework.response import Response
 
 from .models import EmailCampaign, MailingList, MarketingContact
 from .permissions import IsClinicStaff
+from core.role_permissions import configured_action_allowed
 
 
 class ContactSerializer(serializers.ModelSerializer):
@@ -84,14 +85,30 @@ def campaigns(request):
 @permission_classes([IsClinicStaff])
 def campaign_send(request, pk):
     if not manager_only(request): return Response({'detail': 'Chỉ quản lý được gửi chiến dịch.'}, status=403)
+    if not configured_action_allowed(request.user, 'marketing', 'approve'):
+        return Response({'detail': 'Quyền gửi chiến dịch đã bị giới hạn theo ma trận vai trò.'}, status=403)
+    from core.operational_settings import clinic_setting
+    if not clinic_setting('marketing.campaigns_enabled'):
+        return Response({'detail': 'Chiến dịch email đang tạm dừng theo cài đặt phòng khám.'}, status=403)
     if not (settings.EMAIL_HOST_USER and settings.EMAIL_HOST_PASSWORD):
         return Response({'detail': 'SMTP chưa cấu hình. Hãy dùng Gmail App Password trong biến môi trường.'}, status=503)
     try: campaign = EmailCampaign.objects.select_related('mailing_list').get(pk=pk)
     except EmailCampaign.DoesNotExist: return Response({'detail': 'Không tìm thấy chiến dịch.'}, status=404)
     if campaign.status != EmailCampaign.DRAFT: return Response({'detail': 'Chỉ bản nháp mới được gửi.'}, status=400)
+    if not campaign.mailing_list.is_active:
+        return Response({'detail': 'Danh sách nhận tin đang tạm ngưng.'}, status=400)
+    from django.db.models import Q
+    from .models import DataConsent
+    eligible = campaign.mailing_list.contacts.filter(status=MarketingContact.ACTIVE).exclude(email='').filter(
+        Q(patient__isnull=True, consent_at__isnull=False) & ~Q(consent_note='')
+        | Q(patient__data_consents__purpose='marketing', patient__data_consents__status=DataConsent.GRANTED)
+    ).distinct()
+    recipient_limit = int(clinic_setting('marketing.max_recipients'))
+    if eligible.count() > recipient_limit:
+        return Response({'detail': f'Chiến dịch có nhiều hơn giới hạn {recipient_limit} người nhận. Hãy chia nhỏ danh sách trước khi gửi.'}, status=400)
     sent = failed = 0
     base = getattr(settings, 'SITE_BASE_URL', 'http://localhost:8080').rstrip('/')
-    recipients = campaign.mailing_list.contacts.filter(status=MarketingContact.ACTIVE).exclude(email='').distinct()[:500]
+    recipients = eligible.order_by('id')
     for contact in recipients:
         unsubscribe = f'{base}/api/clinic/marketing/unsubscribe/{contact.unsubscribe_token}/'
         footer = f'<hr><p style="font-size:12px;color:#64748b">Bạn nhận email vì đã đồng ý nhận tin từ AkinaClinic. <a href="{unsubscribe}">Hủy đăng ký</a>.</p>'

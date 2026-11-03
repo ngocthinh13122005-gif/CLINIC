@@ -34,6 +34,7 @@ import BillingPage from './clinic/Billing';
 import { ChangePasswordPage, ForgotPasswordPage } from './pages/AuthSecurityPages';
 import EmailMarketingPage from './pages/EmailMarketingPage';
 import CRMPage from './pages/CRMPage';
+import SettingsCenter from './clinic/SettingsCenter';
 
 function Protected(){
   const {user}=useAuth(); const location=useLocation();
@@ -117,6 +118,7 @@ export default function App(){return <Routes>
     <Route path="/bac-si/tu-van/" element={<SupportInboxPage/>}/>
     <Route path="/admin/conversations" element={<SupportInboxPage/>}/>
     <Route path="/profile" element={<ProfilePage/>}/>
+    <Route path="/settings" element={<SettingsCenter/>}/>
     <Route path="/ho-so-suc-khoe" element={<Roles allow={['customer']}><PatientPortalPage/></Roles>}/>
   </Route>
   <Route path="*" element={<Navigate to="/" replace/>}/>

@@ -93,7 +93,8 @@ services:
     command: celery -A config beat -l info
 
   frontend:
-    build: ./frontend
+    build:
+      context: ../ohio-spa-web-app
     restart: unless-stopped
     depends_on:
       backend:

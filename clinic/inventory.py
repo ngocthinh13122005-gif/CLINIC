@@ -29,6 +29,11 @@ def _log(med, kind, delta, user, reference='', note='', lot=None, unit_cost=0):
 def receive_lot(med, qty, user, *, lot_no='', expiry=None, cost=None, supplier=None, reference='', note='', kind=StockMovement.IN):
     if qty <= 0:
         raise serializers.ValidationError({'detail': 'Số lượng nhập phải lớn hơn 0.'})
+    from core.operational_settings import clinic_setting
+    if clinic_setting('inventory.require_lot_number') and not str(lot_no or '').strip():
+        raise serializers.ValidationError({'lot_no': 'Cấu hình phòng khám yêu cầu nhập số lô.'})
+    if clinic_setting('inventory.require_expiry_date') and not expiry:
+        raise serializers.ValidationError({'expiry': 'Cấu hình phòng khám yêu cầu nhập hạn dùng.'})
     med = _lock(med)
     cost = med.cost if cost in (None, '') else max(int(cost), 0)
     lot = StockLot.objects.create(medicine=med, lot_no=(lot_no or '')[:40], expiry_date=expiry or None, quantity=qty, initial_qty=qty,

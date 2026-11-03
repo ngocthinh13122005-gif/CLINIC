@@ -8,6 +8,7 @@ from __future__ import annotations
 import io
 import logging
 import threading
+from html import escape
 from email.mime.image import MIMEImage
 
 from django.conf import settings
@@ -77,7 +78,18 @@ def send_booking_email(booking_id: int, *, confirmation_url: str | None = None, 
         heading = _event_heading(event)
         status = booking.get_status_display()
         staff_name = booking.staff.name if booking.staff else 'AkinaClinic sẽ sắp xếp'
-        amount = f'{booking.total:,}đ'.replace(',', '.')
+        if booking.total:
+            amount = f'{booking.total:,}đ'.replace(',', '.')
+        elif booking.appointment_type == Booking.APPOINTMENT_TYPE_SESSION:
+            amount = 'Đã bao gồm trong gói liệu trình'
+        elif booking.appointment_type == Booking.APPOINTMENT_TYPE_CONSULT:
+            amount = 'Phí khám được thông báo sau khi bác sĩ tư vấn'
+        elif booking.appointment_type == Booking.APPOINTMENT_TYPE_FOLLOW_UP:
+            amount = 'Phí tái khám được xác nhận tại phòng khám'
+        elif booking.discount_total:
+            amount = 'Đã áp dụng ưu đãi — không phát sinh thanh toán'
+        else:
+            amount = 'Chưa phát sinh khoản thu khi đặt lịch'
 
         text_body = (
             f'{heading}\n\n'
@@ -86,41 +98,57 @@ def send_booking_email(booking_id: int, *, confirmation_url: str | None = None, 
             f'Ngày giờ: {appointment.strftime("%d/%m/%Y %H:%M")}\n'
             f'Chuyên viên: {staff_name}\n'
             f'Trạng thái: {status}\n'
-            f'Tổng tiền: {amount}\n\n'
+            f'Chi phí: {amount}\n\n'
             f'Vé điện tử: {url}\n\n'
             'Vui lòng xuất trình mã hoặc QR khi đến AkinaClinic.'
         )
+        customer_name = escape(booking.customer_name)
+        safe_services = escape(services)
+        safe_staff_name = escape(staff_name)
+        safe_status = escape(status)
+        safe_amount = escape(amount)
+        safe_confirm_code = escape(booking.confirm_code)
+        safe_url = escape(url, quote=True)
+        appointment_text = appointment.strftime('%d/%m/%Y %H:%M')
         html_body = f'''<!doctype html>
-<html><body style="margin:0;background:#f4f7fb;font-family:Arial,sans-serif;color:#172033">
-<div style="max-width:620px;margin:0 auto;padding:28px 16px">
-  <div style="background:linear-gradient(135deg,#0f2a4a,#2563eb);padding:24px;border-radius:20px 20px 0 0;color:white">
-    <div style="font-size:12px;letter-spacing:.14em;opacity:.78">AkinaClinic MANAGEMENT SYSTEM</div>
-    <h2 style="margin:8px 0 0;font-size:22px">{heading}</h2>
-  </div>
-  <div style="background:white;padding:24px;border:1px solid #dfe8f4;border-top:0">
-    <p style="margin-top:0">Xin chào <strong>{booking.customer_name}</strong>,</p>
-    <p>Thông tin lịch hẹn của bạn tại AkinaClinic:</p>
-    <table style="width:100%;border-collapse:collapse;font-size:14px">
-      <tr><td style="padding:8px 0;color:#64748b">Dịch vụ</td><td style="padding:8px 0;text-align:right"><strong>{services}</strong></td></tr>
-      <tr><td style="padding:8px 0;color:#64748b">Ngày giờ</td><td style="padding:8px 0;text-align:right"><strong>{appointment.strftime('%d/%m/%Y %H:%M')}</strong></td></tr>
-      <tr><td style="padding:8px 0;color:#64748b">Chuyên viên</td><td style="padding:8px 0;text-align:right">{staff_name}</td></tr>
-      <tr><td style="padding:8px 0;color:#64748b">Trạng thái</td><td style="padding:8px 0;text-align:right">{status}</td></tr>
-      <tr><td style="padding:8px 0;color:#64748b">Tổng tiền</td><td style="padding:8px 0;text-align:right"><strong>{amount}</strong></td></tr>
+<html><body style="margin:0;padding:0;background-color:#f1f5f7;font-family:Arial,Helvetica,sans-serif;color:#243746">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f1f5f7">
+  <tr><td align="center" style="padding:24px 12px">
+    <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border:1px solid #d9e3e8">
+      <tr><td bgcolor="#0a5964" style="padding:24px 28px;background-color:#0a5964;color:#ffffff">
+        <div style="font-size:12px;line-height:18px;font-weight:bold;letter-spacing:1px;color:#d9f0f1">AKINACLINIC</div>
+        <h1 style="margin:8px 0 0;font-size:21px;line-height:29px;font-weight:700;color:#ffffff">{escape(heading)}</h1>
+      </td></tr>
+      <tr><td style="padding:24px 28px">
+        <p style="margin:0 0 12px;font-size:15px;line-height:23px;color:#243746">Xin chào <strong>{customer_name}</strong>,</p>
+        <p style="margin:0 0 16px;font-size:14px;line-height:22px;color:#435767">Thông tin lịch hẹn của bạn tại AkinaClinic:</p>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;font-size:14px;line-height:21px">
+          <tr><td style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#526777">Dịch vụ</td><td align="right" style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#243746;font-weight:bold">{safe_services}</td></tr>
+          <tr><td style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#526777">Ngày giờ</td><td align="right" style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#243746;font-weight:bold">{appointment_text}</td></tr>
+          <tr><td style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#526777">Chuyên viên</td><td align="right" style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#243746">{safe_staff_name}</td></tr>
+          <tr><td style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#526777">Trạng thái</td><td align="right" style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#243746">{safe_status}</td></tr>
+          <tr><td style="padding:9px 0;color:#526777">Chi phí</td><td align="right" style="padding:9px 0;color:#243746;font-weight:bold">{safe_amount}</td></tr>
+        </table>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin-top:20px;background-color:#eaf4f5;border:1px solid #b8d7db">
+          <tr><td align="center" style="padding:16px">
+            <div style="font-size:12px;line-height:18px;font-weight:bold;color:#385866">MÃ VÉ / MÃ XÁC NHẬN</div>
+            <div style="margin-top:5px;font-size:25px;line-height:32px;font-weight:800;color:#123d47;letter-spacing:3px;word-break:break-all">{safe_confirm_code}</div>
+          </td></tr>
+        </table>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin-top:18px">
+          <tr><td align="center">
+            <img src="cid:ohio-booking-qr" width="180" height="180" alt="QR check-in AkinaClinic" style="display:block;width:180px;height:180px;max-width:100%;border:0" />
+            <p style="margin:8px 0 0;font-size:12px;line-height:18px;color:#526777">Quét QR hoặc mở vé điện tử để check-in.</p>
+          </td></tr>
+          <tr><td align="center" style="padding-top:18px">
+            <a href="{safe_url}" style="display:inline-block;padding:12px 22px;background-color:#0f7280;color:#ffffff;text-decoration:none;font-size:14px;line-height:20px;font-weight:bold">Mở vé điện tử</a>
+          </td></tr>
+        </table>
+      </td></tr>
+      <tr><td align="center" style="padding:14px 20px;background-color:#f7f9fa;border-top:1px solid #e6ecef;font-size:12px;line-height:18px;color:#526777">Email tự động từ AkinaClinic. Vui lòng không chia sẻ mã vé công khai.</td></tr>
     </table>
-    <div style="margin:22px 0;padding:16px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px;text-align:center">
-      <div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.08em">Mã vé / mã xác nhận</div>
-      <div style="font-size:26px;font-weight:800;color:#0f2a4a;letter-spacing:.12em;margin-top:6px;word-break:break-all">{booking.confirm_code}</div>
-    </div>
-    <div style="text-align:center;margin:18px 0">
-      <img src="cid:ohio-booking-qr" width="190" height="190" alt="QR check-in AkinaClinic" style="display:block;margin:0 auto;width:190px;height:190px;max-width:100%" />
-      <div style="font-size:12px;color:#64748b;margin-top:8px">Quét QR hoặc mở vé điện tử để check-in.</div>
-    </div>
-    <div style="text-align:center;margin-top:22px">
-      <a href="{url}" style="display:inline-block;background:#2563eb;color:white;text-decoration:none;padding:12px 20px;border-radius:10px;font-weight:700">Mở vé điện tử</a>
-    </div>
-  </div>
-  <div style="text-align:center;font-size:12px;color:#94a3b8;padding:14px">Email tự động từ AkinaClinic. Vui lòng không chia sẻ mã vé công khai.</div>
-</div></body></html>'''
+  </td></tr>
+</table></body></html>'''
 
         email = EmailMultiAlternatives(
             subject=_subject(event, booking),

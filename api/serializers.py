@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import secrets
+from datetime import timedelta
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -320,12 +321,36 @@ class BookingSerializer(serializers.ModelSerializer):
         from django.utils import timezone
         from core.availability import has_conflict, qualified_staff
         request = self.context.get('request')
+        from core.operational_settings import clinic_setting
+        public_booking = not request or not request.user.is_authenticated or request.user.role == 'customer'
+        if public_booking and not clinic_setting('booking.online_enabled'):
+            raise serializers.ValidationError({'detail': 'Phòng khám hiện tạm ngưng nhận đặt lịch trực tuyến. Vui lòng liên hệ phòng khám.'})
         if request and not request.user.is_authenticated:
             if not (attrs.get('guest_name') and attrs.get('guest_phone')):
                 raise serializers.ValidationError('Khách vãng lai cần nhập họ tên và số điện thoại.')
         appointment = attrs.get('appointment')
         if appointment and appointment <= timezone.now():
             raise serializers.ValidationError({'appointment': 'Thời gian hẹn phải ở tương lai.'})
+        if appointment and public_booking:
+            lead_minutes = int(clinic_setting('booking.minimum_advance_minutes'))
+            if appointment < timezone.now() + timedelta(minutes=lead_minutes):
+                raise serializers.ValidationError({'appointment': f'Lịch cần được đặt trước ít nhất {lead_minutes} phút.'})
+            max_days = int(clinic_setting('booking.maximum_advance_days'))
+            if max_days and appointment > timezone.now() + timedelta(days=max_days):
+                raise serializers.ValidationError({'appointment': f'Chỉ nhận lịch trong {max_days} ngày tới.'})
+            pending_cap = int(clinic_setting('booking.max_pending_per_customer'))
+            if pending_cap:
+                pending = Booking.objects.filter(status=Booking.PENDING)
+                if request and request.user.is_authenticated:
+                    pending = pending.filter(user=request.user)
+                else:
+                    phone = (attrs.get('guest_phone') or '').strip()
+                    if not phone:
+                        pending = pending.none()
+                    else:
+                        pending = pending.filter(user__isnull=True, guest_phone=phone)
+                if pending.count() >= pending_cap:
+                    raise serializers.ValidationError({'detail': f'Bạn đã có {pending_cap} lịch chờ xác nhận. Vui lòng chờ phòng khám xử lý trước khi tạo lịch mới.'})
         service_ids = attrs.get('service_ids') or []
         service_ids = sorted(set(service_ids))
         attrs['service_ids'] = service_ids
