@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import PrintRounded from '@mui/icons-material/PrintRounded';
 import SearchRounded from '@mui/icons-material/SearchRounded';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { PatientPicker } from './PatientForm';
 import { MedPicker, printHtml, useMedicines } from './Prescription';
 import { Avatar, Btn, Card, Empty, Field, Loading, Modal, PageHead, Pill, errMsg, fmtDate, fmtDateTime, fmtTime, isoDay, money, useDebounce, useLoad, useToast } from './ui';
 
@@ -26,7 +25,7 @@ export function printInvoice(inv) {
   <div class="sign"><b>Người lập</b><div style="height:46px"></div></div>`);
 }
 
-function InvoiceForm({ patient, visitId, invoice, onClose, onSaved }) {
+export function InvoiceForm({ patient, visitId, invoice, onClose, onSaved }) {
   const meds = useMedicines();
   const services = useLoad(async () => (await api.get('/services/')).data, []);
   const [items, setItems] = useState([]);
@@ -245,26 +244,20 @@ export function InvoiceTable({ rows, onOpen, showPatient = true }) {
 /** Tab "Hóa đơn" trong hồ sơ bệnh nhân. */
 export function InvoicesTab({ patient, canBill }) {
   const l = useLoad(async () => { const { data } = await api.get('/clinic/invoices/', { params: { patient: patient.id } }); return data.results || data; }, [patient.id]);
-  const [open, setOpen] = useState(null);
-  const [form, setForm] = useState(false);
+  const nav = useNavigate();
   const debt = (l.data || []).filter((i) => i.status !== 'void').reduce((s, i) => s + i.balance, 0);
-  return <Card title="Hóa đơn & công nợ" subtitle={debt ? `Đang nợ ${money(debt)}` : 'Không có công nợ'} action={canBill && <Btn size="sm" icon={<AddRounded />} onClick={() => setForm(true)}>Lập hóa đơn</Btn>} pad={false}>
-    {l.loading && !l.data ? <Loading /> : l.data?.length ? <InvoiceTable rows={l.data} onOpen={setOpen} showPatient={false} /> : <Empty title="Chưa có hóa đơn" />}
-    {open && <InvoiceModal id={open} onClose={() => setOpen(null)} onChanged={() => l.reload(true)} />}
-    {form && <InvoiceForm patient={patient} onClose={() => setForm(false)} onSaved={(d) => { setForm(false); l.reload(true); setOpen(d.id); }} />}
+  return <Card title="Hóa đơn & công nợ" subtitle={debt ? `Đang nợ ${money(debt)}` : 'Không có công nợ'} action={canBill && <Btn size="sm" icon={<AddRounded />} onClick={() => nav(`/ban-hang?patient=${patient.id}`)}>Lập hóa đơn</Btn>} pad={false}>
+    {l.loading && !l.data ? <Loading /> : l.data?.length ? <InvoiceTable rows={l.data} onOpen={(id) => nav(`/hoa-don/${id}`)} showPatient={false} /> : <Empty title="Chưa có hóa đơn" />}
   </Card>;
 }
 
 export default function BillingPage() {
   const { user } = useAuth();
+  const nav = useNavigate();
   const [view, setView] = useState('invoices');
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
   const dq = useDebounce(q, 250);
-  const [open, setOpen] = useState(null);
-  const [pick, setPick] = useState(null);       // {patient, visit}
-  const [chooser, setChooser] = useState(false);
-  const [patient, setPatient] = useState(null);
   const [toast, toastNode] = useToast();
   const sum = useLoad(async () => (await api.get('/clinic/invoices/summary/')).data, []);
   const list = useLoad(async () => { const { data } = await api.get('/clinic/invoices/', { params: { status: view === 'receivables' ? 'unpaid,partial' : status || undefined, q: dq.trim() || undefined } }); return data.results || data; }, [status, dq, view]);
@@ -283,7 +276,7 @@ export default function BillingPage() {
   }, { fresh: { count: 0, amount: 0 }, watch: { count: 0, amount: 0 }, old: { count: 0, amount: 0 } });
   return <>
     <PageHead title="Thu ngân & công nợ" subtitle="Lập hóa đơn, thu tiền và theo dõi khách còn nợ."
-      actions={<Btn kind="primary" icon={<AddRounded />} onClick={() => setChooser(true)}>Lập hóa đơn</Btn>} />
+      actions={<Btn kind="primary" icon={<AddRounded />} onClick={() => nav('/ban-hang')}>Lập hóa đơn</Btn>} />
     {s && <div className="cl-stat-row">
       <div className="cl-stat teal"><span>Thu ròng hôm nay</span><strong>{money(s.today_revenue)}</strong><small>{s.today_invoices} hóa đơn · Hoàn {money(s.today_refunds)}</small></div>
       <div className="cl-stat blue"><span>Chuyển khoản / thẻ / ví</span><strong>{money(s.by_method.transfer + s.by_method.card + s.by_method.ewallet)}</strong><small>Hôm nay</small></div>
@@ -293,7 +286,7 @@ export default function BillingPage() {
     </div>}
     <nav className="cl-tabs" aria-label="Thu ngân và công nợ"><button className={view === 'invoices' ? 'on' : ''} onClick={() => setView('invoices')}>Hóa đơn & thu tiền</button><button className={view === 'receivables' ? 'on' : ''} onClick={() => setView('receivables')}>Công nợ phải thu</button><button className={view === 'shifts' ? 'on' : ''} onClick={() => setView('shifts')}>Ca thu ngân & đối soát</button></nav>
     {view === 'invoices' && !!pending.length && <Card title="Khách chờ thanh toán hôm nay" subtitle="Lượt khám chưa có hóa đơn — bấm để lập hóa đơn tự động từ dịch vụ và đơn thuốc.">
-      <div className="cl-pending">{pending.map((v) => <button key={v.id} onClick={() => setPick({ patient: { id: v.patient, full_name: v.patient_detail.full_name }, visit: v.id })}>
+      <div className="cl-pending">{pending.map((v) => <button key={v.id} onClick={() => nav(`/ban-hang?patient=${v.patient}&visit=${v.id}`)}>
         <Avatar name={v.patient_detail.full_name} size={34} /><span><strong>{v.patient_detail.full_name}</strong><small>#{v.ticket_no} · {fmtTime(v.check_in_at)} · {v.status === 'completed' ? 'Đã khám xong' : 'Đang khám'}</small></span></button>)}</div>
     </Card>}
     {view === 'receivables' && <div className="cl-debt-aging">
@@ -306,14 +299,8 @@ export default function BillingPage() {
       <div className="cl-toolbar cl-toolbar-row"><div className="cl-input-icon"><SearchRounded /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm theo số hóa đơn, tên, số điện thoại…" /></div>
         {view === 'invoices' && <div className="cl-seg">{[['', 'Tất cả'], ['unpaid,partial', 'Còn nợ'], ['paid', 'Đã thu'], ['void', 'Đã hủy']].map(([k, t]) => <button key={k} className={status === k ? 'on' : ''} onClick={() => setStatus(k)}>{t}</button>)}</div>}</div>
       {view === 'receivables' && <div className="cl-table-note"><strong>Danh sách đối soát công nợ</strong><span>Tuổi công nợ được tính từ ngày đến hạn; bấm vào hóa đơn để ghi nhận thanh toán hoặc lịch sử nhắc nợ.</span></div>}
-      {list.loading && !list.data ? <Loading /> : list.data?.length ? <InvoiceTable rows={list.data} onOpen={setOpen} /> : <Empty title="Chưa có hóa đơn nào" />}
+      {list.loading && !list.data ? <Loading /> : list.data?.length ? <InvoiceTable rows={list.data} onOpen={(id) => nav(`/hoa-don/${id}`)} /> : <Empty title="Chưa có hóa đơn nào" />}
     </Card>}
-    {open && <InvoiceModal id={open} onClose={() => setOpen(null)} onChanged={refresh} />}
-    {pick && <InvoiceForm patient={pick.patient} visitId={pick.visit} onClose={() => setPick(null)} onSaved={(d) => { setPick(null); refresh(); setOpen(d.id); toast('Đã tạo hóa đơn.'); }} />}
-    <Modal open={chooser} title="Lập hóa đơn" subtitle="Chọn bệnh nhân cần thanh toán" onClose={() => { setChooser(false); setPatient(null); }}
-      footer={<><Btn onClick={() => { setChooser(false); setPatient(null); }}>Hủy</Btn><Btn kind="primary" disabled={!patient} onClick={() => { setPick({ patient }); setChooser(false); setPatient(null); }}>Tiếp tục</Btn></>}>
-      <PatientPicker value={patient} onPick={setPatient} autoFocus />
-    </Modal>
     {toastNode}
   </>;
 }

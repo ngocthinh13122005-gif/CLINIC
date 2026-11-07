@@ -97,13 +97,16 @@ class VisitSerializer(serializers.ModelSerializer):
     record_status = serializers.SerializerMethodField()
     waiting_minutes = serializers.SerializerMethodField()
     room_name = serializers.CharField(source='room.name', read_only=True, default='')
+    active_plans = serializers.SerializerMethodField()
+    treatment_session = serializers.PrimaryKeyRelatedField(queryset=TreatmentSession.objects.select_related('plan__patient'),
+                                                            required=False, allow_null=True)
 
     class Meta:
         model = Visit
         fields = ('id', 'patient', 'patient_detail', 'booking', 'source', 'source_label', 'visit_type',
                   'visit_type_label', 'reason', 'status', 'status_label', 'doctor', 'doctor_name', 'attended_by_name',
                   'ticket_no', 'check_in_at', 'called_at', 'finished_at', 'note', 'record_id', 'record_status',
-                  'waiting_minutes', 'room', 'room_name')
+                  'waiting_minutes', 'room', 'room_name', 'active_plans', 'treatment_session')
         read_only_fields = ('booking', 'source', 'status', 'ticket_no', 'check_in_at', 'called_at', 'finished_at')
 
     def get_doctor_name(self, o):
@@ -125,6 +128,24 @@ class VisitSerializer(serializers.ModelSerializer):
     def get_record_status(self, o):
         r = self._rec(o)
         return r.status if r else None
+
+    def get_active_plans(self, o):
+        return [
+            {'id': plan.id, 'title': plan.title, 'done': plan.done_sessions, 'total': plan.total_sessions,
+             'status_label': plan.get_status_display()}
+            for plan in o.patient.plans.filter(status=TreatmentPlan.ACTIVE).only('id', 'title', 'total_sessions', 'status')
+        ]
+
+    def validate_treatment_session(self, session):
+        if session and session.plan.patient_id != self.initial_data.get('patient'):
+            raise serializers.ValidationError('Buổi liệu trình không thuộc bệnh nhân đã chọn.')
+        if session and session.status != TreatmentSession.PENDING:
+            raise serializers.ValidationError('Buổi liệu trình này đã được ghi nhận hoặc bỏ qua.')
+        if session and session.plan.status != TreatmentPlan.ACTIVE:
+            raise serializers.ValidationError('Liệu trình chưa được kích hoạt hoặc đã kết thúc.')
+        if session and hasattr(session, 'visit'):
+            raise serializers.ValidationError('Buổi liệu trình đã có lượt tiếp đón.')
+        return session
 
     def get_waiting_minutes(self, o):
         if o.status != Visit.WAITING:
@@ -228,12 +249,19 @@ class Icd10Serializer(serializers.ModelSerializer):
 class TreatmentSessionSerializer(serializers.ModelSerializer):
     performed_by_name = serializers.SerializerMethodField()
     has_active_booking = serializers.SerializerMethodField()
+    visit_id = serializers.SerializerMethodField()
+    record_id = serializers.IntegerField(read_only=True)
+    record_code = serializers.CharField(source='record.code', read_only=True, default='')
+    booking_label = serializers.SerializerMethodField()
+    booking_at = serializers.DateTimeField(source='booking.appointment', read_only=True)
 
     class Meta:
         model = TreatmentSession
         fields = (
             'id', 'number', 'planned_date', 'performed_at', 'performed_by_name',
-            'status', 'content', 'allow_staff_delegation', 'has_active_booking',
+            'status', 'content', 'procedures', 'parameters', 'patient_response', 'adverse_reactions', 'outcome',
+            'allow_staff_delegation', 'has_active_booking', 'visit_id', 'record_id', 'record_code',
+            'booking', 'booking_label', 'booking_at',
         )
 
     def get_performed_by_name(self, o):
@@ -241,6 +269,17 @@ class TreatmentSessionSerializer(serializers.ModelSerializer):
 
     def get_has_active_booking(self, o):
         return any(booking.status in Booking.ACTIVE_STATUSES for booking in o.bookings.all())
+
+    def get_visit_id(self, o):
+        try:
+            return o.visit.id
+        except Visit.DoesNotExist:
+            return None
+
+    def get_booking_label(self, o):
+        return o.booking.service_summary if o.booking_id and hasattr(o.booking, 'service_summary') else (
+            o.booking.get_appointment_type_display() if o.booking_id else ''
+        )
 
 
 class TreatmentPlanSerializer(serializers.ModelSerializer):
@@ -250,16 +289,48 @@ class TreatmentPlanSerializer(serializers.ModelSerializer):
     status_label = serializers.CharField(source='get_status_display', read_only=True)
     done_sessions = serializers.IntegerField(read_only=True)
     patient_name = serializers.CharField(source='patient.full_name', read_only=True)
+    record_code = serializers.CharField(source='record.code', read_only=True, default='')
+    record_status = serializers.CharField(source='record.status', read_only=True, default='')
+    package_invoice = serializers.SerializerMethodField()
+    display_status = serializers.SerializerMethodField()
+    display_status_label = serializers.SerializerMethodField()
+    value_each = serializers.SerializerMethodField()
+    invoice_code = serializers.CharField(source='invoice.code', read_only=True, default='')
 
     class Meta:
         model = TreatmentPlan
         fields = ('id', 'patient', 'patient_name', 'record', 'doctor', 'doctor_name', 'service', 'service_name', 'title',
                   'diagnosis', 'content', 'total_sessions', 'interval_days', 'price', 'status', 'status_label',
-                  'start_date', 'note', 'created_at', 'done_sessions', 'sessions')
-        read_only_fields = ('doctor', 'created_at', 'status')
+                  'start_date', 'note', 'created_at', 'done_sessions', 'sessions', 'record_code', 'record_status',
+                  'package_invoice', 'code', 'expires_at', 'invoice', 'invoice_code', 'template', 'display_status',
+                  'display_status_label', 'value_each')
+        read_only_fields = (
+            'doctor', 'created_at', 'status', 'code', 'expires_at', 'invoice', 'invoice_code',
+            'display_status', 'display_status_label', 'value_each',
+        )
 
     def get_doctor_name(self, o):
         return uname(o.doctor)
+
+    def get_package_invoice(self, o):
+        invoice = o.package_invoices.exclude(status='void').order_by('-created_at', '-id').first()
+        if not invoice:
+            return None
+        return {'id': invoice.id, 'code': invoice.code, 'status': invoice.status,
+                'status_label': invoice.get_status_display(), 'total': invoice.total,
+                'paid': invoice.paid, 'balance': invoice.balance}
+
+    def get_display_status(self, o):
+        if o.status in {TreatmentPlan.ACTIVE, TreatmentPlan.DRAFT} and o.expires_at and o.expires_at < timezone.localdate():
+            return TreatmentPlan.EXPIRED
+        return o.status
+
+    def get_display_status_label(self, o):
+        status = self.get_display_status(o)
+        return dict(TreatmentPlan.STATUS).get(status, status)
+
+    def get_value_each(self, o):
+        return round(o.price / o.total_sessions) if o.total_sessions else 0
 
     def validate_total_sessions(self, v):
         if not 1 <= v <= 60:

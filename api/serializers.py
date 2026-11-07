@@ -1,18 +1,21 @@
 import hashlib
 import hmac
 import json
+import re
 import secrets
 from datetime import timedelta
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Sum
+from django.utils import timezone
 from rest_framework import serializers
 
 from core.models import (
     Attendance, Booking, BookingHistory, BookingItem, Category, Conversation, LeaveRequest,
     Message, Notification, Service, Staff, Voucher, VoucherRedemption, WorkingHours, RosterShift,
     Tag, QuickReply, AgentPresence, ChatSetting, InternalNote, ConversationEvent, ConversationSession,
+    AppointmentWaitlistEntry, AppointmentWaitlistHistory,
 )
 from clinic.models import Patient, TreatmentPlan, TreatmentSession, Visit
 
@@ -259,6 +262,7 @@ class BookingSerializer(serializers.ModelSerializer):
     treatment_session_label = serializers.SerializerMethodField()
     treatment_session_details = serializers.SerializerMethodField()
     treatment_session_policy = serializers.SerializerMethodField()
+    confirm_state = serializers.SerializerMethodField()
     history = BookingHistorySerializer(many=True, read_only=True)
 
     class Meta:
@@ -270,11 +274,17 @@ class BookingSerializer(serializers.ModelSerializer):
             'treatment_session_policy', 'follow_up_visit_id',
             'id', 'user', 'guest_name', 'guest_phone', 'guest_email', 'confirm_code',
             'staff', 'staff_name', 'appointment', 'subtotal', 'discount_total', 'total', 'note', 'status', 'status_label',
+            'running_late', 'cancel_reason', 'confirm_state', 'duration_override', 'rescheduled_from',
+            'reschedule_count', 'rebooked_from',
             'applied_voucher', 'applied_voucher_code', 'loyalty_points_earned', 'loyalty_awarded',
             'created_at', 'customer_name', 'customer_phone', 'customer_email', 'items', 'history',
             'service_ids', 'voucher_id',
         )
-        read_only_fields = ('user', 'confirm_code', 'subtotal', 'discount_total', 'total', 'applied_voucher', 'loyalty_points_earned', 'loyalty_awarded', 'created_at')
+        read_only_fields = (
+            'user', 'confirm_code', 'subtotal', 'discount_total', 'total', 'applied_voucher',
+            'loyalty_points_earned', 'loyalty_awarded', 'created_at', 'running_late',
+            'cancel_reason', 'duration_override', 'rescheduled_from', 'reschedule_count', 'rebooked_from',
+        )
 
     def get_subtotal(self, obj):
         return sum(item.price for item in obj.items.all())
@@ -286,6 +296,11 @@ class BookingSerializer(serializers.ModelSerializer):
     def get_visit_status(self, obj):
         v = getattr(obj, 'visit', None)
         return v.status if v else None
+
+    def get_confirm_state(self, obj):
+        if obj.status in {Booking.CONFIRMED, Booking.COMPLETED}:
+            return Booking.CONFIRM_STATE_CONFIRMED
+        return obj.confirm_state
 
     def get_treatment_session_label(self, obj):
         session = obj.treatment_session
@@ -660,6 +675,57 @@ class BookingSerializer(serializers.ModelSerializer):
             redemption.booking = booking
             redemption.save(update_fields=['status', 'used_at', 'booking'])
         return booking
+
+
+class AppointmentWaitlistHistorySerializer(serializers.ModelSerializer):
+    actor_name = serializers.SerializerMethodField()
+    class Meta:
+        model = AppointmentWaitlistHistory
+        fields = ('event', 'old_status', 'new_status', 'booking_id', 'note', 'actor_name', 'created_at')
+
+    def get_actor_name(self, obj):
+        return (obj.actor.get_full_name() or obj.actor.username) if obj.actor else 'Hệ thống'
+
+
+class AppointmentWaitlistSerializer(serializers.ModelSerializer):
+    patient_code = serializers.CharField(source='patient.code', read_only=True, default='')
+    service_name = serializers.CharField(source='service.name', read_only=True, default='')
+    preferred_staff_name = serializers.CharField(source='preferred_staff.name', read_only=True, default='')
+    status_label = serializers.CharField(source='get_status_display', read_only=True)
+    booking_id = serializers.IntegerField(source='converted_booking_id', read_only=True, allow_null=True)
+    history = AppointmentWaitlistHistorySerializer(many=True, read_only=True)
+
+    class Meta:
+        model = AppointmentWaitlistEntry
+        fields = (
+            'id', 'patient', 'patient_code', 'patient_name', 'phone', 'service', 'service_name',
+            'preferred_staff', 'preferred_staff_name', 'preferred_from', 'preferred_to', 'note',
+            'status', 'status_label', 'booking_id', 'history', 'created_at', 'updated_at',
+        )
+        read_only_fields = ('status', 'created_at', 'updated_at')
+
+    def validate(self, attrs):
+        patient = attrs.get('patient') or getattr(self.instance, 'patient', None)
+        if patient:
+            attrs['patient_name'] = patient.full_name
+            attrs['phone'] = patient.phone
+        if not (attrs.get('patient_name') or getattr(self.instance, 'patient_name', '')) or not (attrs.get('phone') or getattr(self.instance, 'phone', '')):
+            raise serializers.ValidationError('Cần có họ tên và số điện thoại để liên hệ khi có chỗ trống.')
+        start = attrs.get('preferred_from', getattr(self.instance, 'preferred_from', None))
+        end = attrs.get('preferred_to', getattr(self.instance, 'preferred_to', None))
+        if start and end and end < start:
+            raise serializers.ValidationError({'preferred_to': 'Ngày kết thúc phải bằng hoặc sau ngày bắt đầu.'})
+        if start and start < timezone.localdate():
+            raise serializers.ValidationError({'preferred_from': 'Ngày bắt đầu không thể ở quá khứ.'})
+        if attrs.get('service') and not attrs['service'].is_active:
+            raise serializers.ValidationError({'service': 'Dịch vụ đã tạm ngưng.'})
+        return attrs
+
+    def validate_phone(self, value):
+        normalized = re.sub(r'[\s().-]', '', value)
+        if not re.fullmatch(r'\+?\d{7,15}', normalized):
+            raise serializers.ValidationError('Số điện thoại cần có từ 7 đến 15 chữ số.')
+        return normalized
 
 
 class AttendanceSerializer(serializers.ModelSerializer):

@@ -7,6 +7,13 @@ import CalendarTodayRounded from '@mui/icons-material/CalendarTodayRounded';
 import LocalHospitalRounded from '@mui/icons-material/LocalHospitalRounded';
 import TaskAltRounded from '@mui/icons-material/TaskAltRounded';
 import HistoryRounded from '@mui/icons-material/HistoryRounded';
+import EmailOutlined from '@mui/icons-material/EmailOutlined';
+import PhoneOutlined from '@mui/icons-material/PhoneOutlined';
+import ForumOutlined from '@mui/icons-material/ForumOutlined';
+import MoreHorizRounded from '@mui/icons-material/MoreHorizRounded';
+import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
+import SettingsOutlined from '@mui/icons-material/SettingsOutlined';
+import { useAuth } from '../context/AuthContext';
 import ChevronLeftRounded from '@mui/icons-material/ChevronLeftRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import api from '../api/client';
@@ -30,16 +37,16 @@ function NewTask({ onClose, onSaved }) {
   const [err, setErr] = useState('');
   const l = useLoad(async () => (dq.trim().length >= 2 ? arr((await api.get('/clinic/patients/', { params: { q: dq.trim(), limit: 6 } })).data) : []), [dq]);
   const save = async () => { try { await api.post('/clinic/care-tasks/', { ...f, patient: pt.id }); onSaved(); } catch (e) { setErr(errMsg(e)); } };
-  return <Modal open title="Thêm việc chăm sóc" onClose={onClose} footer={<><Btn onClick={onClose}>Hủy</Btn><Btn kind="primary" disabled={!pt || !f.title.trim()} onClick={save}>Lưu</Btn></>}>
+  return <Modal open title="Tạo hoạt động" onClose={onClose} footer={<><Btn onClick={onClose}>Hủy</Btn><Btn kind="primary" disabled={!pt || !f.title.trim()} onClick={save}>Lưu hoạt động</Btn></>}>
     {err && <div className="cl-alert error">{err}</div>}
     {pt ? <div className="cl-picked"><Avatar name={pt.full_name} /><div><strong>{pt.full_name}</strong><small>{pt.code}</small></div><button className="cl-link" onClick={() => setPt(null)}>Đổi</button></div>
       : <div className="cl-picker"><div className="cl-input-icon"><SearchRounded /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm bệnh nhân (tên, SĐT, mã)…" autoFocus /></div>
         <div className="cl-picker-list">{(l.data || []).map((p) => <button key={p.id} onClick={() => setPt(p)}><Avatar name={p.full_name} size={30} /><span><strong>{p.full_name}</strong><small>{p.code}</small></span></button>)}</div></div>}
     <div className="cl-form-grid" style={{ marginTop: 14 }}>
-      <Field label="Loại việc"><select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>{KINDS.map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></Field>
-      <Field label="Hạn xử lý"><input type="date" value={f.due_date} onChange={(e) => setF({ ...f, due_date: e.target.value })} /></Field>
+      <Field label="Loại hoạt động"><select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>{KINDS.map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></Field>
+      <Field label="Hạn thực hiện"><input type="date" value={f.due_date} onChange={(e) => setF({ ...f, due_date: e.target.value })} /></Field>
       <Field label="Mức ưu tiên"><select value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value })}><option value="normal">Bình thường</option><option value="high">Ưu tiên cao</option><option value="urgent">Khẩn cấp</option></select></Field>
-      <Field label="Nội dung" required span="2"><input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="VD: Hỏi thăm tình trạng da sau peel" /></Field>
+      <Field label="Tên hoạt động" required span="2"><input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="VD: Hỏi thăm tình trạng da sau peel" /></Field>
     </div>
   </Modal>;
 }
@@ -94,6 +101,7 @@ function TaskDetail({ task, onClose, onContact }) {
 }
 
 export default function CarePage() {
+  const { user } = useAuth();
   const [st, setSt] = useState('pending');
   const [mine, setMine] = useState(false);
   const [q, setQ] = useState('');
@@ -103,6 +111,8 @@ export default function CarePage() {
   const [groupBy, setGroupBy] = useState('');
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState(null);
+  const [activeType, setActiveType] = useState('');
+  const [confetti, setConfetti] = useState(false);
   const [toast, toastNode] = useToast();
   const sum = useLoad(async () => (await api.get('/clinic/care-tasks/summary/')).data, []);
   const dq = useDebounce(q, 250);
@@ -135,6 +145,7 @@ export default function CarePage() {
   useEffect(() => setPage(1), [st, mine, dq, kind, priority, dueScope]);
   useEffect(() => { if (page > pages) setPage(pages); }, [page, pages]);
   const refresh = (msg) => () => { setModal(null); l.reload(true); sum.reload(true); if (msg) toast(msg); };
+  const markDone = async (t) => { try { await api.post(`/clinic/care-tasks/${t.id}/done/`); setConfetti(true); setTimeout(() => setConfetti(false), 1700); refresh('Đã hoàn tất hoạt động.')(); } catch (e) { toast(errMsg(e), 'err'); } };
   const reopen = async (t) => { try { await api.post(`/clinic/care-tasks/${t.id}/reopen/`); refresh('Đã mở lại việc.')(); } catch (e) { toast(errMsg(e), 'err'); } };
   const smartFilters = [
     { key: 'kind', label: 'Loại công việc', value: kind, onChange: setKind, options: KINDS.map(([value, label]) => ({ value, label })) },
@@ -142,36 +153,30 @@ export default function CarePage() {
     { key: 'due', label: 'Thời hạn', value: dueScope === 'all' ? '' : dueScope, onChange: (v) => setDueScope(v || 'all'), options: [{ value: 'overdue', label: 'Quá hạn' }, { value: 'today', label: 'Hôm nay' }, { value: 'upcoming', label: 'Sắp tới' }] },
   ];
   const applyFavorite = (state) => { setQ(state.search || ''); setKind(state.filters?.kind || ''); setPriority(state.filters?.priority || ''); setDueScope(state.filters?.due || 'all'); setGroupBy(state.groupBy || ''); };
-  return <>
-    <PageHead actions={<Btn kind="primary" icon={<AddRounded />} onClick={() => setModal({ t: 'new' })}>Thêm việc</Btn>} />
-    {s && <div className="care-kpis">
-      <button className="care-kpi blue" onClick={() => { setSt('pending'); setDueScope('all'); }}><AccessTimeRounded/><span><small>Đang chờ xử lý</small><strong>{s.pending}</strong><em>Tất cả công việc mở</em></span></button>
-      <button className={`care-kpi ${s.overdue ? 'danger' : ''}`} onClick={() => { setSt('pending'); setDueScope('overdue'); }}><AccessTimeRounded/><span><small>Quá hạn</small><strong>{s.overdue}</strong><em>Cần ưu tiên xử lý</em></span></button>
-      <button className="care-kpi" onClick={() => { setSt('pending'); setDueScope('today'); }}><CalendarTodayRounded/><span><small>Đến hạn hôm nay</small><strong>{s.today}</strong><em>Kế hoạch trong ngày</em></span></button>
-      <button className={`care-kpi ${s.escalated ? 'danger' : ''}`} onClick={() => { setSt('escalated'); setDueScope('all'); }}><LocalHospitalRounded/><span><small>Chờ bác sĩ</small><strong>{s.escalated}</strong><em>Cần xác nhận chuyên môn</em></span></button>
-      <button className="care-kpi success" onClick={() => { setSt('done'); setDueScope('all'); }}><TaskAltRounded/><span><small>Đã xử lý 7 ngày</small><strong>{s.done_week}</strong><em>Hiệu suất gần đây</em></span></button>
-    </div>}
-    <div className="cl-toolbar-row cl-bar-top care-viewbar">
-      <div className="cl-tabs-pill" style={{ margin: 0 }}>{[['pending', 'Chờ xử lý', s?.pending], ['escalated', 'Chờ bác sĩ', s?.escalated], ['done', 'Đã xử lý'], ['skipped', 'Bỏ qua']].map(([k, t, n]) => <button key={k} className={st === k ? 'on' : ''} onClick={() => { setSt(k); setDueScope('all'); }}>{t}{Number.isFinite(n) && <b>{n}</b>}</button>)}</div>
-      <label className="cl-check"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> Việc của tôi</label>
-    </div>
-    <SmartFilterBar id="care" search={q} onSearch={setQ} placeholder="Tìm bệnh nhân, mã hồ sơ, số điện thoại, nội dung…" filters={smartFilters} groupBy={groupBy} onGroupBy={setGroupBy}
-      groupOptions={[{ value: 'due', label: 'Thời hạn' }, { value: 'assignee', label: 'Người phụ trách' }, { value: 'kind', label: 'Loại công việc' }, { value: 'priority', label: 'Mức ưu tiên' }]} onApplyFavorite={applyFavorite}/>
-    <Card pad={false}>
+  return <div className="pb-care-page">
+    <header className="pb-care-head"><div><small>Hoạt động</small><h1>Hoạt động</h1></div><div className="pb-care-head-actions"><b>{filteredRows.length} hoạt động</b><button className="pb-chip">Tất cả hoạt động <ExpandMoreRounded /></button>{user?.role === 'manager' && <Link className="pb-care-rules-link" to="/settings?scope=clinic&item=care"><SettingsOutlined/> Quy tắc tự động</Link>}<Btn kind="primary" icon={<AddRounded />} onClick={() => setModal({ t: 'new' })}>Thêm Hoạt động</Btn></div></header>
+    <nav className="pb-care-stages">{[['pending', 'Cần làm', s?.pending], ['pending', 'Quá hạn', s?.overdue, 'overdue'], ['pending', 'Hôm nay', s?.today, 'today'], ['pending', 'Ngày mai', null, 'tomorrow'], ['pending', 'Tuần này', null, 'week'], ['done', 'Đã hoàn thành', s?.done_week]].map(([k, t, n, scope]) => <button key={t} className={st === k && (dueScope === (scope || 'all')) ? 'on' : ''} onClick={() => { setSt(k); setDueScope(scope || 'all'); }}>{t}{n != null && <i>{n}</i>}</button>)}</nav>
+    <div className="pb-care-filters"><div className="pb-care-types">
+      <button className={!activeType ? 'on' : ''} onClick={() => { setActiveType(''); setKind(''); }}><TaskAltRounded />Tất cả</button>
+      {KINDS.slice(0, 4).map(([k, t]) => <button key={k} className={activeType === k ? 'on' : ''} onClick={() => { setActiveType(k); setKind(k); }}><span className={`pb-care-type-dot ${k}`} />{t}</button>)}
+    </div><label className="pb-care-search"><SearchRounded /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm kiếm hoạt động, bệnh nhân..." /></label><label className="cl-check pb-care-mine"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> Việc của tôi</label></div>
+    <Card pad={false} className="pb-care-table-card">
       {l.loading && !l.data ? <Loading /> : visibleRows.length ? <><div className="cl-table-wrap"><table className="cl-table care-table">
-        <thead><tr><th>Bệnh nhân</th><th>Việc cần làm</th><th>Loại</th><th>Hạn</th><th>Phụ trách</th>{st !== 'pending' && <th>Kết quả</th>}<th /></tr></thead>
+        <thead><tr><th>ĐÃ XONG</th><th>HẠN THỰC HIỆN</th><th>HOẠT ĐỘNG</th><th>PHỤ TRÁCH</th><th>TRẠNG THÁI</th><th /></tr></thead>
         <tbody>{groupedRows.map(([label, items]) => <Fragment key={label || 'all'}>{label && <tr className="sf-group-row"><td colSpan={st !== 'pending' ? 7 : 6}><strong>{label}</strong><span>{items.length}</span></td></tr>}{items.map((t) => <tr key={t.id} className="click" onClick={() => setModal({ t: 'detail', task: t })}>
-          <td><Link to={`/benh-nhan/${t.patient}`} className="cl-visit-name"><Avatar name={t.patient_name} size={32} /><span><strong>{t.patient_name}</strong><small>{t.patient_code} · {t.patient_phone}</small></span></Link></td>
-          <td>{t.title}{t.auto && <small className="cl-sub">Tạo tự động</small>}{t.last_contact && <small className="cl-sub">Lần gần nhất: {t.last_contact.channel_label} · {t.last_contact.result_label}</small>}</td><td><Pill tone="teal">{t.kind_label}</Pill>{t.priority !== 'normal' && <Pill tone={t.priority === 'urgent' ? 'red' : 'amber'}>{t.priority_label}</Pill>}</td>
-          <td>{fmtDate(t.due_date)} {t.overdue && st === 'pending' && <Pill tone="red">Quá hạn</Pill>}</td><td>{t.assigned_name || '—'}</td>
-          {st !== 'pending' && <td>{t.outcome || '—'}</td>}
-          <td onClick={(e) => e.stopPropagation()}>{['pending', 'escalated'].includes(st) ? <Btn size="sm" onClick={() => setModal({ t: 'contact', task: t })}>{st === 'escalated' ? 'Bác sĩ xử lý' : 'Ghi nhận'}</Btn> : <button className="cl-link" onClick={() => reopen(t)}>Mở lại</button>}</td></tr>)}</Fragment>)}</tbody></table></div>
+          <td onClick={(e) => e.stopPropagation()}><button className={`pb-care-check ${t.status !== 'pending' ? 'done' : ''}`} onClick={() => t.status === 'pending' && markDone(t)}>{t.status !== 'pending' && <TaskAltRounded />}</button></td>
+          <td><b>{fmtDate(t.due_date)} {t.overdue && <em className="pb-care-overdue">QUÁ HẠN</em>}</b><small>{t.assigned_name || 'Chưa phân công'}</small></td>
+          <td><span className={`pb-care-ico ${t.kind}`}>{t.kind === 'post_care' ? <EmailOutlined /> : t.kind === 'payment' ? <ForumOutlined /> : <PhoneOutlined />}</span><Link to={`/benh-nhan/${t.patient}`} onClick={(e) => e.stopPropagation()}>{t.title}</Link><small>{t.patient_name} · {t.patient_code}</small></td>
+          <td><span className="pb-care-assignee"><Avatar name={t.assigned_name || 'Akina'} size={26} />{t.assigned_name || 'Akina Clinic'}</span></td>
+          <td><Pill tone={t.status === 'done' ? 'green' : t.overdue ? 'red' : 'blue'} dot>{t.status === 'done' ? 'Đã hoàn thành' : t.overdue ? 'Quá hạn' : 'Đang chờ'}</Pill></td>
+          <td onClick={(e) => e.stopPropagation()}><button className="pb-care-more" onClick={() => setModal({ t: 'detail', task: t })}><MoreHorizRounded /></button></td></tr>)}</Fragment>)}</tbody></table></div>
         <nav className="care-pagination" aria-label="Phân trang công việc"><span>{filteredRows.length} công việc</span><div><button disabled={page === 1} onClick={() => setPage((p) => p - 1)}><ChevronLeftRounded/></button>{Array.from({ length: pages }, (_, i) => i + 1).filter((p) => pages <= 7 || p === 1 || p === pages || Math.abs(p - page) <= 1).map((p, i, a) => <span key={p}>{i && p - a[i - 1] > 1 ? <i>…</i> : null}<button className={page === p ? 'on' : ''} onClick={() => setPage(p)}>{p}</button></span>)}<button disabled={page === pages} onClick={() => setPage((p) => p + 1)}><ChevronRightRounded/></button></div></nav></>
         : <Empty title={st === 'pending' ? 'Không còn việc chăm sóc nào' : 'Chưa có dữ liệu'} hint="Việc nhắc tái khám, hỏi thăm sau điều trị và nhắc công nợ được tạo tự động." />}
     </Card>
+    <div className="pb-care-foot">Hiển thị {visibleRows.length} trong tổng số {filteredRows.length} hoạt động</div>
     {modal?.t === 'new' && <NewTask onClose={() => setModal(null)} onSaved={refresh('Đã thêm việc chăm sóc.')} />}
     {modal?.t === 'contact' && <Contact t={modal.task} onClose={() => setModal(null)} onDone={refresh('Đã ghi nhận lần chăm sóc.')} />}
     {modal?.t === 'detail' && <TaskDetail task={modal.task} onClose={() => setModal(null)} onContact={(task) => setModal({ t: 'contact', task })} />}
-    {toastNode}
-  </>;
+    {toastNode}{confetti && <div className="pb-confetti" aria-hidden="true">{Array.from({ length: 42 }, (_, i) => <i key={i} style={{ '--i': i, '--x': `${(i * 47) % 100}%` }} />)}</div>}
+  </div>;
 }

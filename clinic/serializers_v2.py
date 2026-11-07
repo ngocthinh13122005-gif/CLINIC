@@ -95,7 +95,7 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = InvoiceItem
-        fields = ('id', 'kind', 'name', 'medicine', 'service', 'quantity', 'unit_price', 'amount')
+        fields = ('id', 'kind', 'name', 'medicine', 'service', 'package_template', 'quantity', 'unit_price', 'amount')
 
 
 class PaymentSerializer(serializers.ModelSerializer):
@@ -189,13 +189,14 @@ class InvoiceSerializer(serializers.ModelSerializer):
     refunds = RefundSerializer(many=True, read_only=True)
     followups = DebtFollowUpSerializer(many=True, read_only=True)
     refunded = serializers.SerializerMethodField()
+    treatment_plan_title = serializers.CharField(source='treatment_plan.title', read_only=True, default='')
 
     class Meta:
         model = Invoice
         fields = ('id', 'code', 'patient', 'patient_name', 'patient_code', 'patient_phone', 'visit', 'status', 'status_label',
                   'subtotal', 'discount', 'total', 'paid', 'balance', 'payment_term', 'payment_term_label', 'due_date',
                   'due_status', 'overdue_days', 'note', 'void_reason', 'created_by_name', 'created_at',
-                  'items', 'payments', 'buyer_name', 'buyer_tax_code', 'buyer_address', 'buyer_email', 'einvoice_status',
+                  'items', 'payments', 'treatment_plan', 'treatment_plan_title', 'buyer_name', 'buyer_tax_code', 'buyer_address', 'buyer_email', 'einvoice_status',
                   'einvoice_symbol', 'einvoice_no', 'einvoice_lookup', 'einvoice_at', 'refunds', 'followups', 'refunded')
 
     def get_created_by_name(self, o):

@@ -5,11 +5,27 @@ Quy ước: Medicine.stock là tổng tồn. Các lô (StockLot) là phần tồ
 Mọi biến động đều ghi StockMovement (thẻ kho).
 """
 from django.db import transaction
-from django.db.models import F, Sum
+from django.db.models import F, Q, Sum
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import Medicine, PurchaseOrder, PurchaseOrderLine, StockCount, StockCountLine, StockLot, StockMovement
+from .models import (Medicine, PurchaseOrder, PurchaseOrderLine, StockCount, StockCountLine, StockLocation, StockLot,
+                     StockMovement, StockTransfer)
+
+
+def default_location():
+    loc = StockLocation.objects.filter(is_default=True, is_active=True).first() or StockLocation.objects.filter(is_active=True).first()
+    if not loc:
+        loc = StockLocation.objects.create(code='KHO-CHINH', name='Kho chính', is_default=True)
+    return loc
+
+
+def lots_at(loc, qs=None):
+    qs = StockLot.objects.all() if qs is None else qs
+    condition = Q(location=loc)
+    if loc.is_default:
+        condition |= Q(location__isnull=True)
+    return qs.filter(condition)
 
 
 def _lock(med):
@@ -26,7 +42,8 @@ def _log(med, kind, delta, user, reference='', note='', lot=None, unit_cost=0):
 
 
 @transaction.atomic
-def receive_lot(med, qty, user, *, lot_no='', expiry=None, cost=None, supplier=None, reference='', note='', kind=StockMovement.IN):
+def receive_lot(med, qty, user, *, lot_no='', expiry=None, cost=None, supplier=None, reference='', note='',
+                kind=StockMovement.IN, location=None):
     if qty <= 0:
         raise serializers.ValidationError({'detail': 'Số lượng nhập phải lớn hơn 0.'})
     from core.operational_settings import clinic_setting
@@ -37,7 +54,7 @@ def receive_lot(med, qty, user, *, lot_no='', expiry=None, cost=None, supplier=N
     med = _lock(med)
     cost = med.cost if cost in (None, '') else max(int(cost), 0)
     lot = StockLot.objects.create(medicine=med, lot_no=(lot_no or '')[:40], expiry_date=expiry or None, quantity=qty, initial_qty=qty,
-                                  unit_cost=cost, supplier=supplier, reference=reference[:40])
+                                  unit_cost=cost, supplier=supplier, reference=reference[:40], location=location or default_location())
     med.stock += qty
     if cost:
         med.cost = cost
@@ -120,7 +137,7 @@ def receive_order(order, user, lines):
             raise serializers.ValidationError({'detail': f'"{line.medicine.name}": nhận vượt số lượng đặt.'})
         expiry = row.get('expiry') or None
         receive_lot(line.medicine, qty, user, lot_no=row.get('lot_no', ''), expiry=expiry, cost=line.unit_cost,
-                    supplier=order.supplier, reference=order.code, note=f'Nhận hàng đơn {order.code}')
+                    supplier=order.supplier, reference=order.code, note=f'Nhận hàng đơn {order.code}', location=order.location)
         line.received_qty += qty
         line.save(update_fields=['received_qty'])
         got += qty
@@ -136,16 +153,19 @@ def receive_order(order, user, lines):
 
 # --------------------------------------------------------------------------- kiểm kho
 @transaction.atomic
-def start_count(user, note='', medicine_ids=None):
-    count = StockCount.objects.create(created_by=user, note=note[:255])
+def start_count(user, note='', medicine_ids=None, name='', location=None):
+    count = StockCount.objects.create(created_by=user, note=note[:255], name=(name or '')[:120], location=location)
     meds = Medicine.objects.filter(is_active=True)
     if medicine_ids:
         meds = meds.filter(pk__in=medicine_ids)
     for med in meds.order_by('name'):
-        lots = list(med.lots.filter(quantity__gt=0))
+        all_lots = list(med.lots.filter(quantity__gt=0))
+        lots = list(lots_at(location, med.lots.filter(quantity__gt=0))) if location else all_lots
         for lot in lots:
             StockCountLine.objects.create(count=count, medicine=med, lot=lot, expected_qty=lot.quantity)
-        rest = med.stock - sum(l.quantity for l in lots)
+        if location and not location.is_default:
+            continue
+        rest = med.stock - sum(l.quantity for l in all_lots)
         if rest > 0 or not lots:
             StockCountLine.objects.create(count=count, medicine=med, lot=None, expected_qty=max(rest, 0))
     return count
@@ -215,3 +235,105 @@ def restore(med, qty, kind, user, reference='', note=''):
         med.save(update_fields=['stock'])
         _log(med, kind, need, user, reference, note, None, med.cost)
     return med
+
+
+# --------------------------------------------------------------------------- chuyển kho
+def available_at(med, loc):
+    qty = lots_at(loc, med.lots.all()).aggregate(s=Sum('quantity'))['s'] or 0
+    return qty + (max(unlotted_qty(med), 0) if loc.is_default else 0)
+
+
+def check_transfer(transfer):
+    short = []
+    for line in transfer.lines.select_related('medicine'):
+        need = line.quantity - line.received_qty
+        have = available_at(line.medicine, transfer.from_location)
+        if need > have:
+            short.append({'medicine': line.medicine.name, 'need': need, 'have': have})
+    return short
+
+
+@transaction.atomic
+def send_transfer(transfer, user):
+    transfer = StockTransfer.objects.select_for_update().get(pk=transfer.pk)
+    if transfer.status != StockTransfer.DRAFT:
+        raise serializers.ValidationError({'detail': 'Phiếu này đã được gửi hoặc đã đóng.'})
+    if transfer.from_location_id == transfer.to_location_id:
+        raise serializers.ValidationError({'detail': 'Kho gửi và kho nhận phải khác nhau.'})
+    if not transfer.lines.exists():
+        raise serializers.ValidationError({'detail': 'Phiếu chuyển chưa có mặt hàng nào.'})
+    short = check_transfer(transfer)
+    if short:
+        item = short[0]
+        raise serializers.ValidationError({'detail': f'Kho nguồn không đủ "{item["medicine"]}" (cần {item["need"]}, còn {item["have"]}).'})
+    transfer.status, transfer.sent_at = StockTransfer.PENDING, timezone.now()
+    transfer.save(update_fields=['status', 'sent_at'])
+    return transfer
+
+
+def _move_qty(med, qty, src, dst, user, code):
+    need = qty
+    lots = list(lots_at(src, med.lots.select_for_update().filter(quantity__gt=0))
+                .order_by(F('expiry_date').asc(nulls_last=True), 'id'))
+    for lot in lots:
+        if need <= 0:
+            break
+        take = min(lot.quantity, need)
+        lot.quantity -= take
+        lot.save(update_fields=['quantity'])
+        new = lots_at(dst, med.lots.select_for_update().filter(
+            lot_no=lot.lot_no, expiry_date=lot.expiry_date, unit_cost=lot.unit_cost
+        )).exclude(pk=lot.pk).first()
+        if new:
+            new.quantity += take
+            new.initial_qty += take
+            new.save(update_fields=['quantity', 'initial_qty'])
+        else:
+            new = StockLot.objects.create(
+                medicine=med, lot_no=lot.lot_no, expiry_date=lot.expiry_date, quantity=take,
+                initial_qty=take, unit_cost=lot.unit_cost, supplier=lot.supplier,
+                reference=code[:40], location=dst, received_at=lot.received_at,
+            )
+        _log(med, StockMovement.TRANSFER, -take, user, code, f'Chuyển {src.name} → {dst.name}', lot, lot.unit_cost)
+        _log(med, StockMovement.TRANSFER, take, user, code, f'Chuyển {src.name} → {dst.name}', new, lot.unit_cost)
+        need -= take
+    if need > 0 and src.is_default:
+        take = min(max(unlotted_qty(med), 0), need)
+        if take:
+            new = StockLot.objects.create(
+                medicine=med, lot_no='', quantity=take, initial_qty=take,
+                unit_cost=med.cost, reference=code[:40], location=dst,
+            )
+            _log(med, StockMovement.TRANSFER, take, user, code, f'Chuyển {src.name} → {dst.name}', new, med.cost)
+            need -= take
+    if need > 0:
+        raise serializers.ValidationError({'detail': f'Kho nguồn không đủ "{med.name}" để chuyển.'})
+
+
+@transaction.atomic
+def receive_transfer(transfer, user, rows=None):
+    transfer = StockTransfer.objects.select_for_update().get(pk=transfer.pk)
+    if transfer.status not in {StockTransfer.PENDING, StockTransfer.PARTIAL}:
+        raise serializers.ValidationError({'detail': 'Phiếu này không ở trạng thái chờ nhận.'})
+    wanted = {int(row['line_id']): int(row.get('quantity') or 0) for row in (rows or [])
+              if row.get('line_id') is not None}
+    received = 0
+    for line in transfer.lines.select_related('medicine'):
+        left = line.quantity - line.received_qty
+        qty = wanted.get(line.id, left) if rows else left
+        if qty <= 0:
+            continue
+        if qty > left:
+            raise serializers.ValidationError({'detail': f'"{line.medicine.name}": nhận vượt số lượng chuyển.'})
+        _move_qty(line.medicine, qty, transfer.from_location, transfer.to_location, user, transfer.code)
+        line.received_qty += qty
+        line.save(update_fields=['received_qty'])
+        received += qty
+    if not received:
+        raise serializers.ValidationError({'detail': 'Chưa nhập số lượng nhận nào.'})
+    done = not any(line.received_qty < line.quantity for line in transfer.lines.all())
+    transfer.status = StockTransfer.RECEIVED if done else StockTransfer.PARTIAL
+    if done:
+        transfer.received_at = timezone.now()
+    transfer.save(update_fields=['status', 'received_at'])
+    return transfer

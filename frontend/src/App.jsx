@@ -22,19 +22,24 @@ import { AdminStaffPage, AdminAttendancePage, AdminPayrollPage } from './pages/A
 import ClinicHome from './clinic/Home';
 import ReceptionPage from './clinic/Reception';
 import CalendarPage from './clinic/Calendar';
-import { PatientsPage, PatientProfilePage } from './clinic/Patients';
+import BookingListView from './clinic/BookingListView';
+import { PatientsPage } from './clinic/Patients';
 import ExamPage from './clinic/Exam';
 import PlansPage from './clinic/Plans';
-import PharmacyPage from './clinic/Inventory';
+import PharmacyPage from './clinic/Stock';
 import ReportsPage from './clinic/Reports';
 import CarePage from './clinic/Care';
 import AuditPage from './clinic/Audit';
 import CompliancePage from './clinic/Compliance';
-import BillingPage from './clinic/Billing';
+import MoneyPage from './clinic/Money';
+import ClientProfilePage from './clinic/ClientProfile';
+import SalePage, { AddPaymentPage } from './clinic/Sale';
+import InvoiceEditPage from './clinic/InvoiceEdit';
 import { ChangePasswordPage, ForgotPasswordPage } from './pages/AuthSecurityPages';
 import EmailMarketingPage from './pages/EmailMarketingPage';
 import CRMPage from './pages/CRMPage';
 import SettingsCenter from './clinic/SettingsCenter';
+import ActivitiesPage from './clinic/Activities';
 
 function Protected(){
   const {user}=useAuth(); const location=useLocation();
@@ -82,15 +87,20 @@ export default function App(){return <Routes>
     <Route path="/dashboard" element={<DashboardRoute/>}/>
     <Route path="/tiep-don" element={<Roles allow={['manager','doctor','consultant']}><ReceptionPage/></Roles>}/>
     <Route path="/lich-hen" element={<Roles allow={CLINIC_ROLES}><CalendarPage/></Roles>}/>
+    <Route path="/lich-hen/danh-sach" element={<Roles allow={CLINIC_ROLES}><BookingListView/></Roles>}/>
     <Route path="/benh-nhan" element={<Roles allow={CLINIC_ROLES}><PatientsPage/></Roles>}/>
-    <Route path="/benh-nhan/:id" element={<Roles allow={CLINIC_ROLES}><PatientProfilePage/></Roles>}/>
+    <Route path="/benh-nhan/:id" element={<Roles allow={CLINIC_ROLES}><ClientProfilePage/></Roles>}/>
     <Route path="/kham/:visitId" element={<Roles allow={['doctor']}><ExamPage/></Roles>}/>
-    <Route path="/thu-ngan" element={<Roles allow={['manager','consultant']}><BillingPage/></Roles>}/>
+    <Route path="/thu-ngan" element={<Roles allow={['manager','consultant']}><MoneyPage/></Roles>}/>
+    <Route path="/ban-hang" element={<Roles allow={['manager','consultant']}><SalePage/></Roles>}/>
+    <Route path="/ban-hang/thu-tien/:id" element={<Roles allow={['manager','consultant']}><AddPaymentPage/></Roles>}/>
+    <Route path="/hoa-don/:id" element={<Roles allow={['manager','consultant','doctor']}><InvoiceEditPage/></Roles>}/>
     <Route path="/kho-thuoc" element={<Roles allow={['manager','doctor','consultant']}><PharmacyPage/></Roles>}/>
     <Route path="/bao-cao" element={<Roles allow={['manager']}><ReportsPage/></Roles>}/>
     <Route path="/tuan-thu" element={<Roles allow={['manager']}><CompliancePage/></Roles>}/>
     <Route path="/nhat-ky" element={<Roles allow={['manager']}><AuditPage/></Roles>}/>
     <Route path="/cham-soc" element={<Roles allow={['manager','doctor','consultant']}><CarePage/></Roles>}/>
+    <Route path="/hoat-dong" element={<Roles allow={['manager','doctor','consultant']}><ActivitiesPage/></Roles>}/>
     <Route path="/lieu-trinh" element={<Roles allow={CLINIC_ROLES}><PlansPage/></Roles>}/>
     <Route path="/admin/dashboard" element={<ManagerOnly><AdminOverviewPage/></ManagerOnly>}/>
     <Route path="/admin/calendar" element={<ManagerOnly><AdminCalendarPage/></ManagerOnly>}/>

@@ -1,0 +1,205 @@
+/* Lịch hẹn – giao diện & chức năng theo Pabau. Mọi class bắt đầu bằng "pb-" nên không đụng CSS cũ. */
+.pb-calendar{--blue:#4fb0d3;--blue-d:#2f93bb;--dark:#2f3238;--line:#e2e5e9;--mut:#8b929c;--txt:#2b2f36;
+  font-family:Roboto,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;color:var(--txt);line-height:1.3;background:#fff;
+  border:1px solid var(--line);border-radius:6px;position:relative}
+.pb-calendar *{box-sizing:border-box}.pb-calendar button,.pb-calendar .pb-pop button,.pb-calendar .pb-dlg button,.pb-calendar .pb-modal button,.pb-calendar .pb-drawer button{font-family:inherit;cursor:pointer}
+.pb-calendar button:disabled,.pb-calendar .pb-pop button:disabled,.pb-calendar .pb-dlg button:disabled,.pb-calendar .pb-modal button:disabled,.pb-calendar .pb-drawer button:disabled{cursor:not-allowed}
+.pb-spacer{flex:1}.pb-relative{position:relative}.pb-muted{color:var(--mut)}.pb-warning{color:#b45309}
+
+/* ---- Thanh công cụ ---- */
+.pb-bar{display:flex;align-items:center;gap:10px;padding:10px 20px;border-bottom:1px solid var(--line);flex-wrap:wrap;position:relative}
+.pb-nav{display:flex;border:1px solid var(--blue);border-radius:4px;overflow:hidden;height:36px}
+.pb-nav button{background:#fff;border:0;border-right:1px solid var(--blue);color:var(--blue-d);width:38px;font-size:18px}
+.pb-nav button:last-child{border-right:0}.pb-nav button:hover{background:#eef8fc}
+.pb-nav .pb-date{width:auto;min-width:200px;padding:0 16px;font-size:15px;font-weight:500;color:#6b7280}
+.pb-ghost{height:36px;padding:0 14px;border:1px solid var(--line);background:#fff;border-radius:4px;color:var(--blue-d);font-size:13px}
+.pb-legend{display:flex;gap:14px;font-size:12px;color:#6b7280}.pb-legend span{display:flex;align-items:center;gap:6px}
+.pb-legend i{width:12px;height:12px;border-radius:3px;display:block}
+.pb-icon{height:36px;min-width:36px;padding:0 10px;border:1px solid var(--line);background:#fff;border-radius:18px;color:#6b7280;font-size:14px;position:relative}
+.pb-icon:hover{border-color:var(--blue);color:var(--blue-d)}
+.pb-icon sup{position:absolute;top:-6px;right:-4px;background:var(--blue);color:#fff;border-radius:9px;min-width:17px;height:17px;font-size:10px;display:grid;place-items:center;padding:0 4px}
+.pb-select{height:36px;min-width:100px;border:1px solid var(--line);border-radius:4px;padding:0 10px;background:#fff;color:#6b7280;font-size:13px}
+.pb-create{height:40px;padding:0 20px;border:1px solid var(--blue);border-radius:6px;background:#fff;color:var(--blue-d);font-size:15px;font-weight:500;display:flex;align-items:center;gap:8px}
+.pb-create:hover{background:#eef8fc}
+.pb-calendar .pb-alert{background:#fff1f1;color:#c62828;padding:9px 20px;border-bottom:1px solid #f5c6c6;display:flex;justify-content:space-between}
+.pb-calendar .pb-alert button{background:none;border:0;font-size:18px;color:#c62828}
+
+/* ---- Màu loại lịch hẹn ---- */
+.pb-calendar .t-consult{--b:#ade6fb;--t:#0d4f6e}.pb-calendar .t-follow_up{--b:#a9ecc7;--t:#0f5a35}.pb-calendar .t-procedure{--b:#f2de9c;--t:#6b5600}.pb-calendar .t-session{--b:#ddd0fb;--t:#3c2b7a}
+.pb-legend i.t-consult,.pb-legend i.t-follow_up,.pb-legend i.t-procedure,.pb-legend i.t-session{background:var(--b)}
+
+/* ---- Lưới ---- */
+.pb-scroll{overflow:auto;max-height:calc(100vh - 175px);position:relative}
+.pb-calendar:fullscreen{display:flex;flex-direction:column;border:0}.pb-calendar:fullscreen .pb-scroll{max-height:none;flex:1}
+.pb-calendar .pb-grid{display:grid;min-width:max-content}
+.pb-corner,.pb-head,.pb-dayh{position:sticky;top:0;z-index:8;background:#fff;border-bottom:1px solid var(--line)}
+.pb-corner{left:0;z-index:9;border-right:1px solid var(--line)}
+.pb-dayh{height:30px;display:flex;align-items:center;justify-content:center;gap:5px;border-right:1px solid #cfd3d8;color:#555;cursor:pointer;font-size:12.5px}
+.pb-dayh b{font-size:15px}.pb-dayh.today{background:#e8f6fb;color:var(--blue-d)}.pb-dayh:hover{background:#f3f9fc}
+.pb-calendar .pb-head{text-align:center;padding:10px 4px 8px;border-right:1px solid var(--line)}
+.pb-head.day-start,.pb-col.day-start{border-left:2px solid #cfd3d8}
+.pb-calendar .pb-grid.week .pb-head{padding:5px 2px}.pb-calendar .pb-grid.week .pb-av{margin:0 auto}
+.pb-av{width:36px;height:36px;border-radius:50%;margin:0 auto 4px;display:grid;place-items:center;background:#e9eef2;color:#4a5560;font-weight:600;font-size:12px;border:2px solid #f08a8a;flex:none}
+.pb-av.sm{width:28px;height:28px;font-size:10px;margin:0;border-width:1.5px}
+.pb-calendar .pb-head b{display:block;font-size:12px;font-weight:600}.pb-calendar .pb-head small{display:block;font-size:10.5px;color:#2b6cb0}.pb-calendar .pb-head em{display:block;font-style:normal;font-size:11.5px;color:#555}
+.pb-times{position:sticky;left:0;z-index:7;background:#fff;border-right:1px solid var(--line)}
+.pb-times span{position:absolute;right:8px;font-size:11px;color:#b3b8bf;transform:translateY(4px)}.pb-times span.hr{font-size:13px;font-weight:500;color:var(--txt)}
+.pb-col{position:relative;border-right:1px solid var(--line);cursor:pointer;
+  background-image:linear-gradient(#cfd3d8 1px,transparent 1px),linear-gradient(#f1f2f4 1px,transparent 1px);background-size:100% 168px,100% 28px}
+.pb-off{position:absolute;left:0;right:0;background:rgba(150,156,166,.14);pointer-events:none;display:block}
+.pb-past{position:absolute;left:0;right:0;top:0;background:rgba(160,166,175,.10);pointer-events:none;display:block}
+.pb-now{position:absolute;left:0;right:0;border-top:1px dashed var(--blue);z-index:6;pointer-events:none;display:block}
+.pb-now u{position:absolute;left:0;top:-9px;background:var(--blue);color:#fff;font-size:10px;padding:1px 5px;border-radius:2px;text-decoration:none}
+
+/* ---- Khối lịch hẹn ---- */
+.pb-ev{position:absolute;border:1px solid rgba(0,0,0,.05);border-radius:3px;background:var(--b);color:var(--t);padding:4px 6px;text-align:left;overflow:hidden;
+  display:block;font-size:10px;line-height:1.25;z-index:3;user-select:none;touch-action:none}
+.pb-ev b{display:block;font-size:11.5px;font-weight:700}.pb-ev span{display:block}.pb-ev strong{display:block;font-size:10px;font-weight:700}.pb-ev em{display:block;font-size:10px;font-weight:500}
+.pb-ev u{text-decoration:none;color:#c0392b}
+.pb-ev:hover{box-shadow:0 2px 8px rgba(0,0,0,.2);z-index:5}.pb-ev.sel{outline:2px solid #1b6ca8;z-index:5}
+.pb-ev.done{filter:grayscale(.85);opacity:.7}
+.pb-ev.noshow{background:repeating-linear-gradient(45deg,#ffd5d8,#ffd5d8 6px,#ffe9eb 6px,#ffe9eb 12px);color:#9b1c28;border-color:#f3a6ad}
+.pb-ev.arrived{box-shadow:inset 3px 0 0 #35c27f}
+.pb-ev.draft{background:#f4efff;border:1px dashed #8c6fd8;color:#4b3a8f;cursor:default;z-index:4;pointer-events:none}
+.pb-grip{position:absolute;left:0;right:0;bottom:0;height:7px;cursor:ns-resize;background:linear-gradient(transparent,rgba(0,0,0,.12))}
+.pb-ghost-ev{position:absolute;left:2px;right:2px;z-index:7;border-radius:3px;font-size:11px;font-weight:600;padding:4px 6px;pointer-events:none}
+.pb-ghost-ev.ok{background:rgba(79,176,211,.35);border:2px dashed var(--blue-d);color:#0d4f6e}
+.pb-ghost-ev.bad{background:rgba(255,90,100,.3);border:2px dashed #e53946;color:#9b1c28}
+.pb-block{position:absolute;left:2px;right:2px;z-index:2;border:1px solid #c5cad1;border-radius:3px;text-align:left;padding:3px 6px;font-size:10.5px;color:#4a5560;overflow:hidden;
+  background:repeating-linear-gradient(135deg,#eceff3,#eceff3 6px,#f7f8fa 6px,#f7f8fa 12px)}
+.pb-block b{display:block;font-size:11px}.pb-block.k-off{background:repeating-linear-gradient(135deg,#e1e3e8,#e1e3e8 6px,#eff0f3 6px,#eff0f3 12px)}
+.pb-tip{position:fixed;z-index:90;background:#fff;border:1px solid var(--line);box-shadow:0 2px 10px rgba(0,0,0,.18);border-radius:5px;padding:6px 10px;font-size:12px;pointer-events:none}
+.pb-tip b{display:block}.pb-tip small{color:var(--mut)}.pb-tip.err{background:#fff1f1;color:#c62828;border-color:#f5c6c6;max-width:360px}
+
+/* ---- Chọn ngày (ảnh 6) ---- */
+.pb-datepop{position:absolute;left:20px;top:56px;z-index:60;background:#fff;border:1px solid var(--line);box-shadow:0 10px 36px rgba(0,0,0,.22);padding:16px;width:min(1000px,calc(100vw - 80px));border-radius:4px}
+.pb-weekstrip{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;padding-bottom:14px;border-bottom:1px solid var(--line);margin-bottom:14px}
+.pb-weekstrip button{background:#f6f7f9;border:1px solid var(--line);border-radius:4px;padding:6px 4px;text-align:center;color:#555}
+.pb-weekstrip small,.pb-weekstrip span{display:block;font-size:12px}.pb-weekstrip b{display:block;font-size:15px;font-weight:600}
+.pb-weekstrip button.on{background:#e8f6fb;border-color:var(--blue);color:var(--blue-d)}
+.pb-date-main{display:flex;gap:16px}.pb-months{flex:1}.pb-months-g{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.pb-month-ctl{display:flex;gap:8px;margin-bottom:10px}.pb-month-ctl select{height:32px;border:1px solid var(--line);border-radius:4px;padding:0 8px;min-width:100px}
+.pb-month-ctl button{width:32px;height:32px;border:1px solid var(--line);background:#fff;border-radius:4px}
+.pb-month{border:1px solid var(--line);padding:8px}.pb-month-t{text-align:center;margin-bottom:6px;font-size:13px}
+.pb-month-g{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}.pb-month-g b{font-size:11px;font-weight:500;color:#555;padding:4px 0}
+.pb-month-g button{height:30px;border:0;background:#fff;border-radius:3px;font-size:12.5px;color:#333}.pb-month-g button.out{color:#c4c8ce}
+.pb-month-g button:hover{background:#eef8fc}.pb-month-g button.today{outline:1px solid var(--blue)}.pb-month-g button.sel{background:var(--blue);color:#fff}
+.pb-quick{display:flex;flex-direction:column;gap:8px;width:120px}.pb-quick button{height:36px;border:1px solid var(--line);background:#fff;border-radius:4px;color:#333;font-weight:500}
+.pb-quick button:hover{border-color:var(--blue);color:var(--blue-d)}
+
+/* ---- Lọc, menu Create (ảnh 8) ---- */
+.pb-filter{position:absolute;right:0;top:42px;z-index:60;background:#fff;border:1px solid var(--line);box-shadow:0 10px 30px rgba(0,0,0,.2);padding:10px;width:260px;border-radius:4px;max-height:360px;overflow:auto}
+.pb-filter-h{display:flex;justify-content:space-between;margin-bottom:6px}.pb-filter-h button{background:none;border:0;color:var(--blue-d)}
+.pb-filter label{display:flex;gap:8px;align-items:center;padding:5px 2px}
+.pb-createmenu{position:absolute;right:0;top:48px;z-index:60;width:420px;background:#fff;box-shadow:0 10px 36px rgba(0,0,0,.25);border-radius:4px;padding:16px 20px}
+.pb-cm-h{display:flex;justify-content:space-between;font-weight:600;font-size:15px;margin-bottom:14px}.pb-cm-h button{background:none;border:0;font-size:20px;color:#555}
+.pb-cm-g{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.pb-cm-g button{display:flex;align-items:center;gap:10px;background:none;border:0;padding:6px;text-align:left;font-size:14.5px;font-weight:500;border-radius:6px}.pb-cm-g button:hover{background:#eef8fc}
+.pb-cm-g i{width:38px;height:38px;border-radius:10px;background:#f1f3f6;display:grid;place-items:center;font-style:normal}
+.pb-cm-g kbd{margin-left:auto;font-family:inherit;font-size:10.5px;background:#f1f3f6;border:1px solid var(--line);border-radius:4px;padding:2px 6px;color:#555}
+
+/* ---- Popover chi tiết (ảnh 2) ---- */
+.pb-calendar .pb-pop{position:fixed;z-index:70;width:380px;background:#fff;border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.28);overflow:visible;font-family:Roboto,"Segoe UI",Arial,sans-serif;font-size:13px;color:#2b2f36}
+.pb-calendar .pb-pop *{box-sizing:border-box}
+.pb-calendar .pb-pop-h{background:linear-gradient(135deg,#3f9fc2,#7cc6df);color:#fff;padding:18px 20px 40px;position:relative;min-height:150px;border-radius:10px 10px 0 0}
+.pb-calendar .pb-pop-av{position:absolute;left:20px;top:44px;width:56px;height:56px;border-radius:50%;background:#f3c8e3;color:#6a2c58;display:grid;place-items:center;font-weight:700;font-size:16px}
+.pb-calendar .pb-pop-av.dark{position:static;margin:0 auto 10px;background:#dfe7ed;color:#33414d}
+.pb-calendar .pb-pop-h h3{margin:0 0 8px 76px;font-size:16px;font-weight:600}
+.pb-calendar .pb-chip{display:block;margin:6px 0 0 76px;background:#fff;color:#333;border-radius:4px;padding:6px 10px;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pb-x{position:absolute;right:12px;top:10px;background:rgba(255,255,255,.25);border:0;color:#fff;width:26px;height:26px;border-radius:5px;font-size:17px}
+.pb-calendar .pb-pop-b{background:#fff;margin-top:-22px;border-radius:14px 14px 10px 10px;padding:16px 20px 20px;position:relative}
+.pb-steps{display:flex;gap:2px;margin-bottom:10px}
+.pb-steps button{flex:1;border:0;text-align:center;font-size:10px;padding:8px 0;background:#e6e8eb;color:#8b929c;clip-path:polygon(0 0,90% 0,100% 50%,90% 100%,0 100%,10% 50%);white-space:nowrap;overflow:hidden}
+.pb-steps button:not(:disabled):hover{background:#cfeaf5}.pb-steps button.done{background:#d5dade}.pb-steps button.on{flex:2.4;background:#ec5b9e;color:#fff;font-weight:500}
+.pb-status-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}.pb-status-row b{font-size:14px;color:#c2417f}
+.pb-tag{font-size:11px;background:#eef1f4;color:#555;border-radius:10px;padding:2px 8px}.pb-tag.late{background:#fff3e0;color:#b45309}.pb-tag.red{background:#ffe3e5;color:#c62828}
+.pb-noshow{height:26px;padding:0 14px;border:1px solid #e3e6ea;background:#f3f4f6;border-radius:13px;color:#8b929c;font-size:12px}
+.pb-noshow:not(:disabled){background:#ffe3e5;border-color:#f3a6ad;color:#c62828}.pb-noshow.big{height:34px;margin-left:auto}
+.pb-svc{background:#eaf5fb;border-radius:4px;padding:11px 12px;margin:6px 0 10px;color:#1d4e66;font-size:14px;display:flex;justify-content:space-between;gap:8px}
+.pb-svc button{background:none;border:0;color:#5b8aa0;font-size:15px}
+.pb-meta{margin:4px 0;color:#6b7280;font-size:12.5px}
+.pb-err{color:#d33;font-size:12.5px;margin:8px 0}
+.pb-acts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.pb-calendar .pb-btn{height:36px;border:1px solid var(--line);background:#fff;color:#6b7280;border-radius:4px;font-size:13px;display:flex;align-items:center;justify-content:center;text-decoration:none;padding:0 8px;white-space:nowrap}
+.pb-calendar .pb-btn:hover:not(:disabled){border-color:var(--blue);color:var(--blue-d)}
+.pb-calendar .pb-btn.red{background:#ff5a64;border-color:#ff5a64;color:#fff}.pb-calendar .pb-btn.red:hover:not(:disabled){color:#fff;filter:brightness(.95)}
+.pb-calendar .pb-btn.blue{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600;height:40px}.pb-calendar .pb-btn.blue:hover:not(:disabled){background:var(--blue-d);color:#fff}
+.pb-calendar .pb-btn.wide{width:100%}.pb-calendar .pb-btn.sq{width:44px;padding:0;height:40px}.pb-calendar .pb-btn:disabled{opacity:.5}
+.pb-calendar .pb-pop hr{border:0;border-top:1px solid var(--line);margin:14px 0}.pb-calendar .pb-checkrow{display:flex;gap:10px}
+.pb-qa-wrap{position:relative}.pb-qa{position:absolute;left:0;bottom:42px;z-index:5;background:#fff;border:1px solid var(--line);box-shadow:0 8px 24px rgba(0,0,0,.2);border-radius:6px;width:230px;padding:6px}
+.pb-qa button{display:block;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:4px;color:#333}.pb-qa button:hover:not(:disabled){background:#eef8fc}.pb-qa button:disabled{opacity:.4}
+
+/* ---- Ngăn chi tiết bên phải (ảnh 3) ---- */
+.pb-drawer{position:fixed;right:0;top:0;bottom:0;width:min(760px,100vw);z-index:85;display:grid;grid-template-columns:300px 1fr;background:#fff;box-shadow:-8px 0 30px rgba(0,0,0,.25);font-family:Roboto,"Segoe UI",Arial,sans-serif;font-size:13px;color:#2b2f36}
+.pb-drawer *{box-sizing:border-box}
+.pb-drawer-l{padding:16px;background:#f6f7f9;border-right:1px solid var(--line);overflow:auto}
+.pb-dr-top button{background:none;border:0;font-size:11px;letter-spacing:.05em;color:#555;margin-bottom:12px}
+.pb-dr-client{display:flex;gap:12px;align-items:center;margin-bottom:12px}.pb-dr-client h3{margin:0;font-size:17px}.pb-dr-client p{margin:2px 0 0;color:var(--mut)}
+.pb-dr-client .pb-pop-av{margin:0}
+.pb-dr-card{background:#fff;border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:12px}.pb-dr-card small{display:block;color:var(--mut);margin-top:6px}
+.pb-drawer-r{background:#1e2530;color:#fff;padding:16px;overflow:auto}
+.pb-drawer-r h6{margin:18px 0 8px;font-size:11px;letter-spacing:.05em;color:#9aa6b6;text-transform:uppercase}
+.pb-dr-date{display:flex;gap:14px;align-items:center}.pb-dr-date>div:first-child{background:#fff;color:#1e2530;border-radius:6px;padding:6px 12px;text-align:center}
+.pb-dr-date small{display:block;font-size:10px}.pb-dr-date b{font-size:24px}.pb-dr-date h3{margin:0;font-size:16px}.pb-dr-date p{margin:2px 0 0;color:#b8c2d0}
+.pb-dr-status{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;padding:10px;background:#2a3342;border-radius:6px}
+.pb-dr-status button{border:1px solid #475268;background:transparent;color:#d4dbe6;border-radius:4px;padding:6px 10px}.pb-dr-status button.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.pb-dr-status button:disabled{opacity:.55}
+.pb-dr-svc{background:#fff;color:#1e2530;border-radius:6px;padding:10px 12px;margin-bottom:6px}.pb-dr-svc b,.pb-dr-svc span{display:block}.pb-dr-svc span{color:var(--mut);font-size:12px;margin-top:2px}
+.pb-dr-note{background:#fff;color:#444;border-radius:6px;padding:10px 12px}
+.pb-dr-total{display:flex;justify-content:space-between;font-size:16px;margin:16px 0 10px;padding-top:12px;border-top:1px solid #3a455a}
+.pb-drawer-r .pb-btn{background:#2a3342;border-color:#475268;color:#d4dbe6}.pb-drawer-r .pb-btn.red{background:#ff5a64;border-color:#ff5a64;color:#fff}
+.pb-drawer-r .pb-btn.blue{background:var(--blue);border-color:var(--blue);color:#fff;margin-top:12px}
+@media(max-width:800px){.pb-drawer{grid-template-columns:1fr}.pb-drawer-l{display:none}}
+
+/* ---- Tổng quan xác nhận (ảnh 5) ---- */
+.pb-confirm{position:fixed;inset:70px 24px 24px auto;width:min(880px,calc(100vw - 48px));z-index:80;background:#fff;box-shadow:0 10px 40px rgba(0,0,0,.3);border-radius:6px;display:flex;flex-direction:column}
+.pb-confirm-h{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid var(--line)}
+.pb-confirm-h b{display:block;font-size:16px}.pb-confirm-h small{color:var(--mut)}.pb-confirm-h button{height:34px;padding:0 16px;border:1px solid var(--line);background:#fff;border-radius:4px}
+.pb-confirm-b{display:grid;grid-template-columns:1fr 230px;gap:16px;padding:16px;overflow:hidden;flex:1;background:#f6f7f9}
+.pb-confirm-list{overflow:auto;background:#fff;border-radius:4px}
+.pb-crow{display:grid;grid-template-columns:78px 36px 1fr 130px 150px 28px;gap:10px;align-items:center;padding:9px 14px;border-bottom:1px solid #eef0f3;border-left:4px solid var(--blue)}
+.pb-crow time{font-size:12px;font-weight:500}.pb-cname{text-align:left;background:none;border:0;padding:0}.pb-cname b,.pb-cname small,.pb-cname em{display:block}
+.pb-cname small{color:#555}.pb-cname em{font-style:normal;color:var(--blue-d);font-size:12px}.pb-cdoc{font-size:12px;color:#555}
+.pb-cstate{height:30px;border:1px solid #f5a623;border-radius:3px;background:#fff;color:#f5a623;font-size:12px;padding:0 4px}
+.pb-cstate.s-confirmed{border-color:#35c27f;color:#35c27f}.pb-cstate.s-replied_no{border-color:#ff5a64;color:#ff5a64}.pb-cstate.s-waiting_reply{border-color:#4db6e8;color:#4db6e8}.pb-cstate.s-unable_contact{border-color:#8b929c;color:#8b929c}
+.pb-cico{color:#8b929c;text-decoration:none;font-size:15px}.pb-empty{padding:30px;text-align:center;color:var(--mut)}
+.pb-confirm-s{display:flex;flex-direction:column;gap:10px}
+.pb-confirm-s button{display:grid;grid-template-columns:40px 1fr;grid-template-rows:auto auto;column-gap:10px;align-items:center;background:#fff;border:1px solid transparent;border-radius:4px;padding:12px;text-align:left}
+.pb-confirm-s button.on{border-color:var(--blue)}.pb-confirm-s i{grid-row:span 2;width:38px;height:38px;border-radius:50%;color:#fff;display:grid;place-items:center;font-style:normal;font-size:16px}
+.pb-confirm-s span{color:#555;font-size:12.5px}.pb-confirm-s b{font-size:20px}
+@media(max-width:800px){.pb-confirm-b{grid-template-columns:1fr}.pb-crow{grid-template-columns:70px 1fr 140px}.pb-crow .pb-av,.pb-cdoc,.pb-cico{display:none}}
+
+/* ---- Bảng "Tạo lịch hẹn mới" (ảnh 7) ---- */
+.pb-dlg{position:fixed;right:24px;top:84px;width:786px;max-width:calc(100vw - 24px);height:calc(100vh - 110px);background:#fff;box-shadow:0 10px 40px rgba(0,0,0,.3);z-index:80;display:flex;flex-direction:column;border-radius:3px;font-family:Roboto,"Segoe UI",Arial,sans-serif;font-size:13px;color:#2b2f36}
+.pb-dlg *{box-sizing:border-box}
+.pb-dlg-h{background:var(--dark);color:#fff;padding:14px 24px;display:flex;justify-content:space-between;font-weight:600;font-size:14px}.pb-dlg-h button{background:none;border:0;color:#fff;font-size:20px;line-height:1}
+.pb-calendar .pb-tabs{display:flex;border-bottom:1px solid var(--line)}
+.pb-calendar .pb-tabs button{flex:1;background:none;border:0;padding:14px 0;color:#555;font-size:13px;font-weight:500;border-bottom:2px solid transparent}
+.pb-calendar .pb-tabs button.on{color:var(--blue-d);border-bottom-color:var(--blue-d);background:#eef7fb}.pb-calendar .pb-tabs button:disabled{color:#b3b8bf}
+.pb-dlg-c{flex:1;display:grid;grid-template-columns:430px 1fr;min-height:0}
+.pb-form{padding:16px 20px;overflow:auto;border-right:1px solid var(--line)}
+.pb-form h6{margin:18px 0 8px;font-size:11px;letter-spacing:.04em;color:#7b8590;text-transform:uppercase;font-weight:600}
+.pb-box{background:#f4f6f8;border-radius:6px;padding:14px}
+.pb-box>label,.pb-two label{display:block;font-size:13px;color:#333;margin-bottom:12px}
+.pb-box select,.pb-box input[type=date],.pb-box input[type=time]{display:block;width:100%;height:40px;border:1px solid var(--line);background:#fff;border-radius:4px;padding:0 12px;margin-top:4px;font-size:14px;color:#555;font-family:inherit}
+.pb-two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pb-svcs{display:grid;gap:6px;max-height:190px;overflow:auto;margin-bottom:12px}
+.pb-svcs label{display:flex!important;gap:10px;align-items:flex-start;background:#fff;border:1px solid var(--line);border-radius:4px;padding:8px 10px;margin:0!important;font-size:13px}
+.pb-svcs label.on{border-color:var(--blue);background:#eaf5fb}.pb-svcs small{display:block;color:var(--mut);font-size:11.5px}
+.pb-slots{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:4px}.pb-slots small{width:100%;color:var(--mut)}
+.pb-slots button{height:28px;padding:0 9px;border:1px solid var(--line);background:#fff;border-radius:14px;font-size:12px;color:#333}.pb-slots button:hover,.pb-slots button.on{border-color:var(--blue);background:#e8f6fb;color:var(--blue-d)}
+.pb-line{width:100%;height:40px;border:0;border-bottom:2px solid var(--blue);padding:0 10px;font-size:13px;outline:0;background:#fff}
+.pb-notify{display:flex;gap:8px;align-items:center;margin-top:14px;color:#444}
+.pb-calendar .pb-side{display:grid;place-items:center;color:#555;text-align:center;padding:30px;font-size:14px}.pb-calendar .pb-side .warn{color:#c2410c}
+.pb-foot{padding:12px 20px;border-top:1px solid var(--line)}.pb-foot-r{display:flex;gap:10px}.pb-total{margin-top:6px;color:var(--mut);font-size:12.5px}.pb-total span{margin-left:8px}
+@media(max-width:900px){.pb-dlg{right:8px;left:8px;width:auto}.pb-dlg-c{grid-template-columns:1fr}.pb-calendar .pb-side{display:none}.pb-legend{display:none}.pb-datepop{left:8px}.pb-months-g{grid-template-columns:1fr}.pb-quick{display:none}}
+
+/* ---- Hộp thoại xác nhận ---- */
+.pb-calendar .pb-back{position:fixed;inset:0;background:rgba(20,26,36,.45);z-index:100;display:grid;place-items:center;padding:16px}
+.pb-calendar .pb-modal{width:440px;max-width:100%;background:#fff;border-radius:8px;box-shadow:0 14px 50px rgba(0,0,0,.35);font-family:Roboto,"Segoe UI",Arial,sans-serif;font-size:13.5px;color:#2b2f36}
+.pb-calendar .pb-modal *{box-sizing:border-box}
+.pb-calendar .pb-modal-h{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;font-weight:600;font-size:15px;border-bottom:1px solid var(--line)}.pb-calendar .pb-modal-h button{background:none;border:0;font-size:20px;color:#666}
+.pb-calendar .pb-modal-b{padding:16px 20px}.pb-calendar .pb-modal-b p{margin:0 0 10px}.pb-calendar .pb-modal-f{display:flex;justify-content:flex-end;gap:10px;padding:12px 20px;border-top:1px solid var(--line)}
+.pb-calendar .pb-modal-f .pb-btn{padding:0 16px}.pb-calendar .pb-modal-f .pb-btn.blue{height:36px}
+.pb-ta{width:100%;border:1px solid var(--line);border-radius:4px;padding:8px 10px;font-family:inherit;font-size:13.5px;resize:vertical}
+.pb-calendar .pb-modal .pb-box{padding:10px}.pb-calendar .pb-modal .pb-box select{margin-top:4px}

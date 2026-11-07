@@ -610,7 +610,7 @@ export default function SupportInboxPage() {
                   </div>
                   <div className="cs-case-badges">
                     {c.channel === 'facebook' && <span className="cs-channel facebook">Facebook</span>}
-                    {(c.tags || []).slice(0, 2).map((t) => <span className="cs-pill" key={t.id}>{t.name}</span>)}
+                    {(c.tags || []).slice(0, 2).map((t) => <span className="cs-pill cs-pill-tag" key={t.id} style={{ '--cs-tag-color': tagColor(t.color) }}><Flag color={t.color} size={12}/>{t.name}</span>)}
                     {c.priority === 'urgent' && <span className="cs-pill" style={{ background: '#fdecea', color: '#b3322a' }}>Khẩn cấp</span>}
                     {c.escalated_to && <span className="cs-pill" style={{ background: '#edf0fb', color: '#4c4f91' }}>Đã chuyển BS</span>}
                     {slaText(c) && <span className={`cs-sla ${c.sla_state === 'warning' ? 'warn' : ''}`} title={c.sla_state === 'overdue' ? 'Quá thời gian phản hồi' : 'Sắp quá thời gian phản hồi'}><ScheduleRounded/>{slaText(c)}</span>}

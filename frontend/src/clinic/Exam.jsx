@@ -6,9 +6,10 @@ import DrawRounded from '@mui/icons-material/DrawRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import AddRounded from '@mui/icons-material/AddRounded';
 import api from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import BodyMap from './BodyMap';
 import RecordModal, { RecordBody, printRecord } from './RecordView';
-import { PlanFormModal } from './Plans';
+import { PlanCard, PlanFormModal } from './Plans';
 import { PrescriptionCard } from './Prescription';
 import { Avatar, Btn, Card, Field, Loading, Pill, errMsg, fmtDate, fmtTime, genderText, useDebounce, useLoad, useToast } from './ui';
 
@@ -29,6 +30,7 @@ const LABEL = { chief_complaint: 'Lý do khám', history_present: 'Bệnh sử',
 
 export default function ExamPage() {
   const { visitId } = useParams();
+  const { user } = useAuth();
   const nav = useNavigate();
   const [toast, toastNode] = useToast();
   const [visit, setVisit] = useState(null);
@@ -55,6 +57,7 @@ export default function ExamPage() {
   }, [visitId]);
   const pid = visit?.patient;
   const patient = useLoad(async () => (pid ? (await api.get(`/clinic/patients/${pid}/`)).data : null), [pid]);
+  const plans = useLoad(async () => (pid ? (await api.get('/clinic/plans/', { params: { patient: pid, status: 'active,draft' } })).data : []), [pid]);
   const history = useLoad(async () => (pid ? (await api.get(`/clinic/patients/${pid}/history/`)).data : []), [pid]);
   patientRef.current = patient.data;
 
@@ -126,6 +129,12 @@ export default function ExamPage() {
         <Card title="Các lần khám trước" subtitle={`${prev.length} lần`}>
           {prev.length ? prev.slice(0, 6).map((v) => <button key={v.id} className="cl-prev" onClick={() => setPast(v.record.id)}>
             <strong>{fmtDate(v.check_in_at)}</strong><span>{v.record.diagnosis_code} {v.record.diagnosis_name || 'Chưa có chẩn đoán'}</span></button>) : <small className="cl-muted">Bệnh nhân khám lần đầu.</small>}
+        </Card>
+        <Card title="Liệu trình của khách" subtitle="Mở và ghi nhận buổi ngay trong ca khám">
+          {(plans.data?.results || plans.data || []).length
+            ? <div className="cl-plan-stack">{(plans.data?.results || plans.data || []).map((plan) => <PlanCard key={plan.id} plan={plan}
+              canEdit={false} canPerform={user?.role === 'doctor'} onChange={() => plans.reload(true)} />)}</div>
+            : <><p className="cl-muted">Khách chưa có liệu trình đang thực hiện.</p><Btn size="sm" icon={<AddRounded />} onClick={async () => { if (!locked && !(await save(true))) return; setPlanOpen(true); }}>Tạo liệu trình mới</Btn></>}
         </Card>
       </aside>
 

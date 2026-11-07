@@ -12,7 +12,14 @@ api.interceptors.request.use((config) => {
 });
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const config = response.config || {};
+    const method = (config.method || 'get').toLowerCase();
+    if (method !== 'get' && /^\/?bookings(?:\/|$)/.test(config.url || '')) {
+      window.dispatchEvent(new CustomEvent('akina:booking-updated'));
+    }
+    return response;
+  },
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('ohio_token');

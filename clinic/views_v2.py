@@ -12,7 +12,8 @@ from core.models import Service
 from core.role_permissions import view_action_allowed
 from .audit import audit
 from .models import (CashierShift, DebtFollowUp, Invoice, InvoiceItem, Medicine, Patient, Payment, Prescription,
-                     PrescriptionItem, Refund, StockMovement, Visit)
+                     PackageTemplate, PrescriptionItem, Refund, StockMovement, TreatmentPlan, Visit)
+from .packages import create_plans_for_invoice
 from .permissions import CanReadClinical, CanWriteClinical, IsClinicStaff, role_of
 from .serializers import uname
 from .serializers_v2 import (CashierShiftSerializer, DebtFollowUpSerializer, InvoiceSerializer, MedicineSerializer,
@@ -273,7 +274,44 @@ def _sync_stock(invoice, user):
                        'Bán theo hóa đơn' if delta > 0 else 'Điều chỉnh / hủy hóa đơn')
 
 
-def _write_items(invoice, rows):
+def _walkin_patient():
+    """Hồ sơ ẩn dùng cho hóa đơn bán cho khách vãng lai."""
+    p, _ = Patient.objects.get_or_create(
+        code='KHACHLE',
+        defaults={'full_name': 'Khách vãng lai', 'phone': '', 'is_active': False},
+    )
+    return p
+
+
+def _write_payments(invoice, rows, user):
+    """Ghi các khoản thanh toán gửi kèm lúc tạo hóa đơn."""
+    if not isinstance(rows, list):
+        raise serializers.ValidationError({'detail': 'Danh sách thanh toán không hợp lệ.'})
+    shift = CashierShift.objects.filter(cashier=user, status=CashierShift.OPEN).first()
+    total_pay = 0
+    for r in rows:
+        try:
+            amount = int(r.get('amount'))
+        except (TypeError, ValueError):
+            raise serializers.ValidationError({'detail': 'Số tiền thanh toán không hợp lệ.'})
+        if amount <= 0:
+            raise serializers.ValidationError({'detail': 'Số tiền thanh toán phải lớn hơn 0.'})
+        total_pay += amount
+        if total_pay > invoice.total:
+            raise serializers.ValidationError({'detail': 'Tổng thanh toán vượt quá tổng hóa đơn.'})
+        method = r.get('method') if r.get('method') in dict(Payment.METHODS) else Payment.CASH
+        if method == Payment.CASH and not shift:
+            raise serializers.ValidationError({'detail': 'Cần mở ca thu ngân trước khi nhận tiền mặt.'})
+        Payment.objects.create(
+            invoice=invoice, amount=amount, method=method,
+            reference=(r.get('reference') or '')[:60],
+            note=(r.get('note') or '')[:255], received_by=user, shift=shift,
+        )
+    invoice.recalc()
+    audit(user, 'invoice.pay', f'{invoice.code} {total_pay}')
+
+
+def _write_items(invoice, rows, allow_package=False):
     invoice.items.all().delete()
     if not isinstance(rows, list) or not rows:
         raise serializers.ValidationError({'detail': 'Hóa đơn cần ít nhất một dòng.'})
@@ -284,16 +322,36 @@ def _write_items(invoice, rows):
             raise serializers.ValidationError({'detail': 'Số lượng / đơn giá không hợp lệ.'})
         if qty <= 0 or price < 0:
             raise serializers.ValidationError({'detail': 'Số lượng phải > 0 và đơn giá không âm.'})
-        kind = r.get('kind') if r.get('kind') in {'service', 'medicine', 'other'} else 'other'
+        kind = r.get('kind') if r.get('kind') in {'service', 'medicine', 'other', 'package'} else 'other'
         med = Medicine.objects.filter(pk=r.get('medicine')).first() if kind == 'medicine' else None
         svc = Service.objects.filter(pk=r.get('service')).first() if kind == 'service' and r.get('service') else None
         name = (r.get('name') or (med.name if med else svc.name if svc else '')).strip()
+        template = PackageTemplate.objects.filter(pk=r.get('package_template'), is_active=True).first() if kind == 'package' else None
+        if kind == 'package' and not template and isinstance(r.get('package'), dict):
+            custom = r['package']
+            try:
+                template = PackageTemplate.objects.create(
+                    name=(name or 'Gói tùy chỉnh')[:160],
+                    service=svc,
+                    total_sessions=max(1, min(int(custom.get('total_sessions') or 1), 60)),
+                    interval_days=max(0, min(int(custom.get('interval_days') or 14), 365)),
+                    validity_months=max(0, min(int(custom.get('validity_months') or 0), 60)),
+                    price=price,
+                    is_custom=True,
+                )
+            except (TypeError, ValueError):
+                raise serializers.ValidationError({'detail': 'Thông tin gói tùy chỉnh không hợp lệ.'})
+        if kind == 'package' and not allow_package:
+            raise serializers.ValidationError({'detail': 'Chỉ được bán gói trong hóa đơn mới.'})
+        if kind == 'package' and not template:
+            raise serializers.ValidationError({'detail': 'Gói liệu trình không hợp lệ hoặc đã ngừng bán.'})
+        name = (name or (template.name if template else '')).strip()
         if not name:
             raise serializers.ValidationError({'detail': 'Mỗi dòng cần có tên.'})
         if kind == 'medicine' and not med:
             raise serializers.ValidationError({'detail': 'Dòng thuốc cần chọn thuốc trong kho.'})
         InvoiceItem.objects.create(invoice=invoice, kind=kind, name=name[:200], medicine=med, service=svc,
-                                   quantity=qty, unit_price=price)
+                                   package_template=template, quantity=qty, unit_price=price)
 
 
 class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -307,7 +365,7 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         return [perm(BILLING)]
 
     def get_queryset(self):
-        qs = Invoice.objects.select_related('patient', 'created_by').prefetch_related(
+        qs = Invoice.objects.select_related('patient', 'created_by', 'treatment_plan').prefetch_related(
             'items', 'payments__received_by', 'refunds__requested_by', 'refunds__approved_by', 'followups__created_by')
         p = self.request.query_params
         if p.get('status'):
@@ -333,8 +391,17 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         if not v:
             return deny('Không tìm thấy lượt khám.', 404)
         rows = []
+        session = v.treatment_session if v.treatment_session_id else (
+            v.booking.treatment_session if v.booking_id and v.booking.treatment_session_id else None
+        )
+        covered_by_package = bool(session and session.plan.package_invoices.exclude(status=Invoice.VOID).exists())
+        skipped_package_service = False
         if v.booking_id:
             for bi in v.booking.items.select_related('service'):
+                if (covered_by_package and not skipped_package_service
+                        and session.plan.service_id and bi.service_id == session.plan.service_id):
+                    skipped_package_service = True
+                    continue
                 rows.append({'kind': 'service', 'service': bi.service_id, 'name': bi.service.name, 'quantity': 1, 'unit_price': bi.price})
         rx = Prescription.objects.filter(visit=v, status=Prescription.ISSUED).prefetch_related('items__medicine').first()
         if rx:
@@ -342,27 +409,70 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
                 rows.append({'kind': 'medicine', 'medicine': it.medicine_id, 'name': it.medicine.name,
                              'quantity': it.quantity, 'unit_price': it.medicine.price})
         return Response({'patient': v.patient_id, 'patient_name': v.patient.full_name, 'visit': v.pk,
-                         'items': rows, 'has_prescription': bool(rx)})
+                         'items': rows, 'has_prescription': bool(rx),
+                         'covered_by_package': covered_by_package,
+                         'treatment_plan_title': session.plan.title if covered_by_package else ''})
 
     @transaction.atomic
     def _save(self, request, invoice=None):
         d = request.data
         creating = invoice is None
         if invoice is None:
-            patient = Patient.objects.filter(pk=d.get('patient'), is_active=True).first()
+            patient = _walkin_patient() if d.get('walk_in') else Patient.objects.filter(
+                pk=d.get('patient'), is_active=True
+            ).first()
             if not patient:
-                raise serializers.ValidationError({'detail': 'Chọn bệnh nhân.'})
+                raise serializers.ValidationError({'detail': 'Chọn khách hàng hoặc bán cho khách vãng lai.'})
             visit = Visit.objects.filter(pk=d.get('visit'), patient=patient).first() if d.get('visit') else None
+            plan = None
+            if d.get('treatment_plan'):
+                plan = TreatmentPlan.objects.select_for_update().filter(pk=d.get('treatment_plan'), patient=patient).first()
+                if not plan:
+                    raise serializers.ValidationError({'detail': 'Liệu trình không thuộc khách hàng đã chọn.'})
+                if plan.status in {TreatmentPlan.CANCELLED, TreatmentPlan.COMPLETED}:
+                    raise serializers.ValidationError({'detail': 'Không thể bán gói cho liệu trình đã kết thúc hoặc bị hủy.'})
+                if plan.price <= 0:
+                    raise serializers.ValidationError({'detail': 'Liệu trình chưa có giá trọn gói hợp lệ.'})
+                if plan.sessions.filter(status='done').exists():
+                    raise serializers.ValidationError({'detail': 'Không thể bán trọn gói sau khi đã ghi nhận buổi điều trị. Hãy tiếp tục thu theo từng buổi.'})
+                if plan.service_id:
+                    session_visit_ids = Visit.objects.filter(
+                        Q(treatment_session__plan=plan) | Q(booking__treatment_session__plan=plan)
+                    ).values_list('pk', flat=True)
+                    already_billed = InvoiceItem.objects.filter(
+                        invoice__visit_id__in=session_visit_ids,
+                        invoice__status__in=[Invoice.UNPAID, Invoice.PARTIAL, Invoice.PAID],
+                        service_id=plan.service_id,
+                    ).exists()
+                    if already_billed:
+                        raise serializers.ValidationError({'detail': 'Đã có buổi trong liệu trình được lập hóa đơn riêng. Không thể bán gói hồi tố để tránh thu trùng.'})
+                if Invoice.objects.filter(treatment_plan=plan).exclude(status=Invoice.VOID).exists():
+                    raise serializers.ValidationError({'detail': 'Gói liệu trình này đã có hóa đơn. Mở hóa đơn hiện tại để thu phần còn lại.'})
+                if visit:
+                    raise serializers.ValidationError({'detail': 'Hóa đơn bán gói cần lập riêng với hóa đơn lượt khám.'})
             if visit and Invoice.objects.filter(visit=visit).exclude(status=Invoice.VOID).exists():
                 raise serializers.ValidationError({'detail': 'Lượt khám này đã có hóa đơn.'})
-            invoice = Invoice.objects.create(patient=patient, visit=visit, created_by=request.user)
+            invoice = Invoice.objects.create(patient=patient, visit=visit, treatment_plan=plan, created_by=request.user)
         invoice = Invoice.objects.select_for_update().get(pk=invoice.pk)
         if invoice.status == Invoice.VOID:
             raise serializers.ValidationError({'detail': 'Hóa đơn đã hủy.'})
         if 'items' in d:
+            if not creating and (invoice.items.filter(kind=InvoiceItem.PACKAGE).exists() or invoice.plans.exists()):
+                raise serializers.ValidationError({'detail': 'Hóa đơn đã bán gói liệu trình; không thể sửa dòng hàng.'})
             if invoice.payments.exists():
                 raise serializers.ValidationError({'detail': 'Hóa đơn đã thu tiền, không sửa được các dòng.'})
-            _write_items(invoice, d.get('items'))
+            if invoice.treatment_plan_id:
+                package_rows = d.get('items')
+                try:
+                    package_valid = (isinstance(package_rows, list) and len(package_rows) == 1
+                                     and package_rows[0].get('kind') == 'other'
+                                     and int(package_rows[0].get('quantity') or 0) == 1
+                                     and int(package_rows[0].get('unit_price') or 0) == invoice.treatment_plan.price)
+                except (TypeError, ValueError, AttributeError):
+                    package_valid = False
+                if not package_valid:
+                    raise serializers.ValidationError({'detail': 'Hóa đơn gói phải giữ đúng một dòng với giá trọn gói đã thiết lập.'})
+            _write_items(invoice, d.get('items'), allow_package=creating and not d.get('walk_in'))
         if 'discount' in d:
             try:
                 invoice.discount = max(int(d.get('discount') or 0), 0)
@@ -391,6 +501,10 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
             invoice.payment_term, invoice.due_date = term, due
         invoice.save()
         invoice.recalc()
+        if creating and invoice.items.filter(kind=InvoiceItem.PACKAGE).exists():
+            create_plans_for_invoice(invoice)
+        if creating and d.get('payments'):
+            _write_payments(invoice, d.get('payments'), request.user)
         _sync_stock(invoice, request.user)
         return invoice
 
@@ -439,10 +553,15 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
             return deny('Hóa đơn đã hủy.', 400)
         if inv.payments.exists():
             return deny('Hóa đơn đã thu tiền, không thể hủy (chức năng hoàn tiền sẽ có ở bản sau).', 400)
+        if inv.plans.filter(sessions__status='done').exists() or (
+            inv.treatment_plan_id and inv.treatment_plan.sessions.filter(status='done').exists()
+        ):
+            return deny('Gói đã có buổi điều trị được ghi nhận, không thể hủy hóa đơn gói.', 400)
         if len(reason) < 5:
             return deny('Nhập lý do hủy (tối thiểu 5 ký tự).', 400)
         inv.status, inv.void_reason = Invoice.VOID, reason[:255]
         inv.save()
+        inv.plans.exclude(status=TreatmentPlan.COMPLETED).update(status=TreatmentPlan.CANCELLED)
         _sync_stock(inv, request.user)
         audit(request.user, 'invoice.void', f'{inv.code}: {reason}')
         return Response(self.get_serializer(inv).data)

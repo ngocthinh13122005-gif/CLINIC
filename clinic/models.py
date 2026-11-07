@@ -1,6 +1,7 @@
 import hashlib
 import json
 import uuid
+from datetime import datetime, time, timedelta
 
 from django.conf import settings
 from django.db import models
@@ -101,6 +102,8 @@ class Visit(models.Model):
     finished_at = models.DateTimeField('Giờ kết thúc', null=True, blank=True)
     note = models.CharField('Ghi chú tiếp đón', max_length=255, blank=True)
     room = models.ForeignKey('Room', on_delete=models.SET_NULL, null=True, blank=True, related_name='visits', verbose_name='Phòng / ghế')
+    treatment_session = models.OneToOneField('TreatmentSession', on_delete=models.PROTECT, null=True, blank=True,
+                                             related_name='visit', verbose_name='Buổi liệu trình')
 
     class Meta:
         verbose_name = 'Lượt khám'
@@ -235,8 +238,9 @@ class Icd10Code(models.Model):
 
 
 class TreatmentPlan(models.Model):
-    DRAFT, ACTIVE, COMPLETED, CANCELLED = 'draft', 'active', 'completed', 'cancelled'
-    STATUS = [(DRAFT, 'Chưa xác nhận'), (ACTIVE, 'Đang thực hiện'), (COMPLETED, 'Hoàn thành'), (CANCELLED, 'Đã hủy')]
+    DRAFT, ACTIVE, COMPLETED, CANCELLED, EXPIRED = 'draft', 'active', 'completed', 'cancelled', 'expired'
+    STATUS = [(DRAFT, 'Chưa xác nhận'), (ACTIVE, 'Đang thực hiện'), (COMPLETED, 'Hoàn thành'), (CANCELLED, 'Đã hủy'),
+              (EXPIRED, 'Hết hạn')]
 
     patient = models.ForeignKey(Patient, on_delete=models.PROTECT, related_name='plans')
     record = models.ForeignKey(MedicalRecord, on_delete=models.SET_NULL, null=True, blank=True, related_name='plans',
@@ -253,6 +257,12 @@ class TreatmentPlan(models.Model):
     price = models.PositiveIntegerField('Giá trọn liệu trình (VNĐ)', default=0)
     status = models.CharField('Trạng thái', max_length=10, choices=STATUS, default=DRAFT)
     start_date = models.DateField('Ngày bắt đầu', null=True, blank=True)
+    code = models.CharField('Mã gói', max_length=20, blank=True, db_index=True)
+    expires_at = models.DateField('Ngày hết hạn', null=True, blank=True)
+    invoice = models.ForeignKey('Invoice', on_delete=models.SET_NULL, null=True, blank=True, related_name='plans',
+                                verbose_name='Hóa đơn bán gói')
+    template = models.ForeignKey('PackageTemplate', on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='plans')
     note = models.TextField('Ghi chú', blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -269,30 +279,75 @@ class TreatmentPlan(models.Model):
     def done_sessions(self):
         return self.sessions.filter(status=TreatmentSession.DONE).count()
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if not self.code:
+            self.code = f'PK{self.pk:06d}'
+            super().save(update_fields=['code'])
+
 
 class TreatmentSession(models.Model):
     PENDING, DONE, SKIPPED = 'pending', 'done', 'skipped'
     STATUS = [(PENDING, 'Chưa thực hiện'), (DONE, 'Đã thực hiện'), (SKIPPED, 'Bỏ qua')]
 
     plan = models.ForeignKey(TreatmentPlan, on_delete=models.CASCADE, related_name='sessions')
+    record = models.ForeignKey(MedicalRecord, on_delete=models.PROTECT, null=True, blank=True, related_name='treatment_sessions',
+                               verbose_name='Bệnh án hỗ trợ')
     number = models.PositiveSmallIntegerField('Buổi số')
     allow_staff_delegation = models.BooleanField(
         'Cho phép giao nhân sự đủ điều kiện thực hiện',
         default=False,
         help_text='Bác sĩ phụ trách quyết định cho từng buổi; mặc định bác sĩ phải trực tiếp thực hiện.',
     )
+    booking = models.ForeignKey('core.Booking', on_delete=models.SET_NULL, null=True, blank=True,
+                                related_name='plan_sessions', verbose_name='Lịch hẹn liên kết')
     planned_date = models.DateField('Ngày dự kiến', null=True, blank=True)
     performed_at = models.DateTimeField('Thực hiện lúc', null=True, blank=True)
     performed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                      related_name='+', verbose_name='Người thực hiện')
     status = models.CharField('Trạng thái', max_length=8, choices=STATUS, default=PENDING)
     content = models.TextField('Nội dung đã làm / theo dõi', blank=True)
+    procedures = models.TextField('Thủ thuật thực hiện', blank=True)
+    parameters = models.TextField('Thông số điều trị', blank=True)
+    patient_response = models.TextField('Đáp ứng của khách', blank=True)
+    adverse_reactions = models.TextField('Phản ứng bất lợi', blank=True)
+    outcome = models.CharField('Kết quả buổi', max_length=120, blank=True)
 
     class Meta:
         verbose_name = 'Buổi liệu trình'
         verbose_name_plural = 'Buổi liệu trình'
         ordering = ['plan', 'number']
         unique_together = ('plan', 'number')
+
+
+class PackageTemplate(models.Model):
+    name = models.CharField('Tên gói', max_length=160)
+    description = models.CharField('Mô tả', max_length=255, blank=True)
+    service = models.ForeignKey('core.Service', on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+                                verbose_name='Dịch vụ áp dụng')
+    total_sessions = models.PositiveSmallIntegerField('Số buổi', default=5)
+    interval_days = models.PositiveSmallIntegerField('Cách nhau (ngày)', default=14)
+    validity_months = models.PositiveSmallIntegerField('Hiệu lực (tháng, 0 = không giới hạn)', default=12)
+    price = models.PositiveIntegerField('Giá trọn gói (VNĐ)', default=0)
+    is_active = models.BooleanField('Đang bán', default=True)
+    is_custom = models.BooleanField('Gói tùy chỉnh một lần', default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class PatientNote(models.Model):
+    patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='notes')
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    text = models.TextField('Nội dung', max_length=2000)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
 
 
 class PatientImage(models.Model):
@@ -365,8 +420,9 @@ class Medicine(models.Model):
 
 
 class StockMovement(models.Model):
-    IN, OUT, ADJUST, SCRAP = 'in', 'out', 'adjust', 'scrap'
-    KINDS = [(IN, 'Nhập kho'), (OUT, 'Xuất bán'), (ADJUST, 'Kiểm kê / điều chỉnh'), (SCRAP, 'Hủy / hết hạn')]
+    IN, OUT, ADJUST, SCRAP, TRANSFER = 'in', 'out', 'adjust', 'scrap', 'transfer'
+    KINDS = [(IN, 'Nhập kho'), (OUT, 'Xuất bán'), (ADJUST, 'Kiểm kê / điều chỉnh'), (SCRAP, 'Hủy / hết hạn'),
+             (TRANSFER, 'Chuyển kho')]
     medicine = models.ForeignKey(Medicine, on_delete=models.CASCADE, related_name='movements')
     kind = models.CharField(max_length=8, choices=KINDS)
     quantity = models.IntegerField('Số lượng thay đổi (±)')
@@ -436,6 +492,8 @@ class Invoice(models.Model):
     code = models.CharField('Số hóa đơn', max_length=20, unique=True, blank=True)
     patient = models.ForeignKey(Patient, on_delete=models.PROTECT, related_name='invoices')
     visit = models.ForeignKey(Visit, on_delete=models.SET_NULL, null=True, blank=True, related_name='invoices')
+    treatment_plan = models.ForeignKey('TreatmentPlan', on_delete=models.PROTECT, null=True, blank=True,
+                                       related_name='package_invoices', verbose_name='Liệu trình bán trọn gói')
     status = models.CharField(max_length=8, choices=STATUS, default=UNPAID, db_index=True)
     subtotal = models.PositiveIntegerField(default=0)
     discount = models.PositiveIntegerField('Giảm giá', default=0)
@@ -503,13 +561,14 @@ class Invoice(models.Model):
 
 
 class InvoiceItem(models.Model):
-    SERVICE, MEDICINE, OTHER = 'service', 'medicine', 'other'
-    KINDS = [(SERVICE, 'Dịch vụ'), (MEDICINE, 'Thuốc'), (OTHER, 'Khác')]
+    SERVICE, MEDICINE, OTHER, PACKAGE = 'service', 'medicine', 'other', 'package'
+    KINDS = [(SERVICE, 'Dịch vụ'), (MEDICINE, 'Thuốc'), (OTHER, 'Khác'), (PACKAGE, 'Gói liệu trình')]
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='items')
     kind = models.CharField(max_length=8, choices=KINDS, default=SERVICE)
     name = models.CharField(max_length=200)
     medicine = models.ForeignKey(Medicine, on_delete=models.PROTECT, null=True, blank=True, related_name='+')
     service = models.ForeignKey('core.Service', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    package_template = models.ForeignKey('PackageTemplate', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     quantity = models.PositiveIntegerField(default=1)
     unit_price = models.PositiveIntegerField(default=0)
 
@@ -641,6 +700,8 @@ class StockLot(models.Model):
     supplier = models.ForeignKey(Supplier, on_delete=models.SET_NULL, null=True, blank=True, related_name='lots')
     received_at = models.DateTimeField('Ngày nhập', default=timezone.now)
     reference = models.CharField('Chứng từ', max_length=40, blank=True)
+    location = models.ForeignKey('StockLocation', on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='lots', verbose_name='Kho / vị trí')
 
     class Meta:
         verbose_name = 'Lô thuốc'
@@ -659,6 +720,9 @@ class PurchaseOrder(models.Model):
     status = models.CharField(max_length=10, choices=STATUS, default=DRAFT, db_index=True)
     expected_date = models.DateField('Ngày dự kiến nhận', null=True, blank=True)
     note = models.CharField(max_length=255, blank=True)
+    location = models.ForeignKey('StockLocation', on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='+', verbose_name='Nhập về kho')
+    supplier_ref = models.CharField('Số chứng từ NCC', max_length=40, blank=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     created_at = models.DateTimeField(default=timezone.now)
     ordered_at = models.DateTimeField(null=True, blank=True)
@@ -696,6 +760,9 @@ class StockCount(models.Model):
     STATUS = [(DRAFT, 'Đang kiểm'), (VALIDATED, 'Đã chốt'), (CANCELLED, 'Đã hủy')]
     code = models.CharField('Số phiếu kiểm', max_length=20, unique=True, blank=True)
     status = models.CharField(max_length=10, choices=STATUS, default=DRAFT, db_index=True)
+    name = models.CharField('Tên đợt kiểm', max_length=120, blank=True)
+    location = models.ForeignKey('StockLocation', on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='+', verbose_name='Kho kiểm')
     note = models.CharField(max_length=255, blank=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     created_at = models.DateTimeField(default=timezone.now)
@@ -728,6 +795,59 @@ class StockCountLine(models.Model):
         return None if self.counted_qty is None else self.counted_qty - self.expected_qty
 
 
+class StockLocation(models.Model):
+    """Kho hoặc khu vực lưu trữ trong phòng khám; hệ thống hỗ trợ một chi nhánh."""
+    code = models.CharField('Mã kho', max_length=20, unique=True)
+    name = models.CharField('Tên kho', max_length=80)
+    note = models.CharField('Ghi chú', max_length=255, blank=True)
+    is_default = models.BooleanField('Kho mặc định', default=False)
+    is_active = models.BooleanField('Đang dùng', default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Kho / vị trí'
+        verbose_name_plural = 'Kho / vị trí'
+        ordering = ['-is_default', 'name']
+
+    def __str__(self):
+        return self.name
+
+
+class StockTransfer(models.Model):
+    DRAFT, PENDING, PARTIAL, RECEIVED, CANCELLED = 'draft', 'pending', 'partial', 'received', 'cancelled'
+    STATUS = [(DRAFT, 'Nháp'), (PENDING, 'Chờ nhận'), (PARTIAL, 'Nhận một phần'),
+              (RECEIVED, 'Đã nhận'), (CANCELLED, 'Đã hủy')]
+    code = models.CharField('Số phiếu chuyển', max_length=20, unique=True, blank=True)
+    from_location = models.ForeignKey(StockLocation, on_delete=models.PROTECT, related_name='+')
+    to_location = models.ForeignKey(StockLocation, on_delete=models.PROTECT, related_name='+')
+    status = models.CharField(max_length=10, choices=STATUS, default=DRAFT, db_index=True)
+    note = models.CharField(max_length=255, blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(default=timezone.now)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    received_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'Phiếu chuyển kho'
+        verbose_name_plural = 'Phiếu chuyển kho'
+        ordering = ['-created_at', '-id']
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            self.code = _next_code(StockTransfer, 'CK')
+        super().save(*args, **kwargs)
+
+
+class StockTransferLine(models.Model):
+    transfer = models.ForeignKey(StockTransfer, on_delete=models.CASCADE, related_name='lines')
+    medicine = models.ForeignKey(Medicine, on_delete=models.PROTECT, related_name='+')
+    quantity = models.PositiveIntegerField('Số lượng chuyển')
+    received_qty = models.PositiveIntegerField('Đã nhận', default=0)
+
+    class Meta:
+        ordering = ['id']
+
+
 # =========================================================================== v3: điều phối, chăm sóc, cam kết
 class Room(models.Model):
     CONSULT, TREATMENT, PROCEDURE = 'consult', 'treatment', 'procedure'
@@ -746,6 +866,21 @@ class Room(models.Model):
         return self.name
 
 
+class ActivityType(models.Model):
+    code = models.SlugField('Mã', max_length=30, unique=True)
+    name = models.CharField('Tên hiển thị', max_length=60)
+    icon = models.CharField('Biểu tượng', max_length=20, default='task')
+    color = models.CharField('Màu', max_length=9, default='#0a6fc2')
+    sort = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField('Đang dùng', default=True)
+
+    class Meta:
+        ordering = ['sort', 'id']
+
+    def __str__(self):
+        return self.name
+
+
 class CareTask(models.Model):
     """Việc chăm sóc bệnh nhân: gọi hỏi thăm sau điều trị, nhắc tái khám, nhắc buổi liệu trình, nhắc công nợ."""
     POST_CARE, REVISIT, SESSION, PAYMENT, OTHER = 'post_care', 'revisit', 'session', 'payment', 'other'
@@ -753,17 +888,26 @@ class CareTask(models.Model):
              (PAYMENT, 'Nhắc công nợ'), (OTHER, 'Khác')]
     PENDING, ESCALATED, DONE, SKIPPED = 'pending', 'escalated', 'done', 'skipped'
     STATUS = [(PENDING, 'Cần làm'), (ESCALATED, 'Chờ bác sĩ'), (DONE, 'Đã xong'), (SKIPPED, 'Bỏ qua')]
+    TODO, WAITING, AWAITING_REPLY, WORKING, STUCK = 'todo', 'pending', 'awaiting_reply', 'working', 'stuck'
+    STAGES = [(TODO, 'Cần làm'), (WAITING, 'Đang chờ'), (AWAITING_REPLY, 'Chờ phản hồi'), (WORKING, 'Đang xử lý'), (STUCK, 'Bị kẹt')]
     NORMAL, HIGH, URGENT = 'normal', 'high', 'urgent'
     PRIORITIES = [(NORMAL, 'Bình thường'), (HIGH, 'Ưu tiên cao'), (URGENT, 'Khẩn cấp')]
-    patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='care_tasks')
+    patient = models.ForeignKey(Patient, on_delete=models.CASCADE, null=True, blank=True, related_name='care_tasks')
+    conversation = models.ForeignKey('core.Conversation', on_delete=models.SET_NULL, null=True, blank=True, related_name='care_tasks')
     visit = models.ForeignKey(Visit, on_delete=models.SET_NULL, null=True, blank=True, related_name='care_tasks')
     plan = models.ForeignKey(TreatmentPlan, on_delete=models.SET_NULL, null=True, blank=True, related_name='care_tasks')
+    type = models.ForeignKey(ActivityType, on_delete=models.SET_NULL, null=True, blank=True, related_name='tasks')
     kind = models.CharField(max_length=10, choices=KINDS, default=POST_CARE)
     title = models.CharField(max_length=200)
+    note = models.TextField('Ghi chú', blank=True)
+    start_at = models.DateTimeField('Từ lúc', null=True, blank=True)
+    end_at = models.DateTimeField('Hạn xử lý', null=True, blank=True)
     due_date = models.DateField('Hạn', default=timezone.localdate)
     status = models.CharField(max_length=10, choices=STATUS, default=PENDING, db_index=True)
     priority = models.CharField(max_length=8, choices=PRIORITIES, default=NORMAL, db_index=True)
+    stage = models.CharField('Giai đoạn', max_length=14, default='todo')
     assigned_to = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='care_tasks')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     outcome = models.CharField('Kết quả liên hệ', max_length=255, blank=True)
     auto = models.BooleanField('Tự tạo', default=False)
     source_key = models.CharField('Khóa nguồn tự động', max_length=120, null=True, blank=True, unique=True, editable=False)
@@ -777,6 +921,50 @@ class CareTask(models.Model):
         verbose_name = 'Việc chăm sóc'
         verbose_name_plural = 'Việc chăm sóc'
         ordering = ['status', 'due_date', 'id']
+
+    def save(self, *args, **kwargs):
+        if self.end_at:
+            self.due_date = timezone.localtime(self.end_at).date()
+            if not self.start_at or self.start_at > self.end_at:
+                self.start_at = self.end_at - timedelta(minutes=30)
+        elif self.due_date and not self.start_at:
+            base = timezone.make_aware(datetime.combine(self.due_date, time(9, 0)))
+            self.start_at, self.end_at = base, base + timedelta(minutes=30)
+        if not self.type_id:
+            self.type = ActivityType.objects.filter(code={'post_care': 'call', 'revisit': 'recall', 'session': 'message', 'payment': 'call', 'other': 'message'}.get(self.kind, 'message')).first()
+        super().save(*args, **kwargs)
+
+
+class ActivityEvent(models.Model):
+    task = models.ForeignKey(CareTask, on_delete=models.CASCADE, related_name='events')
+    kind = models.CharField(max_length=16)
+    text = models.CharField(max_length=255)
+    by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['id']
+
+
+class CRMLead(models.Model):
+    NEW, CONTACTED, CONVERTED = 'new', 'contacted', 'converted'
+    STATUSES = [(NEW, 'Mới'), (CONTACTED, 'Đã liên hệ'), (CONVERTED, 'Đã chuyển đổi')]
+
+    name = models.CharField(max_length=120)
+    phone = models.CharField(max_length=15, db_index=True)
+    email = models.EmailField(blank=True)
+    source = models.CharField(max_length=40, default='website')
+    status = models.CharField(max_length=12, choices=STATUSES, default=NEW, db_index=True)
+    note = models.CharField(max_length=255, blank=True)
+    assigned_to = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='crm_leads')
+    converted_patient = models.ForeignKey(Patient, on_delete=models.SET_NULL, null=True, blank=True,
+                                          related_name='converted_leads')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
 
 
 class CareContactLog(models.Model):

@@ -22,6 +22,8 @@ class SettingsScopeView(APIView):
         'booking.customer_cancel_notice_hours', 'booking.require_cancel_reason',
         'booking.max_pending_per_customer', 'booking.buffer_minutes',
         'reception.allow_walk_ins', 'reception.checkin_early_minutes', 'reception.no_show_grace_minutes',
+        'care.post_care_enabled', 'care.post_care_delay_days', 'care.revisit_enabled', 'care.revisit_lead_days',
+        'care.session_enabled', 'care.session_lead_days', 'care.debt_enabled', 'care.debt_after_days',
         'billing.default_due_days', 'inventory.expiry_warning_days',
         'inventory.require_lot_number', 'inventory.require_expiry_date', 'crm.loyalty_enabled', 'crm.vnd_per_point',
         'billing.cash_close_variance_manager_threshold',

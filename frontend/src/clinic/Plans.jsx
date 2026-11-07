@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ChevronLeftRounded from '@mui/icons-material/ChevronLeftRounded';
@@ -8,7 +8,7 @@ import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { Btn, Card, Empty, Field, Loading, Modal, PageHead, Pill, ProgressDots, errMsg, fmtDate, isoDay, money, useLoad, useToast } from './ui';
 
-export const planTone = { draft: 'gray', active: 'blue', completed: 'green', cancelled: 'red' };
+export const planTone = { draft: 'gray', active: 'blue', completed: 'green', cancelled: 'red', expired: 'gray' };
 
 export function PlanFormModal({ open, patient, record, onClose, onSaved, plan }) {
   const services = useLoad(async () => (await api.get('/services/')).data, []);
@@ -36,7 +36,7 @@ export function PlanFormModal({ open, patient, record, onClose, onSaved, plan })
       onSaved(data);
     } catch (e) { setErr(errMsg(e)); }
   };
-  return <Modal open={open} wide title={plan ? 'Chỉnh sửa liệu trình' : 'Tạo liệu trình điều trị'} subtitle={patient?.full_name} onClose={onClose}
+  return <Modal open={open} wide portal className="cl-plan-form-modal" title={plan ? 'Chỉnh sửa liệu trình' : 'Tạo liệu trình điều trị'} subtitle={patient?.full_name} onClose={onClose}
     footer={<><Btn onClick={onClose}>Hủy</Btn><Btn kind="primary" disabled={!f.title?.trim()} onClick={submit}>{plan ? 'Lưu thay đổi' : 'Tạo liệu trình'}</Btn></>}>
     {err && <div className="cl-alert error">{err}</div>}
     <div className="cl-form-grid">
@@ -55,28 +55,64 @@ export function PlanFormModal({ open, patient, record, onClose, onSaved, plan })
 
 export function SessionModal({ plan, session, onClose, onDone }) {
   const [content, setContent] = useState('');
+  const [procedures, setProcedures] = useState('');
+  const [parameters, setParameters] = useState('');
+  const [patientResponse, setPatientResponse] = useState('');
+  const [adverseReactions, setAdverseReactions] = useState('');
+  const [outcome, setOutcome] = useState('');
   const [status, setStatus] = useState('done');
   const [err, setErr] = useState('');
-  useEffect(() => { setContent(''); setStatus('done'); setErr(''); }, [session]);
+  useEffect(() => {
+    setContent(session?.content || ''); setProcedures(session?.procedures || ''); setParameters(session?.parameters || '');
+    setPatientResponse(session?.patient_response || ''); setAdverseReactions(session?.adverse_reactions || '');
+    setOutcome(session?.outcome || ''); setStatus('done'); setErr('');
+  }, [session]);
   if (!session) return null;
   const submit = async () => {
-    try { const { data } = await api.post(`/clinic/plans/${plan.id}/complete-session/`, { session_id: session.id, content, status }); onDone(data); }
+    try {
+      const { data } = await api.post(`/clinic/plans/${plan.id}/complete-session/`, {
+        session_id: session.id, content, procedures, parameters, patient_response: patientResponse,
+        adverse_reactions: adverseReactions, outcome, status,
+      });
+      onDone(data);
+    }
     catch (e) { setErr(errMsg(e)); }
   };
-  return <Modal open title={`Ghi nhận buổi ${session.number}/${plan.total_sessions}`} subtitle={plan.title} onClose={onClose}
+  return <Modal open wide portal className="cl-session-record-modal" title={`Ghi nhận buổi ${session.number}/${plan.total_sessions}`} subtitle={`${plan.patient_name || 'Khách hàng'} · ${plan.title}`} onClose={onClose}
     footer={<><Btn onClick={onClose}>Hủy</Btn><Btn kind="primary" onClick={submit}>Lưu</Btn></>}>
     {err && <div className="cl-alert error">{err}</div>}
+    <div className="cl-session-context">
+      <div className="cl-session-context-primary">
+        <span><small>Bệnh nhân</small><b>{plan.patient_name || '—'}</b></span>
+        <span><small>Buổi liệu trình</small><b>{session.number}/{plan.total_sessions}</b></span>
+        <span><small>Người thực hiện</small><b>Người đang đăng nhập</b></span>
+      </div>
+      <div className="cl-session-context-links">
+        {session.visit_id ? <Link to={`/kham/${session.visit_id}`}>Mở lượt khám</Link> : <span>Chưa có lượt khám</span>}
+        {session.record_id ? <Link to={`/benh-nhan/${plan.patient}`}>Xem bệnh án ({session.record_code || `#${session.record_id}`})</Link> : <span>Chưa liên kết bệnh án</span>}
+      </div>
+    </div>
     <Field label="Kết quả"><select value={status} onChange={(e) => setStatus(e.target.value)}><option value="done">Đã thực hiện</option><option value="skipped">Bỏ qua buổi này</option></select></Field>
-    <Field label="Nội dung đã làm / theo dõi sau buổi"><textarea rows={4} value={content} onChange={(e) => setContent(e.target.value)} placeholder="Thông số, đáp ứng của da, phản ứng không mong muốn…" /></Field>
+    <div className="cl-form-grid">
+      <Field label="Thủ thuật thực hiện"><textarea rows={3} value={procedures} onChange={(e) => setProcedures(e.target.value)} /></Field>
+      <Field label="Thông số điều trị"><textarea rows={3} value={parameters} onChange={(e) => setParameters(e.target.value)} /></Field>
+      <Field label="Đáp ứng của khách"><textarea rows={3} value={patientResponse} onChange={(e) => setPatientResponse(e.target.value)} /></Field>
+      <Field label="Phản ứng bất lợi"><textarea rows={3} value={adverseReactions} onChange={(e) => setAdverseReactions(e.target.value)} /></Field>
+      <Field label="Kết quả buổi" span="2"><input value={outcome} onChange={(e) => setOutcome(e.target.value)} placeholder="Ví dụ: Đáp ứng tốt, hẹn buổi tiếp theo" /></Field>
+      <Field label="Ghi chú thực hiện / theo dõi sau buổi" span="2"><textarea rows={3} value={content} onChange={(e) => setContent(e.target.value)} /></Field>
+    </div>
   </Modal>;
 }
 
 export function PlanCard({ plan, canEdit, canPerform, onChange, showPatient }) {
+  const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [sess, setSess] = useState(null);
   const [configuringSessionId, setConfiguringSessionId] = useState(null);
   const [err, setErr] = useState('');
   const { user } = useAuth();
+  const effectiveStatus = plan.display_status || plan.status;
+  const canSellPackage = ['manager', 'consultant'].includes(user.role);
   const next = plan.sessions.find((s) => s.status === 'pending');
   const act = async (path) => { try { const { data } = await api.post(`/clinic/plans/${plan.id}/${path}/`); onChange(data); } catch (e) { setErr(errMsg(e)); } };
   const configureDelegation = async (session, allowStaffDelegation) => {
@@ -99,7 +135,7 @@ export function PlanCard({ plan, canEdit, canPerform, onChange, showPatient }) {
   const mayRecordSession = canPerform && (user.role === 'staff'
     ? plan.sessions.some((session) => session.allow_staff_delegation)
     : isPlanDoctor);
-  return <article className={`cl-plan ${plan.status}`}>
+  return <article className={`cl-plan ${effectiveStatus}`}>
     <header className="cl-plan-header">
       <div className="cl-plan-heading">
         <h3>{plan.title}</h3>
@@ -110,16 +146,27 @@ export function PlanCard({ plan, canEdit, canPerform, onChange, showPatient }) {
           {plan.doctor_name && <span className="cl-plan-doctor">{plan.doctor_name}</span>}
         </p>
       </div>
-      <Pill tone={planTone[plan.status]} dot>{plan.status_label}</Pill>
+      <Pill tone={planTone[effectiveStatus]} dot>{plan.display_status_label || plan.status_label}</Pill>
     </header>
     <div className="cl-plan-progress">
       <ProgressDots total={plan.total_sessions} done={plan.done_sessions} />
       <span>{plan.done_sessions}/{plan.total_sessions} buổi đã hoàn thành</span>
     </div>
     <div className="cl-plan-meta">
-      {next?.planned_date && plan.status === 'active' && <span><small>Buổi tiếp theo</small><b>{fmtDate(next.planned_date)}</b></span>}
+      {plan.code && <span><small>Mã gói</small><b>{plan.code}</b></span>}
+      {next?.planned_date && effectiveStatus === 'active' && <span><small>Buổi tiếp theo</small><b>{fmtDate(next.planned_date)}</b></span>}
+      {plan.expires_at && <span><small>Hết hạn</small><b>{fmtDate(plan.expires_at)}</b></span>}
       {plan.price > 0 && <span><small>Giá liệu trình</small><b>{money(plan.price)}</b></span>}
     </div>
+    {plan.price > 0 && <div className="cl-plan-billing">
+      {plan.package_invoice ? <>
+        <span>Gói {plan.package_invoice.status === 'paid' ? 'đã thanh toán' : plan.package_invoice.status === 'partial' ? 'đã thu một phần' : 'chưa thanh toán'} · {plan.package_invoice.code}</span>
+        {canSellPackage && plan.package_invoice.balance > 0 && <Btn size="sm" kind="primary" onClick={() => navigate(`/ban-hang/thu-tien/${plan.package_invoice.id}`)}>Thu phần còn lại · {money(plan.package_invoice.balance)}</Btn>}
+      </> : <>
+        <span>Chưa bán trọn gói · thu theo từng buổi</span>
+        {canSellPackage && !['completed', 'cancelled', 'expired'].includes(effectiveStatus) && <Btn size="sm" kind="primary" onClick={() => navigate(`/ban-hang?patient=${plan.patient}&plan=${plan.id}`)}>Bán trọn gói</Btn>}
+      </>}
+    </div>}
     {seeContent && plan.diagnosis && <p className="cl-plan-dx"><b>Chẩn đoán:</b> {plan.diagnosis}</p>}
     {seeContent && plan.content && <p className="cl-plan-content"><span>Phác đồ điều trị</span>{plan.content}</p>}
     <details className="cl-plan-details"><summary><span className="cl-plan-details-label">Chi tiết các buổi</span><span>{plan.sessions.length} buổi</span><ExpandMoreRounded className="cl-details-chevron" /></summary>
@@ -128,12 +175,12 @@ export function PlanCard({ plan, canEdit, canPerform, onChange, showPatient }) {
         <span>{s.status === 'pending' ? (s.planned_date ? `Dự kiến ${fmtDate(s.planned_date)}` : 'Chưa lên lịch') : `${s.status === 'done' ? 'Đã làm' : 'Bỏ qua'} ${fmtDate(s.performed_at)}${s.performed_by_name ? ` · ${s.performed_by_name}` : ''}`}</span>
         {s.status === 'pending' && <small>{s.allow_staff_delegation ? 'Bác sĩ cho phép giao nhân sự đủ điều kiện' : 'Bác sĩ phụ trách trực tiếp thực hiện'}</small>}
         {seeContent && s.content && <em>{s.content}</em>}
-        {isPlanDoctor && plan.status === 'active' && s.status === 'pending' && !s.has_active_booking && <Btn size="sm" disabled={configuringSessionId === s.id} onClick={() => configureDelegation(s, !s.allow_staff_delegation)}>{configuringSessionId === s.id ? 'Đang lưu…' : s.allow_staff_delegation ? 'Yêu cầu bác sĩ trực tiếp' : 'Cho phép giao nhân sự đủ điều kiện'}</Btn>}
-        {mayRecordSession && plan.status === 'active' && s.status === 'pending' && s.id === next?.id && (user.role !== 'staff' || s.allow_staff_delegation) && <Btn size="sm" kind="primary" onClick={() => setSess(s)}>Ghi nhận</Btn>}
+        {isPlanDoctor && effectiveStatus === 'active' && s.status === 'pending' && !s.has_active_booking && <Btn size="sm" disabled={configuringSessionId === s.id} onClick={() => configureDelegation(s, !s.allow_staff_delegation)}>{configuringSessionId === s.id ? 'Đang lưu…' : s.allow_staff_delegation ? 'Yêu cầu bác sĩ trực tiếp' : 'Cho phép giao nhân sự đủ điều kiện'}</Btn>}
+        {mayRecordSession && effectiveStatus === 'active' && s.status === 'pending' && s.id === next?.id && (user.role !== 'staff' || s.allow_staff_delegation) && <Btn size="sm" kind="primary" onClick={() => setSess(s)}>Ghi nhận</Btn>}
       </li>)}</ol></details>
     {err && <div className="cl-alert error">{err}</div>}
-    {(canEdit) && plan.status !== 'completed' && plan.status !== 'cancelled' && <footer>
-      {plan.status === 'draft' && <Btn kind="primary" size="sm" onClick={() => act('activate')}>Xác nhận bắt đầu</Btn>}
+    {(canEdit) && !['completed', 'cancelled', 'expired'].includes(effectiveStatus) && <footer>
+      {effectiveStatus === 'draft' && <Btn kind="primary" size="sm" onClick={() => act('activate')}>Xác nhận bắt đầu</Btn>}
       <Btn size="sm" onClick={() => setEditing(true)}>Chỉnh sửa</Btn>
       <button className="cl-link danger" onClick={() => window.confirm('Hủy liệu trình này?') && act('cancel')}>Hủy liệu trình</button></footer>}
     <PlanFormModal open={editing} plan={plan} patient={{ id: plan.patient, full_name: plan.patient_name }} onClose={() => setEditing(false)} onSaved={(d) => { setEditing(false); onChange(d); }} />
@@ -158,7 +205,7 @@ export default function PlansPage() {
   const canPerform = ['doctor', 'staff'].includes(user.role);
   return <>
     <PageHead title="Liệu trình điều trị" subtitle="Theo dõi tiến độ các liệu trình đang thực hiện của toàn phòng khám." />
-    <div className="cl-tabs-pill">{[['active,draft', 'Đang thực hiện'], ['completed', 'Hoàn thành'], ['cancelled', 'Đã hủy']].map(([k, t]) => <button key={k} className={filter === k ? 'on' : ''} onClick={() => setFilter(k)}>{t}</button>)}</div>
+    <div className="cl-tabs-pill">{[['active,draft', 'Đang thực hiện'], ['completed', 'Hoàn thành'], ['expired', 'Hết hạn'], ['cancelled', 'Đã hủy']].map(([k, t]) => <button key={k} className={filter === k ? 'on' : ''} onClick={() => setFilter(k)}>{t}</button>)}</div>
     {error && <div className="cl-alert error">{error}</div>}
     {loading && !data ? <Loading /> : !rows.length ? <Card><Empty title="Chưa có liệu trình nào" hint="Bác sĩ tạo liệu trình từ màn khám hoặc từ hồ sơ bệnh nhân." /></Card> :
       <><div className="cl-plan-grid">{pageRows.map((p) => <PlanCard key={p.id} plan={p} showPatient canEdit={canEdit} canPerform={canPerform}

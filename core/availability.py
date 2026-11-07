@@ -34,13 +34,25 @@ def _busy_intervals(staff, day, exclude_booking_id=None):
     day_end = day_start + timedelta(days=1)
     qs = (Booking.objects.filter(
         staff=staff,
-        appointment__gte=day_start,
+        appointment__gte=day_start - timedelta(days=1),
         appointment__lt=day_end,
         status__in=Booking.ACTIVE_STATUSES,
     ).prefetch_related('items__service'))
     if exclude_booking_id:
         qs = qs.exclude(pk=exclude_booking_id)
     return [(b.appointment, b.end_time) for b in qs]
+
+
+def blocked_intervals(staff, day, exclude_block_id=None):
+    """[(start, end, kind)] các khung giờ khóa giao với ngày `day`."""
+    from .models import BlockedTime
+    tz = timezone.get_current_timezone()
+    day_start = timezone.make_aware(datetime.combine(day, datetime.min.time()), tz)
+    day_end = day_start + timedelta(days=1)
+    qs = BlockedTime.objects.filter(staff=staff, start__lt=day_end, end__gt=day_start)
+    if exclude_block_id:
+        qs = qs.exclude(pk=exclude_block_id)
+    return [(block.start, block.end, block.kind) for block in qs]
 
 
 def _working_windows(staff, day):
@@ -71,12 +83,19 @@ def _off_duty_by_roster(staff, day):
 
 def has_conflict(staff, start, duration_minutes, exclude_booking_id=None):
     """True nếu [start, start+duration) chồng lấn lịch hẹn khác, ngoài giờ, inactive hoặc đang nghỉ phép."""
-    if not staff.is_active or _on_approved_leave(staff, start.date()) or _off_duty_by_roster(staff, start.date()):
+    if (
+        not staff.is_active
+        or (staff.user_id and not staff.user.is_active)
+        or _on_approved_leave(staff, start.date())
+        or _off_duty_by_roster(staff, start.date())
+    ):
         return True
     end = start + timedelta(minutes=duration_minutes)
     buffer = timedelta(minutes=int(clinic_setting('booking.buffer_minutes')))
     windows = _working_windows(staff, start.date())
     if not any(w_start <= start and end <= w_end for w_start, w_end in windows):
+        return True
+    if any(start < block_end and block_start < end for block_start, block_end, _kind in blocked_intervals(staff, start.date())):
         return True
     for b_start, b_end in _busy_intervals(staff, start.date(), exclude_booking_id):
         if start < b_end and b_start < end:
@@ -88,6 +107,50 @@ def has_conflict(staff, start, duration_minutes, exclude_booking_id=None):
     return False
 
 
+def slot_error(staff, start, duration_minutes, exclude_booking_id=None):
+    """Thông báo tiếng Việt giải thích vì sao một lịch không thể dùng khung giờ này."""
+    if staff is None:
+        return 'Cần chọn bác sĩ hoặc nhân sự.'
+    start = timezone.localtime(start) if timezone.is_aware(start) else timezone.make_aware(start)
+    end = start + timedelta(minutes=duration_minutes)
+    if not staff.is_active or (staff.user_id and not staff.user.is_active):
+        return 'Bác sĩ hoặc nhân sự đã ngừng hoạt động.'
+    if _on_approved_leave(staff, start.date()):
+        return 'Bác sĩ đang nghỉ phép trong ngày này.'
+    if _off_duty_by_roster(staff, start.date()):
+        return 'Bác sĩ không có ca trực trong ngày này.'
+    if not any(w_start <= start and end <= w_end for w_start, w_end in _working_windows(staff, start.date())):
+        return 'Khung giờ nằm ngoài giờ làm việc của bác sĩ.'
+
+    collision = slot_collision_error(staff, start, duration_minutes, exclude_booking_id)
+    if collision:
+        return collision
+    busy = _busy_intervals(staff, start.date(), exclude_booking_id)
+    buffer = timedelta(minutes=int(clinic_setting('booking.buffer_minutes')))
+    for busy_start, busy_end in busy:
+        if (start >= busy_end and start - busy_end < buffer) or (busy_start >= end and busy_start - end < buffer):
+            return 'Khung giờ không đủ thời gian đệm với lịch hẹn khác.'
+    return None
+
+
+def slot_collision_error(staff, start, duration_minutes, exclude_booking_id=None):
+    """Thông báo nếu khung giờ đè trực tiếp lên giờ khóa hoặc lịch hẹn khác."""
+    from .models import BlockedTime
+
+    if staff is None:
+        return 'Cần chọn bác sĩ hoặc nhân sự.'
+    start = timezone.localtime(start) if timezone.is_aware(start) else timezone.make_aware(start)
+    end = start + timedelta(minutes=duration_minutes)
+    for block_start, block_end, kind in blocked_intervals(staff, start.date()):
+        if start < block_end and block_start < end:
+            label = dict(BlockedTime.KINDS).get(kind, kind)
+            return f'Trùng khung giờ khóa "{label}" của bác sĩ.'
+    for busy_start, busy_end in _busy_intervals(staff, start.date(), exclude_booking_id):
+        if start < busy_end and busy_start < end:
+            return 'Khung giờ bị trùng với một lịch hẹn khác.'
+    return None
+
+
 def available_slots(staff, day, duration_minutes, exclude_booking_id=None):
     """Danh sách datetime hợp lệ; tự loại staff inactive, off duty, approved leave hoặc bị trùng lịch."""
     if not staff.is_active or _on_approved_leave(staff, day) or _off_duty_by_roster(staff, day):
@@ -96,6 +159,7 @@ def available_slots(staff, day, duration_minutes, exclude_booking_id=None):
     if not windows:
         return []
     busy = _busy_intervals(staff, day, exclude_booking_id)
+    blocked = [(start, end) for start, end, _kind in blocked_intervals(staff, day)]
     now_floor = timezone.now() + timedelta(minutes=int(clinic_setting('booking.minimum_advance_minutes')))
     dur = timedelta(minutes=duration_minutes)
     buffer = timedelta(minutes=int(clinic_setting('booking.buffer_minutes')))
@@ -111,6 +175,7 @@ def available_slots(staff, day, duration_minutes, exclude_booking_id=None):
                 or (b_start >= end and b_start - end < buffer)
                 for b_start, b_end in busy
             )
+            overlap = overlap or any(cursor < block_end and block_start < end for block_start, block_end in blocked)
             if cursor >= now_floor and end + buffer <= w_end and not overlap:
                 slots.append(cursor)
             cursor += step

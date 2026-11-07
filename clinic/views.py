@@ -11,11 +11,12 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from api.events import notify_users
-from core.models import Booking, BookingHistory
+from core.models import Booking, BookingHistory, Staff
 from .audit import audit
 from .constants import FITZPATRICK, LESION_TYPES, REGIONS
 from .models import (Icd10Code, MedicalRecord, Patient, PatientImage, Prescription, RecordAddendum, Room,
                      TreatmentPlan, TreatmentSession, Visit)
+from .packages import add_months, display_status, make_sessions
 from .permissions import (CLINICAL_READ, CLINICAL_WRITE, CanReadClinical, CanReception, CanWriteClinical,
                           IsClinicStaff)
 from .serializers import (AddendumSerializer, Icd10Serializer, MedicalRecordSerializer, PatientImageSerializer,
@@ -188,7 +189,7 @@ class PatientViewSet(viewsets.ModelViewSet):
     serializer_class = PatientSerializer
 
     def get_permissions(self):
-        if self.action in {'list', 'retrieve', 'summary', 'history'}:
+        if self.action in {'list', 'retrieve', 'summary', 'history', 'appointments'}:
             return [IsClinicStaff()]
         if self.action == 'destroy':
             return [permissions.IsAuthenticated(), _ManagerOnly()]
@@ -301,6 +302,31 @@ class PatientViewSet(viewsets.ModelViewSet):
             out.append(row)
         return Response(out)
 
+    @action(detail=True, methods=['get'])
+    def appointments(self, request, pk=None):
+        patient = self.get_object()
+        bookings = (Booking.objects.filter(patient=patient)
+                    .select_related('staff')
+                    .prefetch_related('items__service')
+                    .order_by('-appointment'))
+        rows = []
+        now = timezone.now()
+        for booking in bookings:
+            services = [item.service.name for item in booking.items.all() if item.service]
+            rows.append({
+                'id': booking.id,
+                'code': f'LH{booking.id:06d}',
+                'appointment': booking.appointment,
+                'upcoming': booking.appointment >= now and booking.status != Booking.CANCELLED,
+                'status': booking.status,
+                'status_label': booking.get_status_display(),
+                'services': services,
+                'type': booking.get_appointment_type_display(),
+                'duration': booking.duration_minutes,
+                'staff_name': booking.staff.name if booking.staff else '',
+            })
+        return Response(rows)
+
 
 class _ManagerOnly(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -322,7 +348,7 @@ class VisitViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Crea
         return [CanReception()]
 
     def get_queryset(self):
-        qs = Visit.objects.select_related('patient', 'doctor', 'attended_by', 'record')
+        qs = Visit.objects.select_related('patient', 'doctor', 'attended_by', 'record', 'treatment_session')
         u = self.request.user
         if u.role == 'doctor':
             qs = qs.filter(Q(doctor=u) | Q(doctor__isnull=True))
@@ -414,16 +440,18 @@ class VisitViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Crea
     @transaction.atomic
     def complete(self, request, pk=None):
         v = Visit.objects.select_for_update().select_related(
-            'booking__user', 'booking__treatment_session',
+            'booking__user', 'booking__treatment_session', 'treatment_session__plan',
         ).get(pk=self.get_object().pk)
         if v.doctor_id and v.doctor_id != request.user.id:
             return deny('Chỉ bác sĩ phụ trách mới được kết thúc lượt khám.', 403)
         if v.status != Visit.IN_CONSULT:
             return deny('Chỉ kết thúc được lượt khám đang tư vấn.', 400)
-        if v.booking_id and v.booking.appointment_type == Booking.APPOINTMENT_TYPE_SESSION:
-            session = TreatmentSession.objects.select_for_update().filter(
-                pk=v.booking.treatment_session_id,
-            ).first()
+        session = None
+        if v.treatment_session_id:
+            session = TreatmentSession.objects.select_for_update().filter(pk=v.treatment_session_id).first()
+        elif v.booking_id and v.booking.appointment_type == Booking.APPOINTMENT_TYPE_SESSION:
+            session = TreatmentSession.objects.select_for_update().filter(pk=v.booking.treatment_session_id).first()
+        if session:
             if not session or session.status != TreatmentSession.DONE:
                 return deny('Hãy ghi nhận kết quả buổi liệu trình trước khi kết thúc lượt khám.', 400)
         rec = getattr(v, 'record', None) if hasattr(v, 'record') else None
@@ -434,6 +462,8 @@ class VisitViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Crea
         v.status = Visit.COMPLETED
         v.finished_at = timezone.now()
         v.save()
+        from .views_v3 import create_post_care_task
+        create_post_care_task(v)
         if v.booking and v.booking.status not in {Booking.CANCELLED, Booking.NO_SHOW}:
             old_status = v.booking.status
             if old_status != Booking.COMPLETED:
@@ -530,6 +560,7 @@ class VisitViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Crea
         return Response(self.get_serializer(v).data, status=201)
 
     @action(detail=True, methods=['get', 'post'])
+    @transaction.atomic
     def record(self, request, pk=None):
         v = self.get_object()
         if request.method == 'GET':
@@ -547,31 +578,51 @@ class VisitViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Crea
             if not rec:
                 rec = MedicalRecord.objects.create(visit=v, patient=v.patient, doctor=request.user,
                                                    chief_complaint=v.reason)
+                if v.treatment_session_id:
+                    session = TreatmentSession.objects.select_for_update().get(pk=v.treatment_session_id)
+                    if session.plan.patient_id != rec.patient_id:
+                        return deny('Bệnh án không cùng bệnh nhân với buổi liệu trình.', 400)
+                    session.record = rec
+                    session.save(update_fields=['record'])
                 audit(request.user, 'record.create', rec.code)
             if v.status == Visit.WAITING:
                 v.status, v.called_at = Visit.IN_CONSULT, timezone.now()
             if not v.doctor_id:
                 v.doctor = request.user
             v.save()
+        if v.treatment_session_id:
+            session = TreatmentSession.objects.select_for_update().get(pk=v.treatment_session_id)
+            if session.plan.patient_id != rec.patient_id:
+                return deny('Bệnh án không cùng bệnh nhân với buổi liệu trình.', 400)
+            if session.record_id != rec.id:
+                session.record = rec
+                session.save(update_fields=['record'])
         return Response(MedicalRecordSerializer(rec, context={'request': request}).data)
 
     @action(detail=False, methods=['get'])
     def board(self, request):
         """Bảng tiếp đón hôm nay: chờ ở sảnh · đang tư vấn · đã xong · lịch hẹn sắp tới."""
         today = timezone.localdate()
+        now = timezone.now()
+        from core.operational_settings import clinic_setting
+        early_minutes = max(0, int(clinic_setting('reception.checkin_early_minutes')))
         qs = self.get_queryset().filter(check_in_at__date=today)
         ser = lambda q: VisitSerializer(q, many=True, context={'request': request}).data
         waiting = qs.filter(status=Visit.WAITING).order_by('check_in_at')
         consult = qs.filter(status=Visit.IN_CONSULT).order_by('called_at')
         done = qs.filter(status__in=[Visit.COMPLETED, Visit.CANCELLED]).order_by('-finished_at')
         b = Booking.objects.filter(appointment__date=today, visit__isnull=True).exclude(
-            status__in=[Booking.CANCELLED, Booking.COMPLETED]).select_related('staff', 'user', 'patient').order_by('appointment')
+            status__in=[Booking.CANCELLED, Booking.COMPLETED, Booking.NO_SHOW]).select_related(
+                'staff', 'user', 'patient',
+            ).order_by('appointment')
         if request.user.role == 'doctor':
             b = b.filter(staff__user=request.user)
         upcoming = [{'id': x.id, 'appointment': x.appointment, 'customer_name': x.customer_name, 'phone': x.customer_phone,
                      'doctor': x.staff.name if x.staff else '', 'type': x.get_appointment_type_display(),
                      'status': x.status, 'patient_id': x.patient_id,
-                     'late': x.appointment < timezone.now() - timedelta(minutes=10)} for x in b]
+                     'checkin_allowed': early_minutes == 0 or now >= x.appointment - timedelta(minutes=early_minutes),
+                     'checkin_available_at': x.appointment - timedelta(minutes=early_minutes) if early_minutes else None,
+                     'late': x.appointment < now - timedelta(minutes=10)} for x in b]
         return Response({'date': today, 'counts': {'waiting': waiting.count(), 'in_consult': consult.count(),
                                                      'done': done.filter(status=Visit.COMPLETED).count(),
                                                      'upcoming': len(upcoming)},
@@ -626,6 +677,8 @@ class MedicalRecordViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mix
         rec.status, rec.signed_at, rec.signed_by = MedicalRecord.SIGNED, when, request.user
         rec.signature_hash = rec.compute_hash(request.user.pk, when)
         rec.save()
+        from .views_v3 import create_revisit_task
+        create_revisit_task(rec)
         audit(request.user, 'record.sign', f'{rec.code} {rec.signature_hash[:12]}')
         return Response(self.get_serializer(rec).data)
 
@@ -676,17 +729,19 @@ class TreatmentPlanViewSet(viewsets.ModelViewSet):
             return [IsClinicStaff()]
         if self.action == 'complete_session':
             return [_Roles('doctor', 'staff')]
-        if self.action == 'schedule_session':
+        if self.action in {'schedule_session', 'extend', 'link_session'}:
             return [_Roles('doctor', 'manager', 'consultant')]
+        if self.action in {'expire', 'transfer', 'void_session'}:
+            return [_Roles('manager')]
         if self.action == 'configure_session':
             return [_Roles('doctor')]
         return [_Roles('doctor')]
 
     def get_queryset(self):
-        qs = TreatmentPlan.objects.select_related('patient', 'doctor', 'service')
+        qs = TreatmentPlan.objects.select_related('patient', 'doctor', 'service', 'invoice', 'template')
         user = self.request.user
         if user.role == 'doctor':
-            qs = qs.filter(doctor=user)
+            qs = qs.filter(Q(doctor=user) | Q(invoice__isnull=False)).distinct()
         elif user.role == 'staff':
             staff_profile = getattr(user, 'staff_profile', None)
             if not staff_profile:
@@ -708,7 +763,21 @@ class TreatmentPlanViewSet(viewsets.ModelViewSet):
         if p.get('patient'):
             qs = qs.filter(patient_id=p['patient'])
         if p.get('status'):
-            qs = qs.filter(status__in=p['status'].split(','))
+            statuses = set(filter(None, p['status'].split(',')))
+            today = timezone.localdate()
+            status_q = Q()
+            concrete_statuses = statuses - {TreatmentPlan.ACTIVE, TreatmentPlan.EXPIRED}
+            if concrete_statuses:
+                status_q |= Q(status__in=concrete_statuses)
+            if TreatmentPlan.ACTIVE in statuses:
+                status_q |= Q(status=TreatmentPlan.ACTIVE) & (
+                    Q(expires_at__isnull=True) | Q(expires_at__gte=today)
+                )
+            if TreatmentPlan.EXPIRED in statuses:
+                status_q |= Q(status=TreatmentPlan.EXPIRED) | Q(
+                    status=TreatmentPlan.ACTIVE, expires_at__lt=today
+                )
+            qs = qs.filter(status_q)
         return qs
 
     def to_representation_hide(self, data):
@@ -735,16 +804,7 @@ class TreatmentPlanViewSet(viewsets.ModelViewSet):
                     s['content'] = ''
 
     def _make_sessions(self, plan):
-        existing = {s.number: s for s in plan.sessions.all()}
-        for n in range(1, plan.total_sessions + 1):
-            planned = plan.start_date + timedelta(days=plan.interval_days * (n - 1)) if plan.start_date else None
-            if n in existing:
-                if existing[n].status == TreatmentSession.PENDING and planned:
-                    existing[n].planned_date = planned
-                    existing[n].save(update_fields=['planned_date'])
-            else:
-                TreatmentSession.objects.create(plan=plan, number=n, planned_date=planned)
-        plan.sessions.filter(number__gt=plan.total_sessions, status=TreatmentSession.PENDING).delete()
+        make_sessions(plan)
 
     @transaction.atomic
     def perform_create(self, serializer):
@@ -769,6 +829,11 @@ class TreatmentPlanViewSet(viewsets.ModelViewSet):
             return deny('Chỉ bác sĩ phụ trách mới được xác nhận liệu trình.', 403)
         if plan.status != TreatmentPlan.DRAFT:
             return deny('Chỉ xác nhận được liệu trình chưa xác nhận.', 400)
+        if plan.record_id:
+            if plan.record.patient_id != plan.patient_id:
+                return deny('Bệnh án hỗ trợ không thuộc bệnh nhân của liệu trình.', 400)
+            if plan.record.status != MedicalRecord.SIGNED:
+                return deny('Cần ký bệnh án hỗ trợ trước khi xác nhận liệu trình.', 400)
         plan.status = TreatmentPlan.ACTIVE
         plan.start_date = plan.start_date or timezone.localdate()
         plan.save()
@@ -793,11 +858,27 @@ class TreatmentPlanViewSet(viewsets.ModelViewSet):
         plan = self.get_object()
         if plan.status != TreatmentPlan.ACTIVE:
             return deny('Liệu trình chưa được xác nhận hoặc đã kết thúc.', 400)
+        if display_status(plan) == TreatmentPlan.EXPIRED:
+            return deny('Gói liệu trình đã hết hạn. Hãy gia hạn trước khi ghi nhận buổi.', 400)
         s = plan.sessions.select_for_update().filter(pk=request.data.get('session_id')).first()
         if not s:
             return deny('Không tìm thấy buổi liệu trình.', 404)
         if s.status != TreatmentSession.PENDING:
             return deny('Buổi này đã được ghi nhận.', 400)
+        booking_id = request.data.get('booking')
+        if booking_id:
+            booking = Booking.objects.select_for_update().filter(
+                pk=booking_id, patient_id=plan.patient_id
+            ).first()
+            if not booking:
+                return deny('Lịch hẹn không thuộc khách hàng của liệu trình.', 400)
+            if booking.treatment_session_id not in (None, s.pk):
+                return deny('Lịch hẹn đã liên kết với buổi liệu trình khác.', 400)
+            if s.booking_id and s.booking_id != booking.pk:
+                Booking.objects.filter(pk=s.booking_id, treatment_session=s).update(treatment_session=None)
+            s.booking = booking
+            booking.treatment_session = s
+            booking.save(update_fields=['treatment_session'])
         if request.user.role == 'staff':
             if not s.allow_staff_delegation:
                 return deny('Buổi này yêu cầu bác sĩ phụ trách trực tiếp thực hiện.', 403)
@@ -820,9 +901,22 @@ class TreatmentPlanViewSet(viewsets.ModelViewSet):
                 return deny('Bạn chưa được phân công hoặc chưa đủ chuyên môn cho buổi này.', 403)
         elif plan.doctor_id != request.user.id:
             return deny('Chỉ bác sĩ phụ trách liệu trình mới được ghi nhận chuyên môn cho buổi này.', 403)
+        if s.record_id and s.record.patient_id != plan.patient_id:
+            return deny('Bệnh án hỗ trợ không cùng bệnh nhân với liệu trình.', 400)
+        try:
+            linked_visit = s.visit
+        except Visit.DoesNotExist:
+            linked_visit = None
+        if linked_visit and linked_visit.patient_id != plan.patient_id:
+            return deny('Lượt khám không cùng bệnh nhân với liệu trình.', 400)
         new_status = TreatmentSession.SKIPPED if request.data.get('status') == 'skipped' else TreatmentSession.DONE
         s.status, s.performed_at, s.performed_by = new_status, timezone.now(), request.user
         s.content = (request.data.get('content') or '')[:2000]
+        s.procedures = (request.data.get('procedures') or '')[:2000]
+        s.parameters = (request.data.get('parameters') or '')[:2000]
+        s.patient_response = (request.data.get('patient_response') or '')[:2000]
+        s.adverse_reactions = (request.data.get('adverse_reactions') or '')[:2000]
+        s.outcome = (request.data.get('outcome') or '')[:120]
         s.save()
         if not plan.sessions.filter(status=TreatmentSession.PENDING).exists():
             plan.status = TreatmentPlan.COMPLETED
@@ -845,6 +939,107 @@ class TreatmentPlanViewSet(viewsets.ModelViewSet):
         except (TypeError, ValueError):
             return deny('Ngày không hợp lệ.', 400)
         s.save(update_fields=['planned_date'])
+        return Response(self.get_serializer(plan).data)
+
+    @action(detail=True, methods=['post'])
+    def extend(self, request, pk=None):
+        plan = self.get_object()
+        if plan.status in {TreatmentPlan.COMPLETED, TreatmentPlan.CANCELLED}:
+            return deny('Gói đã kết thúc, không đổi được thời hạn.', 400)
+        today = timezone.localdate()
+        if request.data.get('months') not in (None, ''):
+            try:
+                months = int(request.data['months'])
+            except (TypeError, ValueError):
+                return deny('Số tháng không hợp lệ.', 400)
+            if not 1 <= months <= 60:
+                return deny('Gia hạn từ 1 đến 60 tháng.', 400)
+            base = plan.expires_at if plan.expires_at and plan.expires_at >= today else today
+            plan.expires_at = add_months(base, months)
+        else:
+            try:
+                start = timezone.datetime.fromisoformat(request.data.get('start_date')).date() if request.data.get('start_date') else plan.start_date
+                end = timezone.datetime.fromisoformat(request.data.get('expires_at')).date()
+            except (TypeError, ValueError):
+                return deny('Ngày không hợp lệ.', 400)
+            if start and end < start:
+                return deny('Ngày hết hạn phải sau ngày bắt đầu.', 400)
+            plan.start_date, plan.expires_at = start, end
+        if plan.status == TreatmentPlan.EXPIRED and plan.expires_at >= today:
+            plan.status = TreatmentPlan.ACTIVE
+        plan.save()
+        audit(request.user, 'plan.extend', f'{plan.code} → {plan.expires_at}')
+        return Response(self.get_serializer(plan).data)
+
+    @action(detail=True, methods=['post'])
+    def expire(self, request, pk=None):
+        plan = self.get_object()
+        if plan.status not in {TreatmentPlan.ACTIVE, TreatmentPlan.DRAFT}:
+            return deny('Chỉ cho hết hạn được gói đang hiệu lực.', 400)
+        plan.status = TreatmentPlan.EXPIRED
+        plan.expires_at = min(plan.expires_at, timezone.localdate()) if plan.expires_at else timezone.localdate()
+        plan.save()
+        audit(request.user, 'plan.expire', plan.code)
+        return Response(self.get_serializer(plan).data)
+
+    @action(detail=True, methods=['post'], url_path='void-session')
+    @transaction.atomic
+    def void_session(self, request, pk=None):
+        plan = self.get_object()
+        session = plan.sessions.select_for_update().filter(pk=request.data.get('session_id')).exclude(
+            status=TreatmentSession.PENDING
+        ).first()
+        if not session:
+            return deny('Không tìm thấy buổi đã ghi nhận.', 404)
+        session.status, session.performed_at, session.performed_by, session.content = (
+            TreatmentSession.PENDING, None, None, ''
+        )
+        session.save(update_fields=['status', 'performed_at', 'performed_by', 'content'])
+        if plan.status == TreatmentPlan.COMPLETED:
+            plan.status = TreatmentPlan.ACTIVE
+            plan.save(update_fields=['status'])
+        audit(request.user, 'plan.void_session', f'{plan.code} buổi {session.number}')
+        return Response(self.get_serializer(plan).data)
+
+    @action(detail=True, methods=['post'], url_path='link-session')
+    @transaction.atomic
+    def link_session(self, request, pk=None):
+        plan = self.get_object()
+        session = plan.sessions.select_for_update().filter(pk=request.data.get('session_id')).first()
+        if not session:
+            return deny('Không tìm thấy buổi liệu trình.', 404)
+        booking_id = request.data.get('booking')
+        booking = Booking.objects.select_for_update().filter(
+            pk=booking_id, patient_id=plan.patient_id
+        ).first() if booking_id else None
+        if booking_id and not booking:
+            return deny('Lịch hẹn không thuộc khách hàng này.', 400)
+        if booking and booking.treatment_session_id not in (None, session.pk):
+            return deny('Lịch hẹn đã liên kết với buổi liệu trình khác.', 400)
+        if session.booking_id and session.booking_id != getattr(booking, 'pk', None):
+            Booking.objects.filter(pk=session.booking_id, treatment_session=session).update(treatment_session=None)
+        session.booking = booking
+        session.save(update_fields=['booking'])
+        if booking:
+            booking.treatment_session = session
+            booking.save(update_fields=['treatment_session'])
+        return Response(self.get_serializer(plan).data)
+
+    @action(detail=True, methods=['post'], url_path='transfer')
+    @transaction.atomic
+    def transfer(self, request, pk=None):
+        plan = self.get_object()
+        if plan.status in {TreatmentPlan.COMPLETED, TreatmentPlan.CANCELLED}:
+            return deny('Gói đã kết thúc, không chuyển được.', 400)
+        patient = Patient.objects.filter(pk=request.data.get('patient'), is_active=True).first()
+        if not patient or patient.pk == plan.patient_id:
+            return deny('Chọn một khách hàng khác để chuyển gói.', 400)
+        old = plan.patient
+        Booking.objects.filter(treatment_session__plan=plan).update(treatment_session=None)
+        plan.sessions.update(booking=None)
+        plan.patient = patient
+        plan.save(update_fields=['patient'])
+        audit(request.user, 'plan.transfer', f'{plan.code} {old.code} → {patient.code}')
         return Response(self.get_serializer(plan).data)
 
     @action(detail=True, methods=['post'], url_path='configure-session')
@@ -927,6 +1122,9 @@ def dashboard(request):
     if u.role == 'doctor':
         visits = visits.filter(Q(doctor=u) | Q(doctor__isnull=True))
         records = records.filter(doctor=u)
+    elif u.role == 'staff':
+        # Dashboard work counts are limited to visits this staff member checked in.
+        visits = visits.filter(attended_by=u)
     tv = visits.filter(check_in_at__date=today)
     month_start = today.replace(day=1)
     series = []
@@ -935,24 +1133,35 @@ def dashboard(request):
         series.append({'date': d.isoformat(), 'label': d.strftime('%d/%m'),
                        'count': visits.filter(check_in_at__date=d).exclude(status=Visit.CANCELLED).count()})
     avg_wait = tv.filter(called_at__isnull=False).aggregate(a=Avg(F('called_at') - F('check_in_at')))['a']
-    top = (records.filter(status=MedicalRecord.SIGNED, signed_at__date__gte=today - timedelta(days=30)).exclude(diagnosis_name='')
-           .values('diagnosis_code', 'diagnosis_name').annotate(n=Count('id')).order_by('-n')[:6])
-    due = (TreatmentSession.objects.filter(status=TreatmentSession.PENDING, plan__status=TreatmentPlan.ACTIVE,
-                                           planned_date__lte=today + timedelta(days=3))
-           .select_related('plan__patient').order_by('planned_date')[:8])
+    top = []
+    due = TreatmentSession.objects.none()
+    active_plans = TreatmentPlan.objects.filter(status=TreatmentPlan.ACTIVE)
+    if u.role in CLINICAL_READ:
+        top = (records.filter(status=MedicalRecord.SIGNED, signed_at__date__gte=today - timedelta(days=30)).exclude(diagnosis_name='')
+               .values('diagnosis_code', 'diagnosis_name').annotate(n=Count('id')).order_by('-n')[:6])
+        due = TreatmentSession.objects.filter(status=TreatmentSession.PENDING, plan__status=TreatmentPlan.ACTIVE,
+                                              planned_date__lte=today + timedelta(days=3))
+        if u.role == 'doctor':
+            due = due.filter(plan__doctor=u)
+            active_plans = active_plans.filter(doctor=u)
+        due = due.select_related('plan__patient').order_by('planned_date')[:8]
+    appointments = Booking.objects.filter(appointment__date=today).exclude(status=Booking.CANCELLED)
+    if u.role == 'staff':
+        assigned_staff = Staff.objects.filter(user=u).first()
+        appointments = appointments.filter(staff=assigned_staff) if assigned_staff else appointments.none()
     data = {
         'today': {'total': tv.exclude(status=Visit.CANCELLED).count(), 'waiting': tv.filter(status=Visit.WAITING).count(),
                   'in_consult': tv.filter(status=Visit.IN_CONSULT).count(), 'completed': tv.filter(status=Visit.COMPLETED).count(),
                   'avg_wait_minutes': round(avg_wait.total_seconds() / 60) if avg_wait else 0},
-        'appointments_today': Booking.objects.filter(appointment__date=today).exclude(status=Booking.CANCELLED).count(),
+        'appointments_today': appointments.count(),
         'new_patients_month': Patient.objects.filter(created_at__date__gte=month_start).count(),
         'total_patients': Patient.objects.filter(is_active=True).count(),
-        'active_plans': TreatmentPlan.objects.filter(status=TreatmentPlan.ACTIVE).count(),
+        'active_plans': active_plans.count() if u.role in CLINICAL_READ else 0,
         'visits_14d': series,
         'sessions_due': [{'id': s.id, 'plan_id': s.plan_id, 'patient_id': s.plan.patient_id, 'patient': s.plan.patient.full_name,
                           'plan': s.plan.title, 'number': s.number, 'date': s.planned_date,
                           'overdue': bool(s.planned_date and s.planned_date < today)} for s in due],
-        'top_diagnoses': list(top) if u.role in CLINICAL_READ else [],
+        'top_diagnoses': list(top),
         'unsigned_records': records.filter(status=MedicalRecord.DRAFT).count() if u.role in CLINICAL_READ else 0,
     }
     return Response(data)

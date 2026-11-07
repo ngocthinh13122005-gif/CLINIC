@@ -6,6 +6,7 @@ from django.utils import timezone
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
+from core.models import Category, Service
 from .models import (
     MedicalRecord,
     Medicine,
@@ -66,6 +67,10 @@ class PatientPortalTests(APITestCase):
 
         plan = TreatmentPlan.objects.create(
             patient=self.patient, doctor=self.doctor, title='Liệu trình đang thực hiện',
+            service=Service.objects.create(
+                category=Category.objects.create(name='Điều trị da'),
+                name='Điều trị theo liệu trình', price=500000, duration=30,
+            ),
             status=TreatmentPlan.ACTIVE, total_sessions=2,
         )
         TreatmentSession.objects.create(plan=plan, number=1, status=TreatmentSession.DONE)

@@ -10,10 +10,13 @@ ACTION_ALIASES = {
     'create': 'create', 'update': 'update', 'partial_update': 'update',
     'confirm': 'confirm', 'cancel': 'cancel', 'reschedule': 'update',
     'complete': 'update', 'no_show': 'confirm', 'hold': 'update',
+    'no_show_legacy': 'confirm', 'edit': 'update', 'rebook': 'create',
+    'running_late': 'update', 'confirm_state': 'confirm',
     'open': 'create', 'close': 'update', 'pay': 'create', 'reconcile': 'approve',
     'approve': 'approve', 'reject': 'approve', 'void': 'approve',
     'receive': 'approve', 'scrap': 'approve', 'validate': 'approve',
     'campaign_send': 'approve', 'send': 'approve', 'export': 'export',
+    'contact': 'update', 'cancel_entry': 'cancel', 'book': 'create',
 }
 
 
@@ -31,7 +34,7 @@ def configured_action_allowed(user, module, action):
 
 def module_for_view(view, fallback=''):
     name = f"{view.__class__.__name__} {getattr(view, '__name__', '')}".lower()
-    if 'booking' in name or 'appointment' in name:
+    if 'booking' in name or 'appointment' in name or 'blockedtime' in name:
         return 'booking'
     if 'visit' in name or 'reception' in name:
         return 'reception'
@@ -51,6 +54,11 @@ def module_for_view(view, fallback=''):
 def action_for_view(view, request, fallback='view'):
     action = getattr(view, 'action', None)
     if action:
+        if 'blockedtime' in view.__class__.__name__.lower():
+            return {
+                'list': 'view', 'retrieve': 'view', 'create': 'create',
+                'update': 'update', 'partial_update': 'update', 'destroy': 'update',
+            }.get(action, fallback)
         return ACTION_ALIASES.get(action, fallback)
     function_name = getattr(view, '__name__', '')
     if function_name:

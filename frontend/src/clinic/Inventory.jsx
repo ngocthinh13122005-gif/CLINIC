@@ -9,16 +9,15 @@ import { Btn, Card, Empty, Field, Loading, Modal, PageHead, Pill, errMsg, fmtDat
 
 const arr = (d) => d?.results || d || [];
 const PO_TONE = { draft: 'gray', ordered: 'blue', partial: 'amber', received: 'green', cancelled: 'red' };
-const expiryTone = (d, warningDays = 90) => (d == null ? 'gray' : d < 0 ? 'red' : d <= warningDays ? 'amber' : 'green');
+const expiryTone = (d) => (d == null ? 'gray' : d < 0 ? 'red' : d <= 90 ? 'amber' : 'green');
 const expiryText = (d) => (d == null ? 'Không HSD' : d < 0 ? `Quá hạn ${-d} ngày` : `Còn ${d} ngày`);
 
-function Kpi({ label, value, hint, tone = '', onClick }) {
-  const Tag = onClick ? 'button' : 'div';
-  return <Tag type={onClick ? 'button' : undefined} onClick={onClick} className={`cl-stat ${tone} ${onClick ? 'clickable' : ''}`}><span>{label}</span><strong>{value}</strong>{hint && <small>{hint}</small>}</Tag>;
+function Kpi({ label, value, hint, tone = '' }) {
+  return <div className={`cl-stat ${tone}`}><span>{label}</span><strong>{value}</strong>{hint && <small>{hint}</small>}</div>;
 }
 
 /* ------------------------------------------------------------------ Tồn kho */
-function StockTab({ manager, toast }) {
+export function StockTab({ manager, toast }) {
   const [q, setQ] = useState('');
   const [low, setLow] = useState(false);
   const dq = useDebounce(q, 250);
@@ -48,20 +47,20 @@ function StockTab({ manager, toast }) {
 }
 
 /* ------------------------------------------------------------------ Lô & hạn dùng */
-function LotsTab({ manager, toast, warningDays = 90 }) {
+function LotsTab({ manager, toast }) {
   const [view, setView] = useState('all');
   const [scrap, setScrap] = useState(null);
-  const l = useLoad(async () => arr((await api.get('/clinic/lots/', { params: view === 'soon' ? { expiring: 'default' } : {} })).data), [view]);
+  const l = useLoad(async () => arr((await api.get('/clinic/lots/', { params: view === 'soon' ? { expiring: 90 } : {} })).data), [view]);
   const rows = l.data || [];
   return <>
-    <div className="cl-tabs-pill">{[['all', 'Tất cả lô còn hàng'], ['soon', `Sắp / đã hết hạn (≤ ${warningDays} ngày)`]].map(([k, t]) => <button key={k} className={view === k ? 'on' : ''} onClick={() => setView(k)}>{t}</button>)}</div>
+    <div className="cl-tabs-pill">{[['all', 'Tất cả lô còn hàng'], ['soon', 'Sắp / đã hết hạn (≤ 90 ngày)']].map(([k, t]) => <button key={k} className={view === k ? 'on' : ''} onClick={() => setView(k)}>{t}</button>)}</div>
     <Card pad={false}>
       {l.loading && !l.data ? <Loading /> : rows.length ? <div className="cl-table-wrap"><table className="cl-table">
         <thead><tr><th>Thuốc</th><th>Số lô</th><th>Hạn dùng</th><th>Tình trạng</th><th>Còn / nhập</th><th>Giá vốn</th><th>Nhà cung cấp</th><th>Ngày nhập</th>{manager && <th />}</tr></thead>
         <tbody>{rows.map((x) => <tr key={x.id}>
           <td><b>{x.medicine_name}</b><small className="cl-sub">{x.medicine_code}</small></td>
           <td>{x.lot_no || <span className="cl-muted">—</span>}</td><td>{x.expiry_date ? fmtDate(x.expiry_date) : '—'}</td>
-          <td><Pill tone={expiryTone(x.days_left, warningDays)} dot>{expiryText(x.days_left)}</Pill></td>
+          <td><Pill tone={expiryTone(x.days_left)} dot>{expiryText(x.days_left)}</Pill></td>
           <td>{x.quantity} / {x.initial_qty} <small className="cl-muted">{x.unit}</small></td><td>{manager ? money(x.unit_cost) : '—'}</td>
           <td>{x.supplier_name || '—'}</td><td>{fmtDate(x.received_at)}</td>
           {manager && <td>{x.quantity > 0 && <button className="cl-link danger" onClick={() => setScrap(x)}>Hủy hàng</button>}</td>}
@@ -86,7 +85,7 @@ function ScrapModal({ lot, onClose, onDone }) {
 }
 
 /* ------------------------------------------------------------------ Đơn nhập hàng */
-function POForm({ order, suppliers, meds, onClose, onSaved }) {
+export function POForm({ order, suppliers, meds, onClose, onSaved }) {
   const [sup, setSup] = useState(order?.supplier || '');
   const [exp, setExp] = useState(order?.expected_date || '');
   const [note, setNote] = useState(order?.note || '');
@@ -264,7 +263,7 @@ function SupplierForm({ s, onClose, onSaved }) {
   </Modal>;
 }
 
-function SuppliersTab({ toast, suppliers, reload }) {
+export function SuppliersTab({ toast, suppliers, reload }) {
   const [m, setM] = useState(null);
   return <>
     <div className="cl-toolbar-row cl-bar-top"><span /><Btn kind="primary" icon={<AddRounded />} onClick={() => setM({})}>Thêm nhà cung cấp</Btn></div>
@@ -288,19 +287,18 @@ export default function InventoryPage() {
   const medL = useLoad(async () => arr((await api.get('/clinic/medicines/', { params: { limit: 500 } })).data), []);
   const meds = useMemo(() => medL.data || [], [medL.data]);
   const o = ov.data;
-  const tabs = [['stock', 'Tồn kho'], ['lots', 'Lô & hạn dùng'], ['card', 'Thẻ kho'], ...(manager ? [['orders', 'Đơn mua & nhận hàng'], ['counts', 'Kiểm kho'], ['sup', 'Nhà cung cấp']] : [])];
+  const tabs = [['stock', 'Tồn kho'], ['lots', 'Lô & hạn dùng'], ['card', 'Thẻ kho'], ...(manager ? [['orders', 'Đơn nhập hàng'], ['counts', 'Kiểm kho'], ['sup', 'Nhà cung cấp']] : [])];
   return <>
     <PageHead />
     {o && <div className="cl-stat-row">
-      <Kpi label="Mặt hàng đang quản lý" value={o.items} hint={`${o.low} mặt hàng dưới mức tối thiểu`} tone={o.low ? 'amber' : ''} onClick={() => setTab('stock')} />
-      {o.value != null ? <Kpi label="Giá trị tồn kho (giá vốn)" value={money(o.value)} onClick={() => setTab('card')} /> : <Kpi label="Đơn nhập đang chờ" value={o.open_orders} />}
-      <Kpi label={`Lô sắp hết hạn (≤ ${o.expiry_warning_days || 90} ngày)`} value={o.expiring} hint={o.expired ? `${o.expired} lô đã quá hạn — cần xử lý` : 'Không có lô quá hạn'} tone={o.expired ? 'red' : o.expiring ? 'amber' : 'green'} onClick={() => setTab('lots')} />
-      <Kpi label={manager ? 'Đơn mua chờ nhận' : 'Phiếu kiểm đang mở'} value={manager ? o.open_orders : o.open_counts} hint={manager ? `${o.open_counts} phiếu kiểm đang mở` : ''} tone="blue" onClick={() => setTab(manager ? 'orders' : 'stock')} />
+      <Kpi label="Mặt hàng đang quản lý" value={o.items} hint={`${o.low} mặt hàng dưới mức tối thiểu`} tone={o.low ? 'amber' : ''} />
+      {o.value != null ? <Kpi label="Giá trị tồn kho (giá vốn)" value={money(o.value)} /> : <Kpi label="Đơn nhập đang chờ" value={o.open_orders} />}
+      <Kpi label="Lô sắp hết hạn (≤ 90 ngày)" value={o.expiring} hint={o.expired ? `${o.expired} lô đã quá hạn — cần xử lý` : 'Không có lô quá hạn'} tone={o.expired ? 'red' : o.expiring ? 'amber' : 'green'} />
+      <Kpi label={manager ? 'Đơn nhập chờ nhận' : 'Phiếu kiểm đang mở'} value={manager ? o.open_orders : o.open_counts} hint={manager ? `${o.open_counts} phiếu kiểm đang mở` : ''} tone="blue" />
     </div>}
-    {manager && <div className="cl-inventory-flow" aria-label="Quy trình quản lý kho"><span>Quy trình kho</span><ol><li>Nhu cầu mua</li><li>Đơn mua</li><li>Nhận theo lô</li><li>Kiểm kê</li><li>Xuất FEFO</li></ol><small>Ưu tiên lô hết hạn trước khi cấp phát.</small></div>}
     <nav className="cl-tabs" role="tablist">{tabs.map(([k, t]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{t}</button>)}</nav>
     {tab === 'stock' && <StockTab manager={manager} toast={toast} />}
-    {tab === 'lots' && <LotsTab manager={manager} toast={toast} warningDays={o?.expiry_warning_days || 90} />}
+    {tab === 'lots' && <LotsTab manager={manager} toast={toast} />}
     {tab === 'card' && <CardTab meds={meds} />}
     {tab === 'orders' && manager && <OrdersTab toast={toast} suppliers={sup.data || []} meds={meds} />}
     {tab === 'counts' && manager && <CountsTab toast={toast} />}

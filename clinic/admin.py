@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Icd10Code, MedicalRecord, Patient, TreatmentPlan, Visit
+from .models import Icd10Code, MedicalRecord, PackageTemplate, Patient, TreatmentPlan, Visit
 
 
 @admin.register(Patient)
@@ -24,7 +24,14 @@ class MedicalRecordAdmin(admin.ModelAdmin):
 
 @admin.register(TreatmentPlan)
 class TreatmentPlanAdmin(admin.ModelAdmin):
-    list_display = ('title', 'patient', 'status', 'total_sessions')
+    list_display = ('code', 'title', 'patient', 'status', 'total_sessions', 'expires_at')
+
+
+@admin.register(PackageTemplate)
+class PackageTemplateAdmin(admin.ModelAdmin):
+    list_display = ('name', 'service', 'price', 'total_sessions', 'validity_months', 'is_active')
+    list_filter = ('is_active', 'is_custom')
+    search_fields = ('name', 'description')
 
 
 admin.site.register(Icd10Code)

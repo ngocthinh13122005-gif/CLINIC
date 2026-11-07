@@ -20,17 +20,19 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import ActivityLog, PasswordResetCode
-from core.models import Attendance, Booking, BookingHistory, Category, Conversation, ConversationSession, LeaveRequest, Message, Notification, Service, Staff, Voucher, VoucherRedemption, WorkingHours, RosterShift, Tag, QuickReply, AgentPresence, ChatSetting, InternalNote, ConversationEvent, ConversationRead, ClinicSettingAudit, ClinicSettingValue
+from core.availability import slot_collision_error
+from core.models import Attendance, Booking, BookingHistory, Category, Conversation, ConversationSession, LeaveRequest, Message, Notification, Service, Staff, Voucher, VoucherRedemption, WorkingHours, RosterShift, Tag, QuickReply, AgentPresence, ChatSetting, InternalNote, ConversationEvent, ConversationRead, ClinicSettingAudit, ClinicSettingValue, AppointmentWaitlistEntry, AppointmentWaitlistHistory
 from core.operational_settings import clinic_setting
 from core.role_permissions import view_action_allowed
 from . import chatbot
+from .calendar_api import BlockedTimeViewSet, BookingCalendarMixin
 from .firebase import create_custom_token, mirror_message, sync_conversation, mark_notification_read
 from .events import broadcast_dashboard, notify_roles, notify_users
 from .media import upload_to_cloudinary
-from .permissions import CanCompleteBooking, IsManagerRole, IsStaffRole
+from .permissions import CanCompleteBooking, CanManageAppointmentWaitlist, IsManagerRole, IsStaffRole
 from .serializers import (
     AttendanceSerializer, BookingSerializer, booking_request_fingerprint, ConversationListSerializer, ConversationSerializer, LeaveRequestSerializer,
-    MessageSerializer, NotificationSerializer, ServiceSerializer, StaffSerializer, UserSerializer, VoucherSerializer, WorkingHoursSerializer, RosterShiftSerializer, CategorySerializer, TagSerializer, QuickReplySerializer, InternalNoteSerializer, ConversationEventSerializer,
+    MessageSerializer, NotificationSerializer, ServiceSerializer, StaffSerializer, UserSerializer, VoucherSerializer, WorkingHoursSerializer, RosterShiftSerializer, CategorySerializer, TagSerializer, QuickReplySerializer, InternalNoteSerializer, ConversationEventSerializer, AppointmentWaitlistSerializer,
 )
 
 User = get_user_model()
@@ -294,6 +296,119 @@ class RosterShiftViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(obj).data)
 
 
+class AppointmentWaitlistPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+class AppointmentWaitlistViewSet(viewsets.ModelViewSet):
+    serializer_class = AppointmentWaitlistSerializer
+    permission_classes = [CanManageAppointmentWaitlist]
+    http_method_names = ['get', 'post', 'patch', 'head', 'options']
+    pagination_class = AppointmentWaitlistPagination
+
+    def get_queryset(self):
+        qs = AppointmentWaitlistEntry.objects.select_related(
+            'patient', 'service', 'preferred_staff', 'converted_booking',
+        )
+        user = self.request.user
+        if user.role == 'doctor':
+            staff = getattr(user, 'staff_profile', None)
+            qs = qs.filter(preferred_staff=staff) if staff else qs.none()
+        params = self.request.query_params
+        if params.get('status') == 'active':
+            qs = qs.filter(status__in=[AppointmentWaitlistEntry.WAITING, AppointmentWaitlistEntry.CONTACTED])
+        elif params.get('status') in {value for value, _ in AppointmentWaitlistEntry.STATUS}:
+            qs = qs.filter(status=params['status'])
+        if params.get('service'):
+            qs = qs.filter(service_id=params['service'])
+        query = params.get('q', '').strip()
+        if query:
+            qs = qs.filter(Q(patient_name__icontains=query) | Q(phone__icontains=query) | Q(service__name__icontains=query))
+        return qs
+
+    def perform_create(self, serializer):
+        phone = serializer.validated_data['phone']
+        service = serializer.validated_data.get('service')
+        active = AppointmentWaitlistEntry.objects.filter(
+            phone=phone, status__in=[AppointmentWaitlistEntry.WAITING, AppointmentWaitlistEntry.CONTACTED],
+        )
+        if service:
+            active = active.filter(service=service)
+        else:
+            active = active.filter(service__isnull=True)
+        if active.exists():
+            raise ValidationError({'detail': 'Khách đã có yêu cầu chờ cho dịch vụ này.'})
+        entry = serializer.save(created_by=self.request.user)
+        AppointmentWaitlistHistory.objects.create(
+            entry=entry, actor=self.request.user, event='created', new_status=entry.status,
+        )
+
+    @action(detail=True, methods=['post'])
+    @transaction.atomic
+    def contact(self, request, pk=None):
+        entry = AppointmentWaitlistEntry.objects.select_for_update().get(pk=self.get_object().pk)
+        if entry.status != AppointmentWaitlistEntry.WAITING:
+            return Response({'detail': 'Chỉ yêu cầu đang chờ mới có thể chuyển sang đã liên hệ.'}, status=400)
+        old_status = entry.status
+        entry.status = AppointmentWaitlistEntry.CONTACTED
+        entry.save(update_fields=['status', 'updated_at'])
+        AppointmentWaitlistHistory.objects.create(
+            entry=entry, actor=request.user, event='contacted', old_status=old_status,
+            new_status=entry.status,
+        )
+        return Response(self.get_serializer(entry).data)
+
+    @action(detail=True, methods=['post'], url_path='cancel-entry')
+    @transaction.atomic
+    def cancel_entry(self, request, pk=None):
+        entry = AppointmentWaitlistEntry.objects.select_for_update().get(pk=self.get_object().pk)
+        if entry.status not in {AppointmentWaitlistEntry.WAITING, AppointmentWaitlistEntry.CONTACTED}:
+            return Response({'detail': 'Yêu cầu này đã kết thúc.'}, status=400)
+        old_status = entry.status
+        entry.status = AppointmentWaitlistEntry.CANCELLED
+        entry.save(update_fields=['status', 'updated_at'])
+        AppointmentWaitlistHistory.objects.create(
+            entry=entry, actor=request.user, event='cancelled', old_status=old_status,
+            new_status=entry.status, note=(request.data.get('reason') or '')[:255],
+        )
+        return Response(self.get_serializer(entry).data)
+
+    @action(detail=True, methods=['post'])
+    @transaction.atomic
+    def book(self, request, pk=None):
+        entry = AppointmentWaitlistEntry.objects.select_for_update().get(pk=self.get_object().pk)
+        if entry.status not in {AppointmentWaitlistEntry.WAITING, AppointmentWaitlistEntry.CONTACTED}:
+            return Response({'detail': 'Yêu cầu này không còn ở danh sách chờ.'}, status=400)
+        payload = {
+            'patient': entry.patient_id,
+            'guest_name': entry.patient_name,
+            'guest_phone': entry.phone,
+            'staff': request.data.get('staff') or entry.preferred_staff_id,
+            'appointment': request.data.get('appointment'),
+            'appointment_type': request.data.get('appointment_type', Booking.APPOINTMENT_TYPE_CONSULT),
+            'service_ids': [entry.service_id] if entry.service_id else request.data.get('service_ids', []),
+            'note': request.data.get('note', entry.note),
+        }
+        booking_serializer = BookingSerializer(data=payload, context={'request': request})
+        booking_serializer.is_valid(raise_exception=True)
+        booking = booking_serializer.save()
+        old_status = entry.status
+        entry.status = AppointmentWaitlistEntry.BOOKED
+        entry.converted_booking = booking
+        entry.save(update_fields=['status', 'converted_booking', 'updated_at'])
+        AppointmentWaitlistHistory.objects.create(
+            entry=entry, actor=request.user, event='booked', old_status=old_status,
+            new_status=entry.status, booking=booking,
+        )
+        after_booking_created(booking, request)
+        return Response({
+            'entry': self.get_serializer(entry).data,
+            'booking': BookingSerializer(booking, context={'request': request}).data,
+        }, status=201)
+
+
 def after_booking_created(booking, request):
     """Email + thông báo + dashboard sau khi tạo lịch hẹn (dùng chung cho trang đặt lịch và Trợ lý AkinaClinic)."""
     _queue_email(booking, request, 'created')
@@ -312,10 +427,20 @@ class BookingListPagination(PageNumberPagination):
     max_page_size = 100
 
 
-class BookingViewSet(viewsets.ModelViewSet):
+class BookingViewSet(BookingCalendarMixin, viewsets.ModelViewSet):
     serializer_class = BookingSerializer
     pagination_class = BookingListPagination
-    http_method_names = ['get', 'post', 'head', 'options']
+    http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']
+
+    @action(detail=False, methods=['get'], url_path='unconfirmed-count')
+    def unconfirmed_count(self, request):
+        """Count future, active bookings that still need confirmation."""
+        count = self.filter_queryset(self.get_queryset()).filter(
+            confirm_state=Booking.CONFIRM_STATE_UNCONFIRMED,
+            status__in=Booking.ACTIVE_STATUSES,
+            appointment__gte=timezone.now(),
+        ).count()
+        return Response({'count': count})
 
     def get_queryset(self, apply_status=True):
         user = self.request.user
@@ -477,7 +602,7 @@ class BookingViewSet(viewsets.ModelViewSet):
             return [permissions.AllowAny()]
         if self.action in {'update', 'partial_update', 'destroy'}:
             return [IsStaffRole()]
-        return [permissions.IsAuthenticated()]
+        return super().get_permissions()
 
     def perform_create(self, serializer):
         booking = serializer.save()
@@ -571,7 +696,8 @@ class BookingViewSet(viewsets.ModelViewSet):
                     return Response({'detail': 'Người được phân công không đủ điều kiện theo chỉ định của bác sĩ phụ trách.'}, status=400)
             old_status = booking.status
             booking.status = Booking.CONFIRMED
-            booking.save(update_fields=['status'])
+            booking.confirm_state = Booking.CONFIRM_STATE_CONFIRMED
+            booking.save(update_fields=['status', 'confirm_state'])
             BookingHistory.objects.create(
                 booking=booking, actor=request.user, event='confirmed',
                 old_status=old_status, new_status=booking.status,
@@ -671,7 +797,9 @@ class BookingViewSet(viewsets.ModelViewSet):
                 return Response({'detail': 'Vui lòng nhập lý do hủy lịch (ít nhất 5 ký tự).'}, status=400)
             old_status = booking.status
             booking.status = Booking.CANCELLED
-            booking.save(update_fields=['status'])
+            booking.cancel_reason = reason[:2000]
+            booking.running_late = False
+            booking.save(update_fields=['status', 'cancel_reason', 'running_late'])
             BookingHistory.objects.create(
                 booking=booking, actor=request.user if request.user.is_authenticated else None,
                 event='cancelled', old_status=old_status, new_status=booking.status,
@@ -696,10 +824,32 @@ class BookingViewSet(viewsets.ModelViewSet):
         broadcast_dashboard('booking.cancelled', data)
         return Response(self.get_serializer(booking).data)
 
-    @action(detail=True, methods=['post'], permission_classes=[IsStaffRole])
+    @action(detail=True, methods=['post'], url_path='no-show', permission_classes=[IsStaffRole])
     def no_show(self, request, pk=None):
         with transaction.atomic():
             booking = Booking.objects.select_for_update().get(pk=self.get_object().pk)
+            if request.data.get('undo'):
+                if booking.status != Booking.NO_SHOW:
+                    return Response({'detail': 'Lịch này chưa bị đánh dấu vắng mặt.'}, status=400)
+                if booking.staff_id:
+                    Staff.objects.select_for_update().get(pk=booking.staff_id)
+                    collision = slot_collision_error(
+                        booking.staff, booking.appointment, booking.duration_minutes or 60,
+                        exclude_booking_id=booking.pk,
+                    )
+                    if collision:
+                        return Response({'detail': f'Không thể bỏ đánh dấu vắng mặt: {collision}'}, status=409)
+                old_status = booking.status
+                booking.status = Booking.PENDING
+                booking.running_late = False
+                booking.confirm_state = Booking.CONFIRM_STATE_UNCONFIRMED
+                booking.save(update_fields=['status', 'running_late', 'confirm_state'])
+                BookingHistory.objects.create(
+                    booking=booking, actor=request.user, event='no_show_undone',
+                    old_status=old_status, new_status=booking.status,
+                    old_appointment=booking.appointment, new_appointment=booking.appointment,
+                )
+                return Response(self.get_serializer(booking).data)
             if booking.status not in {Booking.PENDING, Booking.CONFIRMED}:
                 return Response({'detail': 'Chỉ lịch chưa check-in mới có thể ghi nhận khách không đến.'}, status=400)
             grace = int(clinic_setting('reception.no_show_grace_minutes'))
@@ -707,7 +857,8 @@ class BookingViewSet(viewsets.ModelViewSet):
                 return Response({'detail': f'Chỉ ghi nhận khách không đến sau giờ hẹn và {grace} phút chờ.' if grace else 'Chỉ ghi nhận khách không đến sau giờ hẹn.'}, status=400)
             old_status = booking.status
             booking.status = Booking.NO_SHOW
-            booking.save(update_fields=['status'])
+            booking.running_late = False
+            booking.save(update_fields=['status', 'running_late'])
             BookingHistory.objects.create(
                 booking=booking, actor=request.user, event='no_show',
                 old_status=old_status, new_status=booking.status,
@@ -716,6 +867,10 @@ class BookingViewSet(viewsets.ModelViewSet):
                 reason=(request.data.get('reason') or '')[:255],
             )
         return Response(self.get_serializer(booking).data)
+
+    @action(detail=True, methods=['post'], url_path='no_show', permission_classes=[IsStaffRole])
+    def no_show_legacy(self, request, pk=None):
+        return self.no_show(request, pk=pk)
 
     @action(detail=True, methods=['post'])
     def reschedule(self, request, pk=None):

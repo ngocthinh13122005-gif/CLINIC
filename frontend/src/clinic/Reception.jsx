@@ -1,6 +1,5 @@
-import { useCallback, useState } from 'react';
-import { Link } from 'react-router-dom';
-import AddRounded from '@mui/icons-material/AddRounded';
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
 import PlayArrowRounded from '@mui/icons-material/PlayArrowRounded';
 import CheckRounded from '@mui/icons-material/CheckRounded';
@@ -8,7 +7,7 @@ import EventAvailableRounded from '@mui/icons-material/EventAvailableRounded';
 import HourglassTopRounded from '@mui/icons-material/HourglassTopRounded';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { Avatar, Btn, Card, Empty, Field, Loading, Modal, PageHead, Pill, errMsg, fmtTime, genderText, useInterval, useLoad, useToast, visitTone } from './ui';
+import { Avatar, Btn, Card, Empty, Field, Loading, Modal, PageHead, Pill, errMsg, fmtDateTime, fmtTime, genderText, useInterval, useLoad, useToast, visitTone } from './ui';
 import { PatientPicker } from './PatientForm';
 
 function DoctorSelect({ doctors, value, onChange, allowNone = true }) {
@@ -26,6 +25,12 @@ function VisitCard({ v, children, tone }) {
     </header>
     <div className="cl-visit-meta"><Pill tone="neutral">{v.visit_type_label}</Pill>{v.room_name && <Pill tone="blue">{v.room_name}</Pill>}{v.source === 'appointment' && <Pill tone="teal">Có lịch hẹn</Pill>}
       {v.doctor_name && <Pill tone="blue">{v.doctor_name}</Pill>}</div>
+    {v.active_plans?.length > 0 && <div className="cl-visit-plans">
+      <span className="cl-visit-plans-label">Liệu trình:</span>
+      {v.active_plans.map((plan) => <Link key={plan.id} to={`/benh-nhan/${p.id}`} className="cl-visit-plan">
+        <strong>{plan.title}</strong><small>{plan.done}/{plan.total} buổi</small>
+      </Link>)}
+    </div>}
     {v.reason && <p className="cl-visit-reason">{v.reason}</p>}
     {p.allergies && <p className="cl-allergy"><WarningAmberRounded />Dị ứng: {p.allergies}</p>}
     {children}
@@ -34,12 +39,19 @@ function VisitCard({ v, children, tone }) {
 
 export default function ReceptionPage() {
   const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const role = user.role;
   const canReception = ['consultant', 'manager', 'doctor'].includes(role);
   const [toast, toastNode] = useToast();
   const board = useLoad(async () => (await api.get('/clinic/visits/board/')).data, []);
   const meta = useLoad(async () => (await api.get('/clinic/meta/')).data, []);
   const [adding, setAdding] = useState(false);
+  useEffect(() => {
+    if (!location.state?.openCreate) return;
+    if (canReception) setAdding(true);
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [location.pathname, location.search, location.state, canReception, navigate]);
   const [calling, setCalling] = useState(null);
   const refresh = useCallback(() => board.reload(true), [board.reload]);
   useInterval(refresh, 20000);
@@ -54,8 +66,7 @@ export default function ReceptionPage() {
   if (!d) return <Loading />;
   return <>
     <PageHead title={role === 'doctor' ? 'Ca khám hôm nay' : 'Tiếp đón hôm nay'}
-      subtitle="Khách đến phòng khám được đón ở sảnh, nhân viên sẽ mời vào tư vấn khi sẵn sàng."
-      actions={canReception && <Btn kind="primary" icon={<AddRounded />} onClick={() => setAdding(true)}>Đón khách mới</Btn>} />
+      subtitle="Khách đến phòng khám được đón ở sảnh, nhân viên sẽ mời vào tư vấn khi sẵn sàng." />
     {board.error && <div className="cl-alert error">{board.error}</div>}
     <div className="cl-stat-row">
       <div className="cl-stat amber"><span>Đang chờ ở sảnh</span><strong>{d.counts.waiting}</strong></div>
@@ -90,8 +101,9 @@ export default function ReceptionPage() {
         <h2><EventAvailableRounded />Lịch hẹn hôm nay chưa đến <em>{d.upcoming.length}</em></h2>
         {d.upcoming.map((b) => <article className={`cl-appt ${b.late ? 'late' : ''}`} key={b.id}>
           <div><strong>{b.customer_name}</strong><small>{fmtTime(b.appointment)} · {b.type}{b.doctor ? ` · ${b.doctor}` : ''}</small>
-            {b.late && <Pill tone="red">Trễ hẹn</Pill>}</div>
-          {canReception && <Btn size="sm" onClick={() => checkIn(b)}>Đón</Btn>}
+            {b.late && <Pill tone="red">Trễ hẹn</Pill>}
+            {canReception && !b.checkin_allowed && <small className="cl-checkin-hint">Có thể đón từ {fmtDateTime(b.checkin_available_at)}</small>}</div>
+          {canReception && <Btn size="sm" disabled={!b.checkin_allowed} title={!b.checkin_allowed ? `Check-in mở lúc ${fmtDateTime(b.checkin_available_at)}` : undefined} onClick={() => checkIn(b)}>Đón</Btn>}
         </article>)}
         {!d.upcoming.length && <Empty title="Không còn lịch hẹn chờ đón" />}
         <h2 className="cl-col-sub">Đã xong hôm nay</h2>
@@ -111,16 +123,24 @@ export default function ReceptionPage() {
 
 function NewVisitModal({ open, doctors, onClose, onDone }) {
   const [patient, setPatient] = useState(null);
+  const [plans, setPlans] = useState([]);
+  const [sessionId, setSessionId] = useState('');
   const [type, setType] = useState('new');
   const [reason, setReason] = useState('');
   const [doctor, setDoctor] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  const close = () => { setPatient(null); setReason(''); setDoctor(''); setErr(''); setType('new'); onClose(); };
+  useEffect(() => {
+    if (!patient) { setPlans([]); setSessionId(''); return; }
+    api.get('/clinic/plans/', { params: { patient: patient.id, status: 'active' } })
+      .then(({ data }) => setPlans(data.results || data || []))
+      .catch(() => setPlans([]));
+  }, [patient]);
+  const close = () => { setPatient(null); setPlans([]); setSessionId(''); setReason(''); setDoctor(''); setErr(''); setType('new'); onClose(); };
   const submit = async () => {
     setBusy(true); setErr('');
     try {
-      await api.post('/clinic/visits/', { patient: patient.id, visit_type: type, reason, doctor: doctor || null });
+      await api.post('/clinic/visits/', { patient: patient.id, visit_type: type, reason, doctor: doctor || null, treatment_session: sessionId || null });
       const name = patient.full_name; setPatient(null); setReason(''); setDoctor(''); setType('new');
       onDone(`Đã đón ${name} — mời ngồi chờ ở sảnh.`);
     } catch (e) { setErr(errMsg(e)); } finally { setBusy(false); }
@@ -133,6 +153,10 @@ function NewVisitModal({ open, doctors, onClose, onDone }) {
       <Field label="Loại lượt khám"><select value={type} onChange={(e) => setType(e.target.value)}>
         <option value="new">Khám mới / tư vấn</option><option value="follow_up">Tái khám</option><option value="procedure">Thủ thuật</option><option value="session">Buổi liệu trình</option></select></Field>
       <Field label="Bác sĩ (nếu khách muốn gặp)"><DoctorSelect doctors={doctors} value={doctor} onChange={setDoctor} /></Field>
+      {plans.length > 0 && <Field label="Liệu trình / buổi thực hiện" span="2"><select value={sessionId} onChange={(e) => { setSessionId(e.target.value); if (e.target.value) setType('session'); }}>
+        <option value="">— Không chọn buổi liệu trình —</option>
+        {plans.flatMap((plan) => (plan.sessions || []).filter((s) => s.status === 'pending').map((s) => <option key={s.id} value={s.id}>{plan.title} · Buổi {s.number}/{plan.total_sessions}</option>))}
+      </select></Field>}
       <Field label="Lý do đến khám" span="2"><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="VD: nổi mụn viêm vùng má, ngứa…" /></Field>
     </div>}
   </Modal>;

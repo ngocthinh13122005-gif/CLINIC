@@ -12,7 +12,7 @@ from rest_framework.test import APIClient, APITestCase
 
 from accounts.models import ActivityLog
 from clinic.models import Patient, TreatmentPlan, TreatmentSession, Visit
-from core.models import Booking, BookingItem, Category, Conversation, ConversationSession, LeaveRequest, Service, Staff, Voucher, VoucherRedemption, WorkingHours, Message, AgentPresence, ChatSetting
+from core.models import AppointmentWaitlistEntry, Booking, BookingItem, Category, Conversation, ConversationSession, LeaveRequest, Service, Staff, Voucher, VoucherRedemption, WorkingHours, Message, AgentPresence, ChatSetting
 from core.booking_notifications import send_booking_email
 
 User = get_user_model()
@@ -98,6 +98,43 @@ class AkinaClinicApiIntegrationTests(APITestCase):
         me = self.client.get('/api/auth/me/')
         self.assertEqual(me.status_code, 200)
         self.assertEqual(me.data['role'], 'customer')
+
+    def test_waitlist_is_limited_to_clinic_team_and_duplicate_active_requests_are_rejected(self):
+        payload = {
+            'patient_name': 'Khách chờ lịch', 'phone': '0900123456',
+            'service': self.service.pk, 'preferred_from': (timezone.localdate() + timedelta(days=1)).isoformat(),
+        }
+        self.auth(self.customer)
+        self.assertEqual(self.client.get('/api/appointment-waitlist/').status_code, 403)
+
+        self.auth(self.manager)
+        created = self.client.post('/api/appointment-waitlist/', payload, format='json')
+        self.assertEqual(created.status_code, 201, created.data)
+        self.assertEqual(created.data['status'], AppointmentWaitlistEntry.WAITING)
+        duplicate = self.client.post('/api/appointment-waitlist/', payload, format='json')
+        self.assertEqual(duplicate.status_code, 400)
+
+        contacted = self.client.post(f"/api/appointment-waitlist/{created.data['id']}/contact/")
+        self.assertEqual(contacted.status_code, 200, contacted.data)
+        self.assertEqual(contacted.data['status'], AppointmentWaitlistEntry.CONTACTED)
+
+    @patch('api.views._queue_email')
+    def test_waitlist_booking_action_creates_only_after_slot_validation(self, queue_email):
+        doctor_staff = self.make_staff()
+        self.auth(self.manager)
+        entry = self.client.post('/api/appointment-waitlist/', {
+            'patient_name': 'Khách xếp lịch', 'phone': '0900111222', 'service': self.service.pk,
+        }, format='json')
+        self.assertEqual(entry.status_code, 201, entry.data)
+        appointment = self.slot().isoformat()
+        response = self.client.post(f"/api/appointment-waitlist/{entry.data['id']}/book/", {
+            'staff': doctor_staff.pk, 'appointment': appointment,
+        }, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data['entry']['status'], AppointmentWaitlistEntry.BOOKED)
+        booking = Booking.objects.get(pk=response.data['booking']['id'])
+        self.assertEqual(booking.guest_phone, '0900111222')
+        queue_email.assert_called_once()
 
     def test_login_ignores_stale_session_cookie_without_csrf(self):
         """A previous Django session must not block token-based login."""

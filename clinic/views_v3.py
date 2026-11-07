@@ -15,7 +15,7 @@ from accounts.models import ActivityLog
 from . import inventory, reports
 from .audit import audit
 from .models import (CareContactLog, CareTask, ConsentForm, Invoice, Medicine, Patient, PurchaseOrder, PurchaseOrderLine, Room, StockCount,
-                     StockCountLine, StockLot, StockMovement, Supplier, TreatmentPlan, TreatmentSession, Visit, MedicalRecord)
+                     StockCountLine, StockLocation, StockLot, StockMovement, Supplier, TreatmentPlan, TreatmentSession, Visit, MedicalRecord)
 from .permissions import IsClinicStaff, role_of
 from .serializers import uname
 from .views import deny
@@ -74,12 +74,13 @@ class LotSerializer(serializers.ModelSerializer):
     medicine_code = serializers.CharField(source='medicine.code', read_only=True)
     unit = serializers.CharField(source='medicine.unit', read_only=True)
     supplier_name = serializers.CharField(source='supplier.name', read_only=True, default='')
+    location_name = serializers.CharField(source='location.name', read_only=True, default='')
     days_left = serializers.SerializerMethodField()
 
     class Meta:
         model = StockLot
         fields = ('id', 'medicine', 'medicine_name', 'medicine_code', 'unit', 'lot_no', 'expiry_date', 'days_left', 'quantity', 'initial_qty',
-                  'unit_cost', 'supplier_name', 'received_at', 'reference')
+                  'unit_cost', 'supplier_name', 'location', 'location_name', 'received_at', 'reference')
 
     def get_days_left(self, o):
         return (o.expiry_date - timezone.localdate()).days if o.expiry_date else None
@@ -127,11 +128,12 @@ class POSerializer(serializers.ModelSerializer):
     lines = POLineSerializer(many=True, read_only=True)
     total = serializers.IntegerField(read_only=True)
     created_by_name = serializers.SerializerMethodField()
+    location_name = serializers.CharField(source='location.name', read_only=True, default='')
 
     class Meta:
         model = PurchaseOrder
-        fields = ('id', 'code', 'supplier', 'supplier_name', 'status', 'status_label', 'expected_date', 'note', 'created_at', 'ordered_at',
-                  'received_at', 'total', 'lines', 'created_by_name')
+        fields = ('id', 'code', 'supplier', 'supplier_name', 'location', 'location_name', 'supplier_ref', 'status', 'status_label',
+                  'expected_date', 'note', 'created_at', 'ordered_at', 'received_at', 'total', 'lines', 'created_by_name')
         read_only_fields = ('code', 'status')
 
     def get_created_by_name(self, o):
@@ -146,7 +148,7 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         return [IsClinicStaff()] if self.action in {'list', 'retrieve'} else [perm(MANAGER)]
 
     def get_queryset(self):
-        qs = PurchaseOrder.objects.select_related('supplier', 'created_by').prefetch_related('lines__medicine')
+        qs = PurchaseOrder.objects.select_related('supplier', 'created_by', 'location').prefetch_related('lines__medicine')
         p = self.request.query_params
         if p.get('status'):
             qs = qs.filter(status__in=p['status'].split(','))
@@ -172,7 +174,9 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         if not sup:
             return deny('Vui lòng chọn nhà cung cấp.', 400)
         o = PurchaseOrder.objects.create(supplier=sup, expected_date=request.data.get('expected_date') or None,
-                                         note=(request.data.get('note') or '')[:255], created_by=request.user)
+                                         note=(request.data.get('note') or '')[:255], created_by=request.user,
+                                         location_id=request.data.get('location') or inventory.default_location().id,
+                                         supplier_ref=(request.data.get('supplier_ref') or '')[:80])
         self._write_lines(o, request.data.get('lines'))
         audit(request.user, 'po.create', o.code)
         return Response(self.get_serializer(o).data, status=201)
@@ -184,7 +188,9 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
             return deny('Chỉ sửa được đơn ở trạng thái nháp.', 400)
         sup = Supplier.objects.filter(pk=request.data.get('supplier')).first() or o.supplier
         o.supplier, o.expected_date, o.note = sup, request.data.get('expected_date') or None, (request.data.get('note') or '')[:255]
-        o.save()
+        o.location_id = request.data.get('location') or o.location_id
+        o.supplier_ref = (request.data.get('supplier_ref') or '')[:80]
+        o.save(update_fields=['supplier', 'expected_date', 'note', 'location', 'supplier_ref'])
         self._write_lines(o, request.data.get('lines'))
         return Response(self.get_serializer(o).data)
 
@@ -238,11 +244,12 @@ class CountSerializer(serializers.ModelSerializer):
     line_count = serializers.SerializerMethodField()
     diff_count = serializers.SerializerMethodField()
     lines = serializers.SerializerMethodField()
+    location_name = serializers.CharField(source='location.name', read_only=True, default='')
 
     class Meta:
         model = StockCount
-        fields = ('id', 'code', 'status', 'status_label', 'note', 'created_at', 'created_by_name', 'validated_at', 'validated_by_name',
-                  'line_count', 'diff_count', 'lines')
+        fields = ('id', 'code', 'name', 'location', 'location_name', 'status', 'status_label', 'note', 'created_at', 'created_by_name',
+                  'validated_at', 'validated_by_name', 'line_count', 'diff_count', 'lines')
 
     def get_created_by_name(self, o):
         return uname(o.created_by)
@@ -269,7 +276,7 @@ class StockCountViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.R
         return [IsClinicStaff()] if self.action in {'list', 'retrieve'} else [perm(MANAGER)]
 
     def get_queryset(self):
-        return StockCount.objects.select_related('created_by', 'validated_by').prefetch_related('lines__medicine', 'lines__lot')
+        return StockCount.objects.select_related('created_by', 'validated_by', 'location').prefetch_related('lines__medicine', 'lines__lot')
 
     def get_serializer_context(self):
         c = super().get_serializer_context()
@@ -277,7 +284,9 @@ class StockCountViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.R
         return c
 
     def create(self, request):
-        c = inventory.start_count(request.user, request.data.get('note', ''), request.data.get('medicine_ids') or None)
+        location = StockLocation.objects.filter(pk=request.data.get('location')).first() if request.data.get('location') else None
+        c = inventory.start_count(request.user, request.data.get('note', ''), request.data.get('medicine_ids') or None,
+                                  request.data.get('name', ''), location)
         audit(request.user, 'count.start', c.code)
         return Response(self.get_serializer(c).data, status=201)
 
@@ -382,45 +391,79 @@ class RoomViewSet(viewsets.ModelViewSet):
 
 
 # =========================================================================== chăm sóc sau điều trị
+def create_post_care_task(visit):
+    from core.operational_settings import clinic_setting
+
+    if not clinic_setting('care.post_care_enabled') or not visit.finished_at:
+        return False
+    delay = int(clinic_setting('care.post_care_delay_days'))
+    _, created = CareTask.objects.get_or_create(source_key=f'visit:post_care:{visit.pk}', defaults={
+        'patient': visit.patient, 'visit': visit, 'kind': CareTask.POST_CARE, 'auto': True,
+        'title': f'Gọi hỏi thăm sau lượt khám #{visit.pk} — tình trạng da, phản ứng sau điều trị',
+        'due_date': timezone.localtime(visit.finished_at).date() + timedelta(days=delay),
+    })
+    return created
+
+
+def create_revisit_task(record):
+    from core.operational_settings import clinic_setting
+
+    if not clinic_setting('care.revisit_enabled') or not record.follow_up_date:
+        return False
+    today = timezone.localdate()
+    lead = int(clinic_setting('care.revisit_lead_days'))
+    _, created = CareTask.objects.get_or_create(source_key=f'record:revisit:{record.pk}', defaults={
+        'patient': record.patient, 'visit': record.visit, 'kind': CareTask.REVISIT, 'auto': True,
+        'title': f'Nhắc tái khám ngày {record.follow_up_date:%d/%m/%Y} (bệnh án {record.code})',
+        'due_date': max(record.follow_up_date - timedelta(days=lead), today),
+    })
+    return created
+
+
 def ensure_auto_tasks():
     """Tạo việc chăm sóc tự động (idempotent): hỏi thăm sau khám, nhắc tái khám, nhắc buổi liệu trình, nhắc công nợ."""
+    from core.operational_settings import clinic_setting
+
     today = timezone.localdate()
     made = 0
-    for v in Visit.objects.filter(status=Visit.COMPLETED, finished_at__date__gte=today - timedelta(days=7)).select_related('patient'):
-        _, created = CareTask.objects.get_or_create(source_key=f'visit:post_care:{v.pk}', defaults={
-            'patient': v.patient, 'visit': v, 'kind': CareTask.POST_CARE, 'auto': True,
-            'title': f'Gọi hỏi thăm sau lượt khám #{v.pk} — tình trạng da, phản ứng sau điều trị',
-            'due_date': timezone.localtime(v.finished_at).date() + timedelta(days=1),
-        })
-        if created:
-            made += 1
-    for r in MedicalRecord.objects.filter(status=MedicalRecord.SIGNED, follow_up_date__isnull=False, follow_up_date__gte=today - timedelta(days=7)).select_related('patient'):
-        _, created = CareTask.objects.get_or_create(source_key=f'record:revisit:{r.pk}', defaults={
-            'patient': r.patient, 'visit': r.visit, 'kind': CareTask.REVISIT, 'auto': True,
-            'title': f'Nhắc tái khám ngày {r.follow_up_date:%d/%m/%Y} (bệnh án {r.code})',
-            'due_date': max(r.follow_up_date - timedelta(days=2), today),
-        })
-        if created:
-            made += 1
-    for s in TreatmentSession.objects.filter(status=TreatmentSession.PENDING, plan__status=TreatmentPlan.ACTIVE, planned_date__isnull=False,
-                                             planned_date__lte=today + timedelta(days=7)).select_related('plan__patient'):
-        tag = f'buổi {s.number} · liệu trình #{s.plan_id}'
-        _, created = CareTask.objects.get_or_create(source_key=f'session:{s.pk}', defaults={
-            'patient': s.plan.patient, 'plan': s.plan, 'kind': CareTask.SESSION, 'auto': True,
-            'title': f'Nhắc lịch {tag} ({s.plan.title}) ngày {s.planned_date:%d/%m/%Y}',
-            'due_date': max(s.planned_date - timedelta(days=1), today),
-        })
-        if created:
-            made += 1
-    for i in Invoice.objects.filter(status__in=[Invoice.UNPAID, Invoice.PARTIAL], created_at__date__lte=today - timedelta(days=7)).select_related('patient'):
-        if i.total <= i.paid:
-            continue
-        _, created = CareTask.objects.get_or_create(source_key=f'invoice:payment:{i.pk}', defaults={
-            'patient': i.patient, 'kind': CareTask.PAYMENT, 'auto': True, 'due_date': today,
-            'title': f'Nhắc thanh toán hóa đơn {i.code} — còn nợ {i.total - i.paid:,}đ'.replace(',', '.'),
-        })
-        if created:
-            made += 1
+    # Backfill legacy automatic tasks created before the activity timeline used
+    # start_at/end_at. CareTask.save() derives the 09:00-09:30 window from due_date.
+    for task in CareTask.objects.filter(auto=True, end_at__isnull=True).only('id', 'due_date', 'start_at', 'end_at'):
+        task.save(update_fields=['start_at', 'end_at', 'due_date'])
+    post_enabled = clinic_setting('care.post_care_enabled')
+    post_delay = int(clinic_setting('care.post_care_delay_days'))
+    revisit_enabled = clinic_setting('care.revisit_enabled')
+    session_enabled = clinic_setting('care.session_enabled')
+    session_lead = int(clinic_setting('care.session_lead_days'))
+    debt_enabled = clinic_setting('care.debt_enabled')
+    debt_after = int(clinic_setting('care.debt_after_days'))
+
+    if post_enabled:
+        lookback = max(7, post_delay + 7)
+        for v in Visit.objects.filter(status=Visit.COMPLETED, finished_at__date__gte=today - timedelta(days=lookback)).select_related('patient'):
+            made += int(create_post_care_task(v))
+    if revisit_enabled:
+        for r in MedicalRecord.objects.filter(status=MedicalRecord.SIGNED, follow_up_date__isnull=False, follow_up_date__gte=today - timedelta(days=7)).select_related('patient'):
+            made += int(create_revisit_task(r))
+    if session_enabled:
+        for s in TreatmentSession.objects.filter(status=TreatmentSession.PENDING, plan__status=TreatmentPlan.ACTIVE, planned_date__isnull=False,
+                                                 planned_date__lte=today + timedelta(days=session_lead)).select_related('plan__patient'):
+            tag = f'buổi {s.number} · liệu trình #{s.plan_id}'
+            _, created = CareTask.objects.get_or_create(source_key=f'session:{s.pk}', defaults={
+                'patient': s.plan.patient, 'plan': s.plan, 'kind': CareTask.SESSION, 'auto': True,
+                'title': f'Nhắc lịch {tag} ({s.plan.title}) ngày {s.planned_date:%d/%m/%Y}',
+                'due_date': max(s.planned_date - timedelta(days=session_lead), today),
+            })
+            made += int(created)
+    if debt_enabled:
+        for i in Invoice.objects.filter(status__in=[Invoice.UNPAID, Invoice.PARTIAL], created_at__date__lte=today - timedelta(days=debt_after)).select_related('patient'):
+            if i.total <= i.paid:
+                continue
+            _, created = CareTask.objects.get_or_create(source_key=f'invoice:payment:{i.pk}', defaults={
+                'patient': i.patient, 'kind': CareTask.PAYMENT, 'auto': True, 'due_date': today,
+                'title': f'Nhắc thanh toán hóa đơn {i.code} — còn nợ {i.total - i.paid:,}đ'.replace(',', '.'),
+            })
+            made += int(created)
     return made
 
 

@@ -1,14 +1,9 @@
-import { PrescriptionsTab } from './Prescription';
-import { ConsentsTab } from './Consents';
-import { InvoicesTab } from './Billing';
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import SearchRounded from '@mui/icons-material/SearchRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
-import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded';
-import PlayArrowRounded from '@mui/icons-material/PlayArrowRounded';
 import CompareRounded from '@mui/icons-material/CompareRounded';
 import CloudUploadRounded from '@mui/icons-material/CloudUploadRounded';
 import BrokenImageRounded from '@mui/icons-material/BrokenImageRounded';
@@ -18,11 +13,12 @@ import { PatientFormModal } from './PatientForm';
 import SmartFilterBar from './SmartFilterBar';
 import { PlanCard, PlanFormModal } from './Plans';
 import RecordModal from './RecordView';
-import { Avatar, Btn, Card, Empty, Field, Loading, Modal, PageHead, Pill, errMsg, fmtDate, fmtDateTime, genderText, isoDay, useDebounce, useLoad, useToast, visitTone } from './ui';
+import { Avatar, Btn, Card, Empty, Field, Loading, Modal, PageHead, Pill, errMsg, fmtDate, fmtDateTime, genderText, isoDay, useDebounce, useLoad, visitTone } from './ui';
 
 export function PatientsPage() {
   const { user } = useAuth();
   const nav = useNavigate();
+  const location = useLocation();
   const [q, setQ] = useState('');
   const [gender, setGender] = useState('');
   const [activity, setActivity] = useState('');
@@ -31,6 +27,12 @@ export function PatientsPage() {
   const [groupBy, setGroupBy] = useState('');
   const dq = useDebounce(q, 300);
   const [adding, setAdding] = useState(false);
+  const canAdd = ['consultant', 'manager', 'doctor'].includes(user.role);
+  useEffect(() => {
+    if (!location.state?.openCreate) return;
+    if (canAdd) setAdding(true);
+    nav(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [location.pathname, location.search, location.state, canAdd, nav]);
   const [total, setTotal] = useState(0);
   const { data, loading, error } = useLoad(async () => {
     const r = await api.get('/clinic/patients/', { params: { q: dq.trim(), gender: gender || undefined, activity: activity || undefined, allergy: allergy || undefined, age_band: ageBand || undefined, limit: 300 } });
@@ -58,9 +60,8 @@ export function PatientsPage() {
     { key: 'age_band', label: 'Độ tuổi', value: ageBand, onChange: setAgeBand, options: [{ value: 'under18', label: 'Dưới 18' }, { value: '18_30', label: '18–30' }, { value: '31_50', label: '31–50' }, { value: 'over50', label: 'Trên 50' }] },
   ];
   const applyFavorite = (state) => { setQ(state.search || ''); setGender(state.filters?.gender || ''); setActivity(state.filters?.activity || ''); setAllergy(state.filters?.allergy || ''); setAgeBand(state.filters?.age_band || ''); setGroupBy(state.groupBy || ''); };
-  const canAdd = ['consultant', 'manager', 'doctor'].includes(user.role);
   return <>
-    <PageHead title="Bệnh nhân" subtitle={`${total} hồ sơ đang quản lý`} actions={canAdd && <Btn kind="primary" icon={<AddRounded />} onClick={() => setAdding(true)}>Thêm bệnh nhân</Btn>} />
+    <PageHead title="Bệnh nhân" subtitle={`${total} hồ sơ đang quản lý`} />
     <Card pad={false}>
       <SmartFilterBar id="patients" search={q} onSearch={setQ} placeholder="Tìm theo tên, số điện thoại, CCCD hoặc mã hồ sơ…" filters={filters} groupBy={groupBy} onGroupBy={setGroupBy}
         groupOptions={[{ value: 'gender', label: 'Giới tính' }, { value: 'activity', label: 'Lịch sử khám' }, { value: 'referral', label: 'Nguồn khách hàng' }]} onApplyFavorite={applyFavorite}/>
@@ -77,74 +78,7 @@ export function PatientsPage() {
   </>;
 }
 
-const Row = ({ k, v }) => <div className="cl-kv"><dt>{k}</dt><dd>{v || <span className="cl-muted">—</span>}</dd></div>;
-
-export function PatientProfilePage() {
-  const { id } = useParams();
-  const { user } = useAuth();
-  const nav = useNavigate();
-  const role = user.role;
-  const clinical = ['doctor', 'manager'].includes(role);
-  const [tab, setTab] = useState('info');
-  const [editing, setEditing] = useState(false);
-  const [toast, toastNode] = useToast();
-  const p = useLoad(async () => (await api.get(`/clinic/patients/${id}/`)).data, [id]);
-  const sum = useLoad(async () => (await api.get(`/clinic/patients/${id}/summary/`)).data, [id]);
-  const meta = useLoad(async () => (await api.get('/clinic/meta/')).data, []);
-  const patient = p.data;
-  if (p.error && !patient) return <div className="cl-alert error">{p.error}</div>;
-  if (!patient) return <Loading />;
-  const s = sum.data;
-  const tabs = [['info', 'Thông tin'], ...(clinical ? [['history', 'Tiền sử']] : []), ['visits', clinical ? 'Lượt khám & bệnh án' : 'Lượt khám'], ['plans', 'Liệu trình'], ...(clinical ? [['rx', 'Đơn thuốc']] : []), ...(['manager', 'consultant', 'doctor'].includes(role) ? [['bill', 'Hóa đơn']] : []), ...(clinical ? [['images', 'Hình ảnh']] : []), ['consent', 'Cam kết']];
-  const checkIn = async () => { try { await api.post('/clinic/visits/', { patient: patient.id, visit_type: 'new' }); toast('Đã đón bệnh nhân — đang chờ ở sảnh.'); sum.reload(true); } catch (e) { toast(errMsg(e), 'err'); } };
-  const canReception = ['consultant', 'manager', 'doctor'].includes(role);
-  return <>
-    <Link to="/benh-nhan" className="cl-back"><ArrowBackRounded />Danh sách bệnh nhân</Link>
-    <section className="cl-pt-head">
-      <Avatar name={patient.full_name} size={64} />
-      <div className="cl-pt-id">
-        <span className="cl-code">{patient.code}</span>
-        <h1>{patient.full_name}</h1>
-        <p>{genderText(patient.gender)}{patient.age != null ? ` · ${patient.age} tuổi` : ''} · {patient.phone}{patient.skin_type ? ` · Da Fitzpatrick ${patient.skin_type}` : ''}</p>
-        {patient.allergies && <span className="cl-allergy big"><WarningAmberRounded />Dị ứng: {patient.allergies}</span>}
-      </div>
-      <div className="cl-pt-stats">
-        <div><span>Lượt khám</span><strong>{s?.visit_count ?? '—'}</strong></div>
-        <div><span>Khám gần nhất</span><strong>{s?.last_visit ? fmtDate(s.last_visit) : '—'}</strong></div>
-        <div><span>Liệu trình đang chạy</span><strong>{s?.active_plans?.length ?? '—'}</strong></div>
-        <div><span>Lịch hẹn sắp tới</span><strong>{s?.upcoming?.length ?? '—'}</strong></div>
-      </div>
-      <div className="cl-pt-actions">
-        {s?.active_visit ? (role === 'doctor' && s.active_visit.status === 'in_consult'
-          ? <Link className="cl-btn primary" to={`/kham/${s.active_visit.id}`}><PlayArrowRounded />Vào khám</Link>
-          : <Pill tone={visitTone[s.active_visit.status]} dot>{s.active_visit.status_label}</Pill>)
-          : canReception && <Btn kind="primary" icon={<AddRounded />} onClick={checkIn}>Đón khách</Btn>}
-        {canReception && <Btn icon={<EditRounded />} onClick={() => setEditing(true)}>Sửa hồ sơ</Btn>}
-      </div>
-    </section>
-    <nav className="cl-tabs" role="tablist">{tabs.map(([k, t]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{t}</button>)}</nav>
-    {tab === 'info' && <div className="cl-two">
-      <Card title="Thông tin hành chính"><dl className="cl-kvs">
-        <Row k="Họ và tên" v={patient.full_name} /><Row k="Giới tính" v={genderText(patient.gender)} /><Row k="Ngày sinh" v={patient.date_of_birth && fmtDate(patient.date_of_birth)} />
-        <Row k="Điện thoại" v={patient.phone} /><Row k="Email" v={patient.email} /><Row k="CCCD / CMND" v={patient.national_id} />
-        <Row k="Nghề nghiệp" v={patient.occupation} /><Row k="Địa chỉ" v={patient.address} /><Row k="Nguồn biết đến" v={patient.referral_source} />
-        <Row k="Liên hệ khi cần" v={patient.emergency_contact} /><Row k="Ngày tạo hồ sơ" v={fmtDate(patient.created_at)} /></dl></Card>
-      <Card title="Lịch hẹn sắp tới">{s?.upcoming?.length ? s.upcoming.map((b) => <div className="cl-li" key={b.id}><strong>{fmtDateTime(b.appointment)}</strong><small>{b.type}{b.doctor ? ` · ${b.doctor}` : ''}</small></div>)
-        : <Empty title="Không có lịch hẹn" hint="Đặt lịch từ trang Lịch hẹn." />}</Card>
-    </div>}
-    {tab === 'history' && clinical && <HistoryTab patient={patient} meta={meta.data} onSaved={() => { p.reload(true); toast('Đã lưu tiền sử.'); }} />}
-    {tab === 'visits' && <VisitsTab patientId={id} patient={patient} clinical={clinical} regions={meta.data?.regions || []} />}
-    {tab === 'plans' && <PlansTab patient={patient} role={role} onChanged={() => sum.reload(true)} />}
-    {tab === 'rx' && clinical && <PrescriptionsTab patient={patient} />}
-    {tab === 'bill' && <InvoicesTab patient={patient} canBill={['manager', 'consultant'].includes(role)} />}
-    {tab === 'consent' && <ConsentsTab patient={patient} canSign={['manager', 'consultant', 'doctor'].includes(role)} />}
-    {tab === 'images' && clinical && <ImagesTab patient={patient} regions={meta.data?.regions || []} canUpload={role === 'doctor'} />}
-    <PatientFormModal open={editing} patient={patient} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); p.reload(true); toast('Đã cập nhật hồ sơ.'); }} />
-    {toastNode}
-  </>;
-}
-
-function HistoryTab({ patient, meta, onSaved }) {
+export function HistoryTab({ patient, meta, onSaved }) {
   const { user } = useAuth();
   const [f, setF] = useState({});
   const [err, setErr] = useState('');
@@ -169,7 +103,7 @@ function HistoryTab({ patient, meta, onSaved }) {
     </div></Card>;
 }
 
-function VisitsTab({ patientId, patient, clinical, regions }) {
+export function VisitsTab({ patientId, patient, clinical, regions }) {
   const { data, loading } = useLoad(async () => (await api.get(`/clinic/patients/${patientId}/history/`)).data, [patientId]);
   const [open, setOpen] = useState(null);
   if (loading && !data) return <Loading />;
@@ -188,7 +122,7 @@ function VisitsTab({ patientId, patient, clinical, regions }) {
   </div>;
 }
 
-function PlansTab({ patient, role, onChanged }) {
+export function PlansTab({ patient, role, onChanged }) {
   const { data, loading, reload } = useLoad(async () => (await api.get('/clinic/plans/', { params: { patient: patient.id } })).data, [patient.id]);
   const [creating, setCreating] = useState(false);
   const rows = data?.results || data || [];
@@ -211,7 +145,7 @@ function PatientImageCard({ image, selected, onPick, onView }) {
   </figure>;
 }
 
-function ImagesTab({ patient, regions, canUpload }) {
+export function ImagesTab({ patient, regions, canUpload }) {
   const { data, loading, reload } = useLoad(async () => (await api.get('/clinic/images/', { params: { patient: patient.id } })).data, [patient.id]);
   const [up, setUp] = useState(null);
   const [view, setView] = useState(null);

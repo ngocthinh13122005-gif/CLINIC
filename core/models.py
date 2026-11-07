@@ -122,6 +122,18 @@ class Booking(models.Model):
         (APPOINTMENT_TYPE_PROCEDURE, 'Thủ thuật'),
         (APPOINTMENT_TYPE_SESSION, 'Buổi liệu trình'),
     ]
+    CONFIRM_STATE_UNCONFIRMED = 'unconfirmed'
+    CONFIRM_STATE_WAITING_REPLY = 'waiting_reply'
+    CONFIRM_STATE_REPLIED_NO = 'replied_no'
+    CONFIRM_STATE_CONFIRMED = 'confirmed'
+    CONFIRM_STATE_UNABLE_CONTACT = 'unable_contact'
+    CONFIRM_STATES = [
+        (CONFIRM_STATE_UNCONFIRMED, 'Chưa xác nhận'),
+        (CONFIRM_STATE_WAITING_REPLY, 'Chờ khách trả lời'),
+        (CONFIRM_STATE_REPLIED_NO, 'Khách trả lời không đến'),
+        (CONFIRM_STATE_CONFIRMED, 'Đã xác nhận'),
+        (CONFIRM_STATE_UNABLE_CONTACT, 'Không liên lạc được'),
+    ]
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                               related_name='bookings', verbose_name='Khách hàng')
     # Đặt lịch không cần đăng nhập (guest checkout): dùng khi user=None.
@@ -165,6 +177,25 @@ class Booking(models.Model):
     loyalty_points_earned = models.PositiveIntegerField('Điểm thưởng nhận được', default=0)
     note = models.TextField('Ghi chú', blank=True)
     status = models.CharField('Trạng thái', max_length=12, choices=STATUS, default=PENDING)
+    running_late = models.BooleanField('Khách đến trễ', default=False)
+    cancel_reason = models.TextField('Lý do hủy', blank=True)
+    confirm_state = models.CharField(
+        'Tình trạng xác nhận',
+        max_length=20,
+        choices=CONFIRM_STATES,
+        default=CONFIRM_STATE_UNCONFIRMED,
+    )
+    duration_override = models.PositiveSmallIntegerField('Thời lượng ghi đè (phút)', null=True, blank=True)
+    rescheduled_from = models.DateTimeField('Giờ hẹn cũ gần nhất', null=True, blank=True)
+    reschedule_count = models.PositiveIntegerField('Số lần đổi lịch', default=0)
+    rebooked_from = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='rebookings',
+        verbose_name='Lịch được đặt lại từ',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     class Meta:
         verbose_name = 'Lịch hẹn'; verbose_name_plural = 'Lịch hẹn'; ordering = ['-created_at']
@@ -190,6 +221,8 @@ class Booking(models.Model):
 
     @property
     def duration_minutes(self):
+        if self.duration_override is not None:
+            return self.duration_override
         total = getattr(self, '_prefetched_duration', None)
         if total is not None:
             return total
@@ -214,6 +247,44 @@ class Booking(models.Model):
     def customer_email(self):
         return self.guest_email or ((self.user.email if self.user else '') or '')
 
+
+class BlockedTime(models.Model):
+    KIND_LUNCH = 'lunch'
+    KIND_MEETING = 'meeting'
+    KIND_OFF = 'off'
+    KIND_OTHER = 'other'
+    KINDS = [
+        (KIND_LUNCH, 'Nghỉ trưa'),
+        (KIND_MEETING, 'Họp'),
+        (KIND_OFF, 'OFF'),
+        (KIND_OTHER, 'Khác'),
+    ]
+
+    staff = models.ForeignKey(Staff, on_delete=models.CASCADE, related_name='blocked_times', verbose_name='Nhân sự')
+    kind = models.CharField('Loại khung khóa', max_length=12, choices=KINDS, default=KIND_OTHER)
+    start = models.DateTimeField('Bắt đầu')
+    end = models.DateTimeField('Kết thúc')
+    note = models.CharField('Ghi chú', max_length=255, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+        verbose_name='Người tạo',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['start', 'staff__name']
+        constraints = [
+            models.CheckConstraint(condition=models.Q(end__gt=models.F('start')), name='blocked_time_end_after_start'),
+        ]
+
+    def __str__(self):
+        return f'{self.staff} · {self.get_kind_display()} · {self.start:%d/%m/%Y %H:%M}'
+
+
 class BookingItem(models.Model):
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='items')
     service = models.ForeignKey(Service, on_delete=models.PROTECT)
@@ -235,6 +306,55 @@ class BookingHistory(models.Model):
     old_appointment = models.DateTimeField(null=True, blank=True)
     new_appointment = models.DateTimeField(null=True, blank=True)
     reason = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'pk']
+
+
+class AppointmentWaitlistEntry(models.Model):
+    """Customer-requested earlier appointment slot; never books a slot automatically."""
+    WAITING, CONTACTED, BOOKED, CANCELLED = 'waiting', 'contacted', 'booked', 'cancelled'
+    STATUS = [
+        (WAITING, 'Đang chờ'),
+        (CONTACTED, 'Đã liên hệ'),
+        (BOOKED, 'Đã đặt lịch'),
+        (CANCELLED, 'Đã hủy'),
+    ]
+    patient = models.ForeignKey(
+        'clinic.Patient', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='appointment_waitlist_entries', verbose_name='Bệnh nhân',
+    )
+    patient_name = models.CharField('Họ tên', max_length=120)
+    phone = models.CharField('Số điện thoại', max_length=15, db_index=True)
+    service = models.ForeignKey(Service, on_delete=models.SET_NULL, null=True, blank=True, related_name='waitlist_entries')
+    preferred_staff = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True, related_name='waitlist_entries')
+    preferred_from = models.DateField('Có thể từ ngày', null=True, blank=True)
+    preferred_to = models.DateField('Đến ngày', null=True, blank=True)
+    note = models.CharField('Ghi chú điều phối', max_length=255, blank=True)
+    status = models.CharField(max_length=12, choices=STATUS, default=WAITING, db_index=True)
+    converted_booking = models.OneToOneField(
+        Booking, on_delete=models.SET_NULL, null=True, blank=True, related_name='waitlist_entry',
+    )
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['created_at', 'pk']
+
+    def __str__(self):
+        return f'{self.patient_name} · {self.phone} · {self.get_status_display()}'
+
+
+class AppointmentWaitlistHistory(models.Model):
+    entry = models.ForeignKey(AppointmentWaitlistEntry, on_delete=models.CASCADE, related_name='history')
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    event = models.CharField(max_length=20)
+    old_status = models.CharField(max_length=12, blank=True)
+    new_status = models.CharField(max_length=12, blank=True)
+    booking = models.ForeignKey(Booking, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    note = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

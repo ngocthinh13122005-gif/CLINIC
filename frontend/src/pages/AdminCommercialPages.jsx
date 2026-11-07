@@ -8,7 +8,6 @@ import PaymentsRounded from '@mui/icons-material/PaymentsRounded';
 import PriceChangeRounded from '@mui/icons-material/PriceChangeRounded';
 import PrintRounded from '@mui/icons-material/PrintRounded';
 import SearchRounded from '@mui/icons-material/SearchRounded';
-import ToggleOnRounded from '@mui/icons-material/ToggleOnRounded';
 import api from '../api/client';
 import '../styles/commercial-management.css';
 
@@ -95,7 +94,7 @@ function Catalog({ services, categories, reload, notify }) {
       <button className="cm-btn primary" onClick={() => setEdit({})}><AddRounded />Thêm dịch vụ</button>
     </div>
     <div className="cm-table-wrap"><table className="cm-table"><thead><tr><th>Dịch vụ</th><th>Nhóm</th><th>Chính sách đặt lịch</th><th>Thời lượng</th><th>Giá niêm yết</th><th>Trạng thái</th><th /></tr></thead>
-      <tbody>{rows.map((item) => <tr key={item.id}><td><strong>{item.name}</strong><small>{item.description || 'Chưa có mô tả'}</small></td><td>{item.category_name}</td><td>{({direct:'Đặt trực tiếp',assessment:'Cần tư vấn',indicated:'Cần chỉ định',plan_only:'Theo liệu trình'})[item.booking_policy]||'Cần tư vấn'}</td><td>{item.duration} phút</td><td><b>{money(item.price)}</b></td><td><span className={`cm-status ${item.is_active ? 'active' : ''}`}>{item.is_active ? 'Đang cung cấp' : 'Tạm ngưng'}</span></td><td><div className="cm-actions"><button onClick={() => setEdit(item)}><EditRounded />Sửa</button><button onClick={() => toggle(item)}><ToggleOnRounded />{item.is_active ? 'Tạm ngưng' : 'Mở lại'}</button></div></td></tr>)}</tbody></table>{!rows.length && <div className="cm-empty">Không có dịch vụ phù hợp bộ lọc.</div>}</div>
+      <tbody>{rows.map((item) => <tr key={item.id}><td><strong>{item.name}</strong><small>{item.description || 'Chưa có mô tả'}</small></td><td>{item.category_name}</td><td>{({direct:'Đặt trực tiếp',assessment:'Cần tư vấn',indicated:'Cần chỉ định',plan_only:'Theo liệu trình'})[item.booking_policy]||'Cần tư vấn'}</td><td>{item.duration} phút</td><td><b>{money(item.price)}</b></td><td><span className={`cm-status ${item.is_active ? 'active' : ''}`}>{item.is_active ? 'Đang cung cấp' : 'Tạm ngưng'}</span></td><td><div className="cm-actions"><button onClick={() => setEdit(item)}><EditRounded />Sửa</button><button type="button" role="switch" aria-checked={item.is_active} aria-label={`${item.is_active ? 'Tạm ngưng' : 'Mở lại'} dịch vụ ${item.name}`} title={item.is_active ? 'Tạm ngưng dịch vụ' : 'Mở lại dịch vụ'} className={`cm-service-switch ${item.is_active ? 'is-active' : 'is-inactive'}`} onClick={() => toggle(item)}><span className="cm-service-switch-thumb"/></button></div></td></tr>)}</tbody></table>{!rows.length && <div className="cm-empty">Không có dịch vụ phù hợp bộ lọc.</div>}</div>
     {edit && <ServiceForm service={edit.id ? edit : null} categories={categories} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); notify(edit.id ? 'Đã cập nhật dịch vụ.' : 'Đã thêm dịch vụ.'); reload(); }} />}
   </>;
 }

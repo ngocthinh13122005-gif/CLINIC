@@ -6,6 +6,7 @@ import CalendarMonthRounded from '@mui/icons-material/CalendarMonthRounded';
 import MeetingRoomRounded from '@mui/icons-material/MeetingRoomRounded';
 import VaccinesRounded from '@mui/icons-material/VaccinesRounded';
 import ForumRounded from '@mui/icons-material/ForumRounded';
+import SupportAgentRounded from '@mui/icons-material/SupportAgentRounded';
 import PaymentsRounded from '@mui/icons-material/PaymentsRounded';
 import MedicationRounded from '@mui/icons-material/MedicationRounded';
 import ShieldRounded from '@mui/icons-material/ShieldRounded';
@@ -25,6 +26,7 @@ const groups = [
     { id: 'clinic-info', label: 'Thông tin phòng khám', icon: MedicalServicesRounded },
     { id: 'appointments', label: 'Lịch hẹn & đặt lịch', icon: CalendarMonthRounded },
     { id: 'reception', label: 'Tiếp đón', icon: MeetingRoomRounded },
+    { id: 'care', label: 'Chăm sóc sau khám', icon: SupportAgentRounded },
     { id: 'treatments', label: 'Bệnh án & liệu trình', icon: VaccinesRounded, to: '/lieu-trinh', note: 'Mở hồ sơ và liệu trình đang vận hành' },
     { id: 'support', label: 'CSKH & AI', icon: ForumRounded, note: 'Giờ hỗ trợ, SLA và nội dung phản hồi dùng trực tiếp trong hộp thư và chatbot' },
     { id: 'billing', label: 'Thu ngân & công nợ', icon: PaymentsRounded, to: '/thu-ngan' },
@@ -40,7 +42,7 @@ const groups = [
   ] },
 ];
 
-const editableScope = (id) => id === 'preferences' ? 'user' : id === 'support' ? 'support' : ['clinic-info', 'appointments', 'reception', 'billing', 'inventory', 'crm', 'marketing', 'access'].includes(id) ? 'clinic' : null;
+const editableScope = (id) => id === 'preferences' ? 'user' : id === 'support' ? 'support' : ['clinic-info', 'appointments', 'reception', 'care', 'billing', 'inventory', 'crm', 'marketing', 'access'].includes(id) ? 'clinic' : null;
 const errorText = (error) => error?.response?.data?.detail || 'Không tải được cài đặt. Vui lòng thử lại.';
 const choiceLabel = (field, value) => {
   if (field.key === 'billing.default_due_days') return value === 0 ? 'Thanh toán ngay' : `Trong ${value} ngày`;
@@ -51,7 +53,7 @@ const choiceLabel = (field, value) => {
 export default function SettingsCenter() {
   const { user } = useAuth();
   const [params, setParams] = useSearchParams();
-  const [activeId, setActiveId] = useState('preferences');
+  const [activeId, setActiveId] = useState(() => params.get('item') || 'preferences');
   const [documents, setDocuments] = useState({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -76,11 +78,22 @@ export default function SettingsCenter() {
   const apiScope = editableScope(activeItem.id);
   const document = apiScope ? documents[apiScope] : null;
   const editable = apiScope === 'user' || (['clinic', 'support'].includes(apiScope) && user?.role === 'manager');
-  const definitionGroup = activeItem.id === 'preferences' ? 'personal' : activeItem.id;
+  const definitionGroup = activeItem.id === 'preferences' ? 'personal' : activeItem.id === 'care' ? 'care-automation' : activeItem.id;
   const fields = (document?.definitions || []).filter((definition) => definition.group === definitionGroup);
   const currentValues = document?.values || {};
   const changedValues = Object.fromEntries(Object.entries(currentValues).filter(([key, value]) => value !== document?.originalValues?.[key]));
   const hasChanges = Object.keys(changedValues).length > 0;
+
+  useEffect(() => {
+    const requestedItem = params.get('item');
+    if (requestedItem && activeGroup.items.some((item) => item.id === requestedItem)) {
+      if (activeId !== requestedItem) setActiveId(requestedItem);
+      return;
+    }
+    if (!activeGroup.items.some((item) => item.id === activeId)) {
+      setActiveId(activeGroup.items[0]?.id || '');
+    }
+  }, [scope, params, activeGroup, activeId]);
 
   useEffect(() => {
     if (!apiScope || documents[apiScope]) return;
@@ -174,7 +187,12 @@ export default function SettingsCenter() {
   };
 
   const selectItem = (group, item) => {
-    if (scope !== group.id) setParams({ scope: group.id });
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set('scope', group.id);
+      next.delete('item');
+      return next;
+    });
     setActiveId(item.id); setSaved(false); setError('');
   };
 
@@ -196,8 +214,9 @@ export default function SettingsCenter() {
           {!loading && document && fields.map((field) => <SettingField key={field.key} field={field} value={currentValues[field.key]} disabled={!editable} error={fieldErrors[field.key]?.[0]} onChange={(value) => updateValue(field.key, value)}/>)}
           {!editable && ['clinic', 'support'].includes(apiScope) && <p className="sc-state">Đang xem cấu hình ở chế độ chỉ đọc. Liên hệ Quản lý phòng khám nếu cần thay đổi.</p>}
           {apiScope === 'support' && document?.confirmation_required && <p className="sc-safety-note">Chatbot vẫn yêu cầu khách xác nhận trước thao tác làm thay đổi dữ liệu. Nội dung chuyên môn cần được chuyển nhân viên hoặc bác sĩ xử lý.</p>}
+          {activeItem.id === 'care' && <p className="sc-safety-note">Hỏi thăm được tạo khi lượt khám hoàn tất; nhắc tái khám khi bác sĩ ký bệnh án có ngày tái khám. Nhắc liệu trình và công nợ được đối soát khi tải danh sách Chăm sóc. Tắt quy tắc chỉ ngăn việc mới, không xóa việc đã tạo.</p>}
           {['access', 'marketing'].includes(activeItem.id) && <p className="sc-safety-note">{activeItem.id === 'access' ? 'Các lựa chọn dưới đây chỉ thu hẹp quyền đang có. Quyền xem/ghi bệnh án và vai trò quản trị hệ thống vẫn theo giới hạn bảo mật bắt buộc.' : 'Hệ thống chỉ gửi tới người còn đồng ý nhận tin; khách đã hủy đăng ký hoặc rút đồng ý sẽ bị loại khỏi danh sách gửi.'}</p>}
-          {editable && ['clinic', 'support'].includes(apiScope) && <label className="sc-field sc-reason">Lý do thay đổi<input required value={reason} onChange={(event) => setReason(event.target.value)} maxLength={255} placeholder={apiScope === 'support' ? 'Ví dụ: Điều chỉnh giờ trực CSKH' : 'Ví dụ: Cập nhật chính sách tiếp nhận lịch'}/></label>}
+          {editable && ['clinic', 'support'].includes(apiScope) && <label className="sc-field sc-reason">Lý do thay đổi<input required value={reason} onChange={(event) => setReason(event.target.value)} maxLength={255} placeholder={apiScope === 'support' ? 'Ví dụ: Điều chỉnh giờ trực CSKH' : activeItem.id === 'care' ? 'Ví dụ: Chuẩn hóa lịch gọi hỏi thăm sau điều trị' : 'Ví dụ: Cập nhật chính sách tiếp nhận lịch'}/></label>}
           {activeItem.id === 'preferences' && <div className="sc-security-links"><Link to="/profile">Thông tin liên hệ</Link><Link to="/change-password">Đổi mật khẩu</Link></div>}
           {editable && <footer><span role="status">{saved ? 'Đã lưu cài đặt.' : hasChanges ? 'Bạn có thay đổi chưa lưu.' : ['clinic', 'support'].includes(apiScope) ? 'Thay đổi sẽ được ghi nhật ký khi lưu.' : 'Cài đặt đồng bộ theo tài khoản của bạn.'}</span><div className="sc-form-actions">{hasChanges && <button type="button" disabled={saving} onClick={discardChanges}>Hủy thay đổi</button>}<button type="button" disabled={saving || loading || !hasChanges || (['clinic', 'support'].includes(apiScope) && !reason.trim())} onClick={save}><SaveRounded/>{saving ? 'Đang lưu…' : 'Lưu thay đổi'}</button></div></footer>}
           {confirmOpen && <div className="sc-confirm-backdrop"><section className="sc-confirm" role="dialog" aria-modal="true" aria-labelledby="sc-confirm-title"><h2 id="sc-confirm-title">{apiScope === 'clinic' ? 'Ngừng nhận đặt lịch trực tuyến?' : changedValues['chatbot.enabled'] === false ? 'Tắt chatbot trên website?' : changedValues['chatbot.ai_enabled'] === false ? 'Tắt trả lời bằng AI?' : 'Tắt thao tác tự động của chatbot?'}</h2><p>{apiScope === 'clinic' ? 'Khách hàng sẽ không thể gửi yêu cầu đặt lịch mới trên website. Lịch đã tạo vẫn được giữ nguyên.' : changedValues['chatbot.enabled'] === false ? 'Khách hàng sẽ không còn thấy cửa sổ chat trên website. Lịch sử hội thoại được giữ nguyên.' : changedValues['chatbot.ai_enabled'] === false ? 'Chatbot sẽ ngừng tạo câu trả lời AI; các chức năng tra cứu FAQ được giữ theo cấu hình hiện có.' : 'Chatbot chỉ trả lời thông tin; các thao tác đặt lịch và thay đổi dữ liệu sẽ bị tắt.'}</p><div className="sc-confirm-actions"><button type="button" disabled={saving} onClick={() => setConfirmOpen(false)}>Quay lại</button><button type="button" disabled={saving || !reason.trim()} onClick={persistChanges}>{saving ? 'Đang lưu…' : 'Xác nhận và lưu'}</button></div></section></div>}

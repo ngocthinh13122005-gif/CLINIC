@@ -212,6 +212,48 @@ class ClinicFlowTests(APITestCase):
         row = self.client.get(f'/api/clinic/plans/{plan_id}/').data
         self.assertEqual(row['diagnosis'], '')
 
+    def test_walk_in_links_active_session_without_booking(self):
+        patient = Patient.objects.create(full_name='Khách liệu trình', phone='0908888777')
+        supporting_visit = Visit.objects.create(patient=patient, status=Visit.COMPLETED)
+        supporting_record = MedicalRecord.objects.create(
+            visit=supporting_visit, patient=patient, doctor=self.doctor,
+            status=MedicalRecord.SIGNED, signed_at=timezone.now(),
+        )
+        self.auth(self.doctor)
+        plan = self.client.post('/api/clinic/plans/', {
+            'patient': patient.id, 'record': supporting_record.id, 'title': 'Peel da',
+            'total_sessions': 1,
+        }, format='json')
+        self.assertEqual(plan.status_code, 201, plan.data)
+        activated = self.client.post(f'/api/clinic/plans/{plan.data["id"]}/activate/')
+        self.assertEqual(activated.status_code, 200, activated.data)
+        session_id = activated.data['sessions'][0]['id']
+
+        self.auth(self.cskh)
+        visit = self.client.post('/api/clinic/visits/', {
+            'patient': patient.id, 'visit_type': 'session', 'treatment_session': session_id,
+        }, format='json')
+        self.assertEqual(visit.status_code, 201, visit.data)
+        self.assertEqual(visit.data['treatment_session'], session_id)
+        self.assertIsNone(TreatmentSession.objects.get(pk=session_id).record_id)
+        self.assertEqual(self.client.post('/api/clinic/visits/', {
+            'patient': patient.id, 'treatment_session': session_id,
+        }, format='json').status_code, 400)
+
+        self.auth(self.doctor)
+        vid = visit.data['id']
+        self.client.post(f'/api/clinic/visits/{vid}/call/', format='json')
+        record = self.client.post(f'/api/clinic/visits/{vid}/record/', format='json')
+        self.assertEqual(record.status_code, 200, record.data)
+        session = TreatmentSession.objects.get(pk=session_id)
+        self.assertEqual(session.record_id, record.data['id'])
+        completed = self.client.post(f'/api/clinic/plans/{plan.data["id"]}/complete-session/', {
+            'session_id': session_id, 'procedures': 'Peel', 'parameters': 'Mức 1',
+            'patient_response': 'Ổn', 'outcome': 'Đáp ứng tốt', 'content': 'Theo dõi sau buổi',
+        }, format='json')
+        self.assertEqual(completed.status_code, 200, completed.data)
+        self.assertEqual(completed.data['done_sessions'], 1)
+
     def test_treatment_plans_are_scoped_to_doctor_and_delegated_staff(self):
         service = Service.objects.create(
             category=Category.objects.create(name='Điều trị'),
@@ -302,6 +344,33 @@ class ClinicFlowTests(APITestCase):
         self.auth(self.cskh)
         self.assertEqual(self.client.get('/api/clinic/icd10/').status_code, 403)
         self.assertEqual(self.client.get('/api/clinic/dashboard/').data['top_diagnoses'], [])
+
+    def test_dashboard_scopes_treatment_details_by_role_and_doctor(self):
+        today = timezone.localdate()
+        own_patient = Patient.objects.create(full_name='Bệnh nhân của bác sĩ 1', phone='0901111111')
+        other_patient = Patient.objects.create(full_name='Bệnh nhân của bác sĩ 2', phone='0901222222')
+        own_plan = TreatmentPlan.objects.create(patient=own_patient, doctor=self.doctor, title='Liệu trình riêng',
+                                                status=TreatmentPlan.ACTIVE)
+        other_plan = TreatmentPlan.objects.create(patient=other_patient, doctor=self.doctor2, title='Liệu trình khác',
+                                                  status=TreatmentPlan.ACTIVE)
+        TreatmentSession.objects.create(plan=own_plan, number=1, planned_date=today)
+        TreatmentSession.objects.create(plan=other_plan, number=1, planned_date=today)
+
+        self.auth(self.doctor)
+        doctor_data = self.client.get('/api/clinic/dashboard/').data
+        self.assertEqual(doctor_data['active_plans'], 1)
+        self.assertEqual([row['patient'] for row in doctor_data['sessions_due']], ['Bệnh nhân của bác sĩ 1'])
+
+        self.auth(self.cskh)
+        consultant_data = self.client.get('/api/clinic/dashboard/').data
+        self.assertEqual(consultant_data['active_plans'], 0)
+        self.assertEqual(consultant_data['sessions_due'], [])
+        self.assertEqual(consultant_data['top_diagnoses'], [])
+
+        self.auth(self.nurse)
+        staff_data = self.client.get('/api/clinic/dashboard/').data
+        self.assertEqual(staff_data['active_plans'], 0)
+        self.assertEqual(staff_data['sessions_due'], [])
 
     def test_public_staff_hides_salary(self):
         Staff.objects.create(name='BS', position='BS', base_salary=9999999)

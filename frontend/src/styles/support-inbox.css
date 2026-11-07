@@ -162,6 +162,7 @@
 .cs-channel{display:inline-flex;align-items:center;width:max-content;font-style:normal;font-size:10.5px;line-height:17px;padding:0 6px;border-radius:4px;font-weight:600}
 .cs-channel.facebook{background:#eaf2ff;color:#1769d2}
 .cs-pill{display:inline-block;font-size:10.5px;line-height:16px;padding:0 6px;border-radius:3px;background:#eef1f5;color:#516074;font-weight:500}
+.cs-pill.cs-pill-tag{display:inline-flex;align-items:center;gap:3px;border:1px solid color-mix(in srgb,var(--cs-tag-color) 30%,white);background:color-mix(in srgb,var(--cs-tag-color) 10%,white);color:var(--cs-tag-color);font-weight:600}
 .cs-sla{display:inline-flex;align-items:center;gap:2px;font-size:11px;color:var(--red);font-weight:600;margin-left:auto}
 .cs-sla svg{font-size:12px}
 .cs-sla.warn{color:var(--amber)}
