@@ -35,67 +35,101 @@ frontend/   Ứng dụng React (Vite)
 
 ## Vai trò và quyền
 
-Hệ thống có 6 vai trò (`accounts.models.User.Role`). Quyền được kiểm tra ở phía máy chủ; giao diện chỉ ẩn/hiện menu cho phù hợp.
+> Đây là **thiết kế phân quyền mục tiêu** của hệ thống. Code hiện tại chưa khớp hoàn toàn; xem mục [Việc cần sửa để code khớp](#việc-cần-sửa-để-code-khớp-bảng-quyền).
 
-| Mã | Vai trò | Mô tả ngắn |
+### Nguyên tắc
+
+1. **Tối thiểu cần thiết:** mỗi vai trò chỉ thấy và làm những gì phục vụ công việc của mình.
+2. **Tách quyền chuyên môn và tài chính:** bác sĩ quyết định điều trị, thu ngân quyết định thu tiền; không ai tự làm cả hai.
+3. **Người tạo không phải người duyệt:** hoàn tiền, hủy hóa đơn, đối soát do quản lý duyệt.
+4. **Dữ liệu y tế là dữ liệu nhạy cảm:** chỉ bác sĩ ghi; bác sĩ và quản lý xem; CSKH và điều dưỡng không xem nội dung chuyên môn; quản trị hệ thống không truy cập.
+5. **Quyền được kiểm tra ở máy chủ.** Giao diện chỉ ẩn/hiện menu.
+6. **Quản lý chỉ thu hẹp được quyền, không cấp thêm** ngoài bảng này (cài đặt `access.restricted_actions`).
+
+### Các vai trò
+
+| Mã | Vai trò | Trách nhiệm chính |
 |---|---|---|
 | `customer` | Bệnh nhân / khách hàng | Đặt lịch, xem hồ sơ của chính mình |
 | `consultant` | Nhân viên CSKH / Lễ tân | Tiếp đón, lịch hẹn, thu ngân, chăm sóc khách |
-| `staff` | Điều dưỡng / Kỹ thuật viên | Thực hiện buổi liệu trình được phân công |
-| `doctor` | Bác sĩ | Khám bệnh, bệnh án, kê đơn, liệu trình |
-| `manager` | Quản lý phòng khám | Toàn quyền vận hành, duyệt và quản trị |
-| `sysadmin` | Quản trị hệ thống | Tài khoản kỹ thuật, không truy cập dữ liệu y tế |
+| `staff` | Điều dưỡng / Kỹ thuật viên | Thực hiện buổi điều trị được giao |
+| `doctor` | Bác sĩ | Khám, bệnh án, kê đơn, liệu trình |
+| `manager` | Quản lý phòng khám | Vận hành, duyệt, nhân sự, báo cáo |
+| `sysadmin` | Quản trị hệ thống | Tài khoản, sao lưu, tích hợp; không xem dữ liệu y tế |
 
-### Quyền theo chức năng (nhân sự phòng khám)
+### Quyền của nhân sự theo chức năng
 
-✓ = được làm · 👁 = chỉ xem · — = không có quyền
+✓ = được làm · 👁 = chỉ xem · — = không có quyền. "Của tôi" = chỉ phần được giao cho chính người đó.
 
-| Chức năng | Quản lý | Bác sĩ | CSKH / Lễ tân | Điều dưỡng / KTV |
-|---|:-:|:-:|:-:|:-:|
-| Tổng quan | ✓ | ✓ | ✓ | ✓ |
-| Tiếp đón hôm nay | ✓ | ✓ | ✓ | — |
-| Lịch hẹn | ✓ | ✓ | ✓ | ✓ |
-| Danh sách bệnh nhân, hồ sơ hành chính | ✓ | ✓ | ✓ | ✓ |
-| Mở / sửa hồ sơ hành chính, đón khách | ✓ | ✓ | ✓ | — |
-| Xem nội dung bệnh án, ảnh tổn thương, đơn thuốc | ✓ | ✓ | — | — |
-| Ghi / ký bệnh án, tải ảnh, kê đơn | — | ✓ | — | — |
-| Khám bệnh (màn khám) | — | ✓ | — | — |
-| Xem liệu trình | ✓ | ✓ | ✓ | ✓ (buổi được giao) |
-| Tạo, sửa, hủy liệu trình; cho phép ủy quyền buổi | — | ✓ (bác sĩ phụ trách) | — | — |
-| Ghi nhận buổi đã thực hiện | — | ✓ | — | ✓ (buổi được phân công) |
-| Xếp lịch buổi, gia hạn, liên kết lịch hẹn | ✓ | ✓ | ✓ | — |
-| Chuyển, hết hạn, hủy buổi liệu trình | ✓ | — | — | — |
-| Thu ngân & công nợ: lập hóa đơn, thu tiền, yêu cầu hoàn tiền | ✓ | — | ✓ | — |
-| Xem hóa đơn | ✓ | 👁 | ✓ | — |
-| Hủy hóa đơn, duyệt / từ chối hoàn tiền, đối soát thanh toán | ✓ | — | — | — |
-| Bán hàng (POS) | ✓ | — | ✓ | — |
-| Kho thuốc: xem danh mục, tồn kho | ✓ | ✓ | ✓ | — |
-| Kho thuốc: thêm/sửa thuốc, nhập hàng, nhà cung cấp, kiểm kê | ✓ | — | — | — |
-| Chăm sóc sau điều trị, Hoạt động | ✓ | ✓ | ✓ | — |
-| Hộp thư tư vấn | ✓ | ✓ (tư vấn được chuyển) | ✓ | — |
-| Báo cáo, Nhật ký hệ thống, Tuân thủ & bảo mật | ✓ | — | — | — |
-| Dịch vụ & bảng giá, Nhân sự, Chấm công, Lương | ✓ | — | — | — |
-| CRM, Voucher, Email marketing | ✓ | — | — | — |
-
-Ghi chú:
-
-- **Dữ liệu y tế** (bệnh án, ảnh, đơn thuốc): chỉ bác sĩ và quản lý xem được; chỉ bác sĩ được ghi. CSKH và điều dưỡng không thấy nội dung chuyên môn.
-- **Liệu trình:** bác sĩ phụ trách chịu trách nhiệm chuyên môn và mặc định tự thực hiện các buổi. Bác sĩ có thể cho phép điều phối nhân sự đủ điều kiện theo từng buổi; quyền này không đổi bác sĩ phụ trách. Nhân viên không tự đổi người thực hiện hoặc xác nhận lịch.
-- **Quản lý có thể thu hẹp quyền** của từng vai trò theo từng thao tác trong phần cài đặt phòng khám (`access.restricted_actions`), nhưng **không thể cấp thêm** quyền ngoài bảng trên.
-- Bảng trên lấy theo route giao diện (`frontend/src/App.jsx`) và các permission class của API (`clinic/views*.py`, `clinic/permissions.py`). Khi đổi phân quyền, cập nhật cả hai và cập nhật bảng này.
+| Chức năng | Quản lý | Bác sĩ | CSKH / Lễ tân | Điều dưỡng / KTV | Quản trị HT |
+|---|:-:|:-:|:-:|:-:|:-:|
+| **Tiếp đón & lịch** | | | | | |
+| Tổng quan | ✓ toàn phòng khám | ✓ của tôi | ✓ | ✓ của tôi | ✓ kỹ thuật |
+| Tiếp đón hôm nay | ✓ | ✓ | ✓ | — | — |
+| Xem lịch hẹn | ✓ | ✓ của tôi | ✓ | ✓ của tôi | — |
+| Tạo, đổi, xác nhận, hủy lịch hẹn | ✓ | — | ✓ | — | — |
+| Phân công người thực hiện | ✓ | ✓ | ✓ | — | — |
+| **Hồ sơ bệnh nhân** | | | | | |
+| Xem danh sách, hồ sơ hành chính | ✓ | ✓ | ✓ | 👁 bệnh nhân được giao | — |
+| Mở, sửa hồ sơ hành chính | ✓ | ✓ | ✓ | — | — |
+| Xem bệnh án, ảnh tổn thương, đơn thuốc | ✓ | ✓ | — | — | — |
+| Ghi, ký bệnh án; tải ảnh; kê đơn | — | ✓ | — | — | — |
+| Khám bệnh (màn khám) | — | ✓ | — | — | — |
+| **Liệu trình** | | | | | |
+| Xem liệu trình | ✓ | ✓ | 👁 không xem nội dung chuyên môn | 👁 buổi được giao | — |
+| Tạo, sửa, hủy liệu trình; cho phép ủy quyền buổi | — | ✓ bác sĩ phụ trách | — | — | — |
+| Ghi nhận buổi đã thực hiện | — | ✓ | — | ✓ buổi được giao và được ủy quyền | — |
+| Xếp lịch buổi, gia hạn, liên kết lịch hẹn | ✓ | ✓ | ✓ | — | — |
+| Chuyển, hết hạn, hủy buổi | ✓ | — | — | — | — |
+| **Thu ngân & tài chính** | | | | | |
+| Xem hóa đơn | ✓ | 👁 hóa đơn bệnh nhân của mình | ✓ | — | — |
+| Lập hóa đơn, thu tiền, mở / đóng ca thu ngân | ✓ | — | ✓ | — | — |
+| Bán hàng (POS) | ✓ | — | ✓ | — | — |
+| Tạo yêu cầu hoàn tiền | ✓ | — | ✓ | — | — |
+| Duyệt / từ chối hoàn tiền, hủy hóa đơn, đối soát thanh toán | ✓ | — | — | — | — |
+| Công nợ: xem, ghi nhắc nợ | ✓ | — | ✓ | — | — |
+| **Kho thuốc** | | | | | |
+| Xem danh mục, tồn kho | ✓ | ✓ | ✓ | 👁 | — |
+| Thêm/sửa thuốc, nhập hàng, nhà cung cấp, kiểm kê | ✓ | — | — | — | — |
+| **Chăm sóc & tư vấn** | | | | | |
+| Chăm sóc sau điều trị | ✓ | ✓ | ✓ | — | — |
+| Hoạt động / công việc | ✓ | ✓ | ✓ | ✓ việc của tôi | — |
+| Hộp thư tư vấn | ✓ | ✓ tư vấn được chuyển | ✓ | — | — |
+| **Quản lý & kinh doanh** | | | | | |
+| Báo cáo điều hành | ✓ | — | — | — | — |
+| Dịch vụ & bảng giá | ✓ | — | — | — | — |
+| CRM, voucher, email marketing | ✓ | — | — | — | — |
+| Nhân sự, ca làm, chấm công, nghỉ phép | ✓ | — | — | gửi đơn nghỉ của mình | — |
+| Bảng lương | ✓ | — | — | 👁 phiếu lương của mình | — |
+| Cài đặt phòng khám (giờ làm, thu hẹp quyền) | ✓ | — | — | — | — |
+| **Hệ thống & tuân thủ** | | | | | |
+| Tạo, sửa tài khoản nhân sự (trừ quản trị hệ thống) | ✓ | — | — | — | ✓ |
+| Khóa tài khoản, đặt lại mật khẩu | ✓ nhân sự | — | — | — | ✓ mọi tài khoản |
+| Yêu cầu dữ liệu, sự cố dữ liệu | ✓ | — | — | — | — |
+| Nhật ký hệ thống | ✓ | — | — | — | ✓ |
+| Sao lưu, khôi phục, cấu hình tích hợp (Firebase, Gemini, Messenger, email) | — | — | — | — | ✓ |
 
 ### Bệnh nhân / khách hàng (`customer`)
 
-- Xem dịch vụ, đặt và quản lý lịch hẹn của mình, dùng voucher của mình.
-- Chat với phòng khám.
-- **Hồ sơ sức khỏe** (`/ho-so-suc-khoe`): chỉ thấy dữ liệu của chính mình và chỉ những bệnh án, đơn thuốc, liệu trình đã được phát hành.
-- Không vào được các màn hình nhân sự.
+- Xem dịch vụ, đặt và quản lý lịch hẹn của mình, dùng voucher của mình, chat với phòng khám.
+- **Hồ sơ sức khỏe:** chỉ thấy dữ liệu của chính mình và chỉ những bệnh án, đơn thuốc, liệu trình đã được phát hành.
+- Không vào được bất kỳ màn hình nhân sự nào.
 
 ### Quản trị hệ thống (`sysadmin`)
 
-- Là tài khoản kỹ thuật: **không truy cập dữ liệu y tế** (không nằm trong nhóm vai trò phòng khám).
-- Vào trang tổng quan và Django admin (`/admin/`, dành cho `manager` và `sysadmin`).
-- Nhận thông báo vận hành (lịch hẹn mới, nghỉ phép...) và xem một số dữ liệu quản trị chung như quản lý.
+- Tài khoản kỹ thuật, **không truy cập dữ liệu y tế** (bệnh nhân, bệnh án, đơn thuốc, hóa đơn).
+- Quản lý tài khoản, sao lưu / khôi phục, cấu hình tích hợp và xem nhật ký hệ thống.
+- Vào Django admin (`/admin/`) cùng với `manager`.
+
+### Việc cần sửa để code khớp bảng quyền
+
+Chưa đối chiếu từng dòng của bảng với code. Các chỗ đã xác nhận đang lệch:
+
+- **Điều dưỡng và "Hoạt động":** menu có mục này nhưng route `/hoat-dong` chỉ cho `manager`, `doctor`, `consultant` (`frontend/src/App.jsx`). Cần cho `staff` vào và lọc theo việc được giao.
+- **Điều dưỡng và kho thuốc:** API danh mục thuốc cho `staff` xem, nhưng route `/kho-thuoc` không cho. Cần mở route ở chế độ chỉ xem.
+- **Quản trị hệ thống:** route `/nhat-ky` và `/tuan-thu` chỉ cho `manager`. Cần cho `sysadmin` vào nhật ký, và có màn hình sao lưu / cấu hình tích hợp.
+- **Phạm vi "của tôi"** (lịch hẹn, tổng quan, hồ sơ bệnh nhân của bác sĩ và điều dưỡng): cần kiểm tra API đã lọc theo người được giao chưa.
+- **Tài khoản nhân sự và phiếu lương cá nhân:** cần kiểm tra ai tạo, khóa tài khoản và ai xem được phiếu lương của mình.
 
 ## Chạy ở máy local
 
