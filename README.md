@@ -19,7 +19,7 @@ Hệ thống quản lý phòng khám da liễu / spa y tế: đặt lịch onlin
 | Thu ngân | Hóa đơn, thanh toán, ca thu ngân, đối soát, hoàn tiền, công nợ, bán hàng |
 | Kho thuốc | Thuốc, lô, nhà cung cấp, nhập hàng, kiểm kê, phòng |
 | Chăm sóc | Chăm sóc sau điều trị, hoạt động/công việc, hộp thư tư vấn, chatbot Gemini, Messenger |
-| Quản lý | Dịch vụ & bảng giá, nhân sự, chấm công, nghỉ phép, lương, CRM, voucher, email marketing, báo cáo |
+| Quản lý | Dịch vụ & bảng giá, nhân sự, chấm công, nghỉ phép, lương, CRM, voucher, báo cáo |
 | Tuân thủ | Nhật ký hệ thống, yêu cầu dữ liệu, sự cố, sao lưu |
 
 ## Cấu trúc thư mục
@@ -98,7 +98,6 @@ frontend/   Ứng dụng React (Vite)
 | **Quản lý & kinh doanh** | | | | | |
 | Báo cáo điều hành | ✓ | — | — | — | — |
 | Dịch vụ & bảng giá | ✓ | — | — | — | — |
-| CRM, voucher, email marketing | ✓ | — | — | — | — |
 | Nhân sự, ca làm, chấm công, nghỉ phép | ✓ | — | — | gửi đơn nghỉ của mình | — |
 | Bảng lương | ✓ | — | — | 👁 phiếu lương của mình | — |
 | Cài đặt phòng khám (giờ làm, thu hẹp quyền) | ✓ | — | — | — | — |
@@ -120,16 +119,6 @@ frontend/   Ứng dụng React (Vite)
 - Tài khoản kỹ thuật, **không truy cập dữ liệu y tế** (bệnh nhân, bệnh án, đơn thuốc, hóa đơn).
 - Quản lý tài khoản, sao lưu / khôi phục, cấu hình tích hợp và xem nhật ký hệ thống.
 - Vào Django admin (`/admin/`) cùng với `manager`.
-
-### Việc cần sửa để code khớp bảng quyền
-
-Chưa đối chiếu từng dòng của bảng với code. Các chỗ đã xác nhận đang lệch:
-
-- **Điều dưỡng và "Hoạt động":** menu có mục này nhưng route `/hoat-dong` chỉ cho `manager`, `doctor`, `consultant` (`frontend/src/App.jsx`). Cần cho `staff` vào và lọc theo việc được giao.
-- **Điều dưỡng và kho thuốc:** API danh mục thuốc cho `staff` xem, nhưng route `/kho-thuoc` không cho. Cần mở route ở chế độ chỉ xem.
-- **Quản trị hệ thống:** route `/nhat-ky` và `/tuan-thu` chỉ cho `manager`. Cần cho `sysadmin` vào nhật ký, và có màn hình sao lưu / cấu hình tích hợp.
-- **Phạm vi "của tôi"** (lịch hẹn, tổng quan, hồ sơ bệnh nhân của bác sĩ và điều dưỡng): cần kiểm tra API đã lọc theo người được giao chưa.
-- **Tài khoản nhân sự và phiếu lương cá nhân:** cần kiểm tra ai tạo, khóa tài khoản và ai xem được phiếu lương của mình.
 
 ## Chạy ở máy local
 
