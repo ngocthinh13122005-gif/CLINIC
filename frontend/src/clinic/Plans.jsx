@@ -4,7 +4,11 @@ import AddRounded from '@mui/icons-material/AddRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ChevronLeftRounded from '@mui/icons-material/ChevronLeftRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
+import ViewModuleRounded from '@mui/icons-material/ViewModuleRounded';
+import ViewListRounded from '@mui/icons-material/ViewListRounded';
+import SearchRounded from '@mui/icons-material/SearchRounded';
 import api from '../api/client';
+import './plans-view.css';
 import { useAuth } from '../context/AuthContext';
 import { Btn, Card, Empty, Field, Loading, Modal, PageHead, Pill, ProgressDots, errMsg, fmtDate, isoDay, money, useLoad, useToast } from './ui';
 
@@ -188,33 +192,102 @@ export function PlanCard({ plan, canEdit, canPerform, onChange, showPatient }) {
   </article>;
 }
 
-/** Trang tổng hợp liệu trình của phòng khám */
+const TABS = [
+  ['active', 'Đang thực hiện', ['active', 'draft']],
+  ['completed', 'Hoàn thành', ['completed']],
+  ['expired', 'Hết hạn', ['expired']],
+  ['cancelled', 'Đã hủy', ['cancelled']],
+];
+const statusOf = (p) => p.display_status || p.status;
+const norm = (v) => String(v || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').toLowerCase();
+const loadView = () => { try { return localStorage.getItem('plans-view') === 'list' ? 'list' : 'grid'; } catch { return 'grid'; } };
+
+function Ring({ done, total }) {
+  const r = 22, c = 2 * Math.PI * r, pct = total ? Math.min(1, done / total) : 0;
+  return <span className="pv-ring" aria-label={`${done}/${total} buổi`}>
+    <svg viewBox="0 0 56 56"><circle cx="28" cy="28" r={r} className="bg" /><circle cx="28" cy="28" r={r} className="fg" strokeDasharray={`${c * pct} ${c}`} transform="rotate(-90 28 28)" /></svg>
+    <b>{done}<small>/{total}</small></b>
+  </span>;
+}
+
+function PlanTile({ plan, onOpen }) {
+  const st = statusOf(plan);
+  const left = Math.max(0, plan.total_sessions - plan.done_sessions);
+  const next = plan.sessions?.find((s) => s.status === 'pending');
+  return <button type="button" className={`pv-tile ${st}`} onClick={() => onOpen(plan.id)}>
+    <span className="pv-tile-top">
+      <Ring done={plan.done_sessions} total={plan.total_sessions} />
+      <span className="pv-tile-title">
+        <small>{plan.code || `LT-${plan.id}`}</small>
+        <strong>{plan.title}</strong>
+      </span>
+      <Pill tone={planTone[st]} dot>{plan.display_status_label || plan.status_label}</Pill>
+    </span>
+    <span className="pv-tile-body">
+      <span className="pv-sessions"><small>BUỔI</small><em>{st === 'active' || st === 'draft' ? `còn ${left} buổi` : `${plan.done_sessions}/${plan.total_sessions} đã làm`}</em></span>
+      <span className="pv-dots">{Array.from({ length: plan.total_sessions }, (_, i) => <i key={i} className={i < plan.done_sessions ? 'on' : ''} />)}</span>
+      <span className="pv-facts">
+        <span><small>Giá gói</small><b>{plan.price > 0 ? money(plan.price) : '—'}</b></span>
+        <span><small>Buổi tiếp theo</small><b>{next?.planned_date && ['active', 'draft'].includes(st) ? fmtDate(next.planned_date) : '—'}</b></span>
+        <span><small>Hết hạn</small><b>{plan.expires_at ? fmtDate(plan.expires_at) : '—'}</b></span>
+      </span>
+    </span>
+    <span className="pv-tile-foot"><b>{plan.patient_name}</b><small>{plan.doctor_name ? `BS. ${String(plan.doctor_name).replace(/^BS\.?\s*/i, '')}` : plan.service_name || ''}</small></span>
+  </button>;
+}
+
+function PlanTable({ rows, onOpen }) {
+  return <div className="pv-table-wrap"><table className="pv-table">
+    <thead><tr><th>Liệu trình</th><th>Bệnh nhân</th><th>Tiến độ</th><th>Buổi tiếp theo</th><th>Hết hạn</th><th className="r">Giá gói</th><th>Trạng thái</th></tr></thead>
+    <tbody>{rows.map((p) => {
+      const st = statusOf(p); const next = p.sessions?.find((s) => s.status === 'pending');
+      return <tr key={p.id} tabIndex={0} onClick={() => onOpen(p.id)} onKeyDown={(e) => e.key === 'Enter' && onOpen(p.id)}>
+        <td><b>{p.title}</b><small>{p.code || `LT-${p.id}`}{p.service_name ? ` · ${p.service_name}` : ''}</small></td>
+        <td><b>{p.patient_name}</b><small>{p.doctor_name}</small></td>
+        <td><span className="pv-bar"><i style={{ width: `${p.total_sessions ? (p.done_sessions / p.total_sessions) * 100 : 0}%` }} /></span><small>{p.done_sessions}/{p.total_sessions} buổi</small></td>
+        <td>{next?.planned_date && ['active', 'draft'].includes(st) ? fmtDate(next.planned_date) : '—'}</td>
+        <td>{p.expires_at ? fmtDate(p.expires_at) : '—'}</td>
+        <td className="r">{p.price > 0 ? money(p.price) : '—'}</td>
+        <td><Pill tone={planTone[st]} dot>{p.display_status_label || p.status_label}</Pill></td>
+      </tr>;
+    })}</tbody></table></div>;
+}
+
+/** Trang tổng hợp liệu trình của phòng khám: 2 cách xem (thẻ / danh sách) */
 export default function PlansPage() {
   const { user } = useAuth();
-  const [filter, setFilter] = useState('active,draft');
-  const [page, setPage] = useState(1);
+  const [tab, setTab] = useState('active');
+  const [view, setView] = useState(loadView);
+  const [q, setQ] = useState('');
+  const [openId, setOpenId] = useState(null);
   const [toast, node] = useToast();
-  const { data, loading, error, reload } = useLoad(async () => (await api.get('/clinic/plans/', { params: { status: filter } })).data, [filter]);
-  const rows = data?.results || data || [];
-  const pageSize = 6;
-  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
-  const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
-  useEffect(() => setPage(1), [filter]);
-  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
+  const { data, loading, error, reload } = useLoad(async () => (await api.get('/clinic/plans/')).data, []);
+  const all = data?.results || data || [];
   const canEdit = user.role === 'doctor';
   const canPerform = ['doctor', 'staff'].includes(user.role);
+  const counts = Object.fromEntries(TABS.map(([k, , sts]) => [k, all.filter((p) => sts.includes(statusOf(p))).length]));
+  const sts = TABS.find(([k]) => k === tab)[2];
+  const nq = norm(q.trim());
+  const rows = all.filter((p) => sts.includes(statusOf(p)) && (!nq || norm(`${p.patient_name} ${p.title} ${p.code} ${p.service_name}`).includes(nq)));
+  const chooseView = (v) => { setView(v); try { localStorage.setItem('plans-view', v); } catch { /* bỏ qua */ } };
+  const opened = all.find((p) => p.id === openId);
   return <>
-    <PageHead title="Liệu trình điều trị" subtitle="Theo dõi tiến độ các liệu trình đang thực hiện của toàn phòng khám." />
-    <div className="cl-tabs-pill">{[['active,draft', 'Đang thực hiện'], ['completed', 'Hoàn thành'], ['expired', 'Hết hạn'], ['cancelled', 'Đã hủy']].map(([k, t]) => <button key={k} className={filter === k ? 'on' : ''} onClick={() => setFilter(k)}>{t}</button>)}</div>
+    <PageHead title="Liệu trình điều trị" subtitle="Theo dõi tiến độ các liệu trình của toàn phòng khám." />
+    <div className="pv-bar-top">
+      <div className="pv-tabs" role="tablist">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{t}<b>{counts[k]}</b></button>)}</div>
+      <label className="pv-search"><SearchRounded /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm bệnh nhân, tên liệu trình, mã gói…" /></label>
+      <div className="pv-toggle" role="group" aria-label="Cách xem">
+        <button className={view === 'grid' ? 'on' : ''} aria-label="Xem dạng thẻ" title="Dạng thẻ" onClick={() => chooseView('grid')}><ViewModuleRounded /></button>
+        <button className={view === 'list' ? 'on' : ''} aria-label="Xem dạng danh sách" title="Dạng danh sách" onClick={() => chooseView('list')}><ViewListRounded /></button>
+      </div>
+    </div>
     {error && <div className="cl-alert error">{error}</div>}
-    {loading && !data ? <Loading /> : !rows.length ? <Card><Empty title="Chưa có liệu trình nào" hint="Bác sĩ tạo liệu trình từ màn khám hoặc từ hồ sơ bệnh nhân." /></Card> :
-      <><div className="cl-plan-grid">{pageRows.map((p) => <PlanCard key={p.id} plan={p} showPatient canEdit={canEdit} canPerform={canPerform}
-        onChange={() => { toast('Đã cập nhật liệu trình.'); reload(true); }} />)}</div>
-      {rows.length > pageSize && <nav className="cl-pagination" aria-label="Phân trang liệu trình">
-        <div><button aria-label="Trang trước" disabled={page === 1} onClick={() => setPage((p) => p - 1)}><ChevronLeftRounded /></button>
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => <button key={n} className={n === page ? 'on' : ''} aria-current={n === page ? 'page' : undefined} onClick={() => setPage(n)}>{n}</button>)}
-          <button aria-label="Trang sau" disabled={page === totalPages} onClick={() => setPage((p) => p + 1)}><ChevronRightRounded /></button></div>
-      </nav>}</>}
+    {loading && !data ? <Loading /> : !rows.length ? <Card><Empty title={nq ? 'Không tìm thấy liệu trình phù hợp' : 'Chưa có liệu trình nào'} hint={nq ? 'Thử từ khóa khác hoặc đổi tab trạng thái.' : 'Bác sĩ tạo liệu trình từ màn khám hoặc từ hồ sơ bệnh nhân.'} /></Card>
+      : view === 'grid' ? <div className="pv-grid">{rows.map((p) => <PlanTile key={p.id} plan={p} onOpen={setOpenId} />)}</div>
+      : <PlanTable rows={rows} onOpen={setOpenId} />}
+    <Modal open={!!opened} wide portal className="pv-detail-modal" title="Chi tiết liệu trình" subtitle={opened?.patient_name} onClose={() => setOpenId(null)}>
+      {opened && <PlanCard plan={opened} showPatient canEdit={canEdit} canPerform={canPerform} onChange={() => { toast('Đã cập nhật liệu trình.'); reload(true); }} />}
+    </Modal>
     {node}
   </>;
 }
