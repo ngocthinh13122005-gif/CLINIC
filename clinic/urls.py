@@ -1,7 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from . import activities_api, marketing, views, views_money, views_pkg, views_stock, views_v2, views_v3, views_v4
+from . import activities_api, marketing, views, views_money, views_pkg, views_comms, views_stock, views_v2, views_v3, views_v4
 
 router = DefaultRouter()
 router.register('patients', views.PatientViewSet, basename='clinic-patient')
@@ -19,6 +19,7 @@ router.register('payments', views_v2.PaymentViewSet, basename='clinic-payment')
 router.register('refunds', views_v2.RefundViewSet, basename='clinic-refund')
 router.register('debt-followups', views_v2.DebtFollowUpViewSet, basename='clinic-debt-followup')
 
+router.register('messages', views_comms.PatientMessageViewSet, basename='clinic-message')
 router.register('suppliers', views_v3.SupplierViewSet, basename='clinic-supplier')
 router.register('lots', views_v3.LotViewSet, basename='clinic-lot')
 router.register('purchase-orders', views_v3.PurchaseOrderViewSet, basename='clinic-po')

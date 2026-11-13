@@ -1159,3 +1159,29 @@ class EmailCampaign(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+
+
+class PatientMessage(models.Model):
+    """Nhật ký liên lạc với bệnh nhân qua email / SMS (hiện trên tab Liên lạc của hồ sơ)."""
+    EMAIL, SMS = 'email', 'sms'
+    CHANNELS = [(EMAIL, 'Email'), (SMS, 'SMS')]
+    SENT, FAILED, SIMULATED = 'sent', 'failed', 'simulated'
+    STATUSES = [(SENT, 'Đã gửi'), (FAILED, 'Gửi lỗi'), (SIMULATED, 'Chưa gửi thật (chưa cấu hình nhà cung cấp)')]
+
+    patient = models.ForeignKey(Patient, on_delete=models.PROTECT, related_name='messages')
+    channel = models.CharField(max_length=5, choices=CHANNELS, db_index=True)
+    subject = models.CharField(max_length=200, blank=True)
+    body = models.TextField(blank=True)
+    body_html = models.TextField(blank=True)
+    from_address = models.CharField(max_length=160, blank=True)
+    to_address = models.CharField(max_length=160)
+    status = models.CharField(max_length=10, choices=STATUSES, default=SENT)
+    error = models.CharField(max_length=255, blank=True)
+    sent_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    is_deleted = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+        verbose_name = 'Tin nhắn / email gửi bệnh nhân'
+        verbose_name_plural = 'Tin nhắn / email gửi bệnh nhân'

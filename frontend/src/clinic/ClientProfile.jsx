@@ -5,6 +5,7 @@ import ChevronLeftRounded from '@mui/icons-material/ChevronLeftRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import EditOutlined from '@mui/icons-material/EditOutlined';
+import ChatBubbleOutlineRounded from '@mui/icons-material/ChatBubbleOutlineRounded';
 import EventNoteOutlined from '@mui/icons-material/EventNoteOutlined';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import GridViewRounded from '@mui/icons-material/GridViewRounded';
@@ -24,6 +25,7 @@ import { PatientFormModal } from './PatientForm';
 import { PrescriptionsTab } from './Prescription';
 import { NotesModal, PackagesTab } from './Packages';
 import PatientActivities from './PatientActivities';
+import Communications from './Communications';
 import { Avatar, Btn, Empty, Loading, Pill, errMsg, fmtDate, fmtDateTime, fmtTime, genderText, money, useLoad, useToast, visitTone } from './ui';
 
 const arr = (d) => d?.results || d || [];
@@ -132,7 +134,7 @@ function Membership({ patient, s }) {
 export default function ClientProfilePage() {
   const { id } = useParams(); const { user } = useAuth(); const nav = useNavigate(); const [searchParams, setSearchParams] = useSearchParams(); const role = user.role;
   const clinical = ['doctor', 'manager'].includes(role); const canFinance = ['doctor', 'manager', 'consultant'].includes(role); const canReception = canFinance;
-  const validTabs = ['sum', 'appts', 'emr', 'fin', 'mem', 'pkg', 'act'];
+  const validTabs = ['sum', 'appts', 'emr', 'fin', 'mem', 'pkg', 'act', 'comm'];
   const [tab, setTabState] = useState(() => validTabs.includes(searchParams.get('tab')) ? searchParams.get('tab') : 'sum'); const setTab = (value) => { setTabState(value); const next = new URLSearchParams(searchParams); if (value === 'sum') next.delete('tab'); else next.set('tab', value); setSearchParams(next, { replace: true }); };
   const [emr, setEmr] = useState('visits'); const [collapsed, setCollapsed] = useState(false);
   const [editing, setEditing] = useState(false); const [menu, setMenu] = useState(false); const [notesOpen, setNotesOpen] = useState(false);
@@ -144,6 +146,7 @@ export default function ClientProfilePage() {
   const aps = useLoad(async () => (await api.get(`/clinic/patients/${id}/appointments/`)).data, [id]);
   const invs = useLoad(async () => (canFinance ? arr((await api.get('/clinic/invoices/', { params: { patient: id } })).data) : []), [id]);
   const activitySummary = useLoad(async () => (canFinance ? (await api.get('/clinic/activities/', { params: { patient: id, page_size: 1 } })).data : null), [id, canFinance]);
+  const comms = useLoad(async () => (canFinance ? (await api.get('/clinic/messages/', { params: { patient: id } })).data : null), [id, canFinance]);
   const plans = useLoad(async () => arr((await api.get('/clinic/plans/', { params: { patient: id } })).data), [id]);
   const patient = p.data; const s = sum.data;
   const reloadAll = () => { p.reload(true); sum.reload(true); invs.reload(true); };
@@ -155,7 +158,7 @@ export default function ClientProfilePage() {
     ['emr', 'Bệnh án', HealthAndSafetyOutlined, s?.visit_count],
     ...(canFinance ? [['fin', 'Tài chính', ReceiptLongOutlined, invs.data?.length, s?.finance?.outstanding > 0 ? money(s.finance.outstanding) : null], ['mem', 'Thành viên', LoyaltyOutlined, 1]] : []),
     ['pkg', 'Liệu trình', Inventory2Outlined, (plans.data || []).filter((x) => ['active', 'draft'].includes(x.display_status || x.status)).length],
-    ...(canFinance ? [['act', 'Hoạt động', TaskAltOutlined, (activitySummary.data?.counts?.todo || 0) + (activitySummary.data?.counts?.completed || 0)]] : [])];
+    ...(canFinance ? [['act', 'Hoạt động', TaskAltOutlined, (activitySummary.data?.counts?.todo || 0) + (activitySummary.data?.counts?.completed || 0)], ['comm', 'Liên lạc', ChatBubbleOutlineRounded, comms.data?.counts?.all]] : [])];
   const emrTabs = [['visits', 'Lượt khám'], ...(clinical ? [['history', 'Tiền sử'], ['rx', 'Đơn thuốc'], ['images', 'Hình ảnh']] : []), ['consent', 'Cam kết']];
   const tier = s?.loyalty?.tier;
   return <div className={`pb pb-clientpage ${collapsed ? 'collapsed' : ''}`}>
@@ -196,6 +199,7 @@ export default function ClientProfilePage() {
         {tab === 'fin' && canFinance && <Finance patient={patient} invoices={invs.data} openInv={(invoiceId) => nav(`/hoa-don/${invoiceId}`)} canSell={['manager', 'consultant'].includes(role)} />}
         {tab === 'mem' && canFinance && <Membership patient={patient} s={s} />}
         {tab === 'pkg' && <PackagesTab patient={patient} role={role} rows={plans.data || []} loading={plans.loading} reload={plans.reload} onChanged={() => { sum.reload(true); plans.reload(true); }} />}
+        {tab === 'comm' && canFinance && <Communications patient={patient} role={role} toast={toast} onChanged={() => comms.reload(true)} />}
         {tab === 'act' && canFinance && <PatientActivities patient={patient} onChanged={() => activitySummary.reload(true)} />}
       </div>
       <footer className="pb-statbar">
