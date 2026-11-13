@@ -371,7 +371,9 @@ export default function SupportInboxPage() {
     loadList().then((rows) => {
       if (!alive || !rows) return;
       setLoading(false);
-      if (!activeId.current && rows[0] && window.matchMedia('(min-width: 721px)').matches) openConversation(rows[0].id, { showThread: false });
+      const wanted = Number(new URLSearchParams(window.location.search).get('c')) || null;
+      if (wanted && !activeId.current) openConversation(wanted);
+      else if (!activeId.current && rows[0] && window.matchMedia('(min-width: 721px)').matches) openConversation(rows[0].id, { showThread: false });
     });
     return () => { alive = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps

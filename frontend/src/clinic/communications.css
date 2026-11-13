@@ -84,3 +84,14 @@
 .cm-count{padding:4px 10px;border-radius:99px;background:#eef2f6;color:var(--muted);font-size:12px;font-weight:600}
 @media print{.cm-fab-wrap,.cm-dock,.cm-bar .cm-btn,.cm-menu-wrap,.cm-icon-btn{display:none!important}.cm-item-body{display:block}}
 @media(max-width:700px){.cm-dock{right:0;left:0;width:auto!important}.cm-fab-wrap{right:16px;bottom:16px}.cm-day{padding-left:18px}.cm-day-head i{left:-27px}}
+/* Chat + khung email */
+.cm-ico.chat{background:#fdf0e1;color:#b5650b}
+.cm-item.chat .cm-item-main h4{color:var(--ink)}
+.cm-frame{display:block;width:100%;min-height:320px;border:0;background:#f1f5f7;border-radius:0 0 10px 10px}
+.cm-mail dl{border-bottom:1px solid var(--line2);padding-top:14px}
+.cm-thread{display:flex;flex-direction:column;gap:10px}
+.cm-thread-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+.cm-link{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;color:#1d5fa6;font:inherit;font-weight:600;cursor:pointer}.cm-link svg{font-size:16px}
+.cm-msg{display:flex;flex-direction:column;gap:3px;max-width:78%}.cm-msg small{font-size:11.5px;color:var(--muted)}
+.cm-msg.cust{align-self:flex-start;align-items:flex-start}.cm-msg.cust .cm-bubble{background:#e9eef3;color:var(--ink);border-radius:16px 16px 16px 4px}
+.cm-msg.staff{align-self:flex-end;align-items:flex-end}

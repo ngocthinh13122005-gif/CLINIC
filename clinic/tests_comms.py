@@ -52,7 +52,7 @@ class PatientCommsTests(APITestCase):
         self.client.post('/api/clinic/messages/send-email/', {'patient': self.p.id, 'subject': 's', 'body_html': '<p>x</p>'}, format='json')
         sms = self.client.post('/api/clinic/messages/send-sms/', {'patient': self.p.id, 'body': 'hi'}, format='json').data
         d = self.client.get(f'/api/clinic/messages/?patient={self.p.id}').data
-        self.assertEqual(d['counts'], {'all': 2, 'email': 1, 'sms': 1})
+        self.assertEqual(d['counts'], {'all': 2, 'email': 1, 'sms': 1, 'chat': 0})
         self.assertEqual(len(self.client.get(f'/api/clinic/messages/?patient={self.p.id}&channel=sms').data['results']), 1)
         self.assertEqual(self.client.post(f"/api/clinic/messages/{sms['id']}/resend/").status_code, 201)
         self.assertEqual(self.client.delete(f"/api/clinic/messages/{sms['id']}/").status_code, 403)  # CSKH không được xóa
@@ -74,3 +74,55 @@ class PatientCommsTests(APITestCase):
         self.assertEqual(comms.sms_segments('Chào bạn'), 1)
         self.assertEqual(comms.sms_segments('ạ' * 71), 2)
         self.assertEqual(PatientMessage.objects.count(), 0)
+
+
+@override_settings(FIREBASE_ENABLED=False, EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend', SMS_BACKEND='')
+class PatientChatAndBookingLogTests(APITestCase):
+    def setUp(self):
+        self.cskh = User.objects.create_user(username='cskh2', password='pass12345', role='consultant')
+        self.cust = User.objects.create_user(username='khach9', password='pass12345', role='customer', first_name='Khách Chín', email='k9@example.com')
+        self.p = Patient.objects.create(full_name='Khách Chín', phone='0912345678', email='k9@example.com', user=self.cust)
+        t, _ = Token.objects.get_or_create(user=self.cskh)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {t.key}')
+
+    def test_chat_appears_in_timeline_and_counts(self):
+        from core.models import Conversation, Message
+        c = Conversation.objects.create(customer=self.cust, subject='Hỏi về peel da')
+        Message.objects.create(conversation=c, sender=self.cust, text='Peel da có đau không?')
+        Message.objects.create(conversation=c, sender=self.cskh, text='Dạ không đau ạ.')
+        comms.send_sms(self.p, 'Nhắc lịch', self.cskh)
+        d = self.client.get(f'/api/clinic/messages/?patient={self.p.id}').data
+        self.assertEqual(d['counts'], {'email': 0, 'sms': 1, 'chat': 1, 'all': 2})
+        self.assertTrue(d['has_account'])
+        chat = next(r for r in d['results'] if r['channel'] == 'chat')
+        self.assertEqual(chat['conversation_id'], c.id)
+        self.assertEqual([m['own'] for m in chat['messages']], [True, False])
+        only = self.client.get(f'/api/clinic/messages/?patient={self.p.id}&channel=chat').data['results']
+        self.assertEqual(len(only), 1)
+
+    def test_patient_without_account_has_no_chat(self):
+        self.p.user = None
+        self.p.save()
+        d = self.client.get(f'/api/clinic/messages/?patient={self.p.id}').data
+        self.assertEqual(d['counts']['chat'], 0)
+        self.assertFalse(d['has_account'])
+
+    def test_booking_email_is_logged_and_styled(self):
+        from core.booking_notifications import send_booking_email
+        from core.models import Booking, Category, Service
+        from django.utils import timezone
+        cat = Category.objects.create(name='Da')
+        sv = Service.objects.create(category=cat, name='Peel da', price=500000, duration=30)
+        b = Booking.objects.create(user=self.cust, appointment=timezone.now() + timezone.timedelta(days=2), status='confirmed')
+        b.items.create(service=sv, price=500000)
+        self.assertTrue(send_booking_email(b.id))
+        m = PatientMessage.objects.get(patient=self.p, channel='email')
+        self.assertIn('đặt lịch', m.subject)
+        d = self.client.get(f'/api/clinic/messages/?patient={self.p.id}&channel=email').data['results'][0]
+        self.assertIn('<!doctype html>', d['html_full'].lower())
+        self.assertNotIn('cid:', d['html_full'])
+
+    def test_composed_email_uses_branded_wrapper(self):
+        r = self.client.post('/api/clinic/messages/send-email/', {'patient': self.p.id, 'subject': 'Xin chào', 'body_html': '<p>Nội dung</p>'}, format='json').data
+        self.assertIn('#0a5964', r['html_full'])
+        self.assertIn('Xin chào', r['html_full'])

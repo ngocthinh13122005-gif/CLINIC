@@ -8,11 +8,13 @@ from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.utils import timezone
 
-from .models import PatientMessage
+from .models import Patient, PatientMessage
 
 log = logging.getLogger(__name__)
 
 TEMPLATES = [
+    {'key': 'confirm', 'name': 'Xác nhận lịch hẹn', 'subject': 'Lịch hẹn tại {{phong_kham}} đã được xác nhận',
+     'body': 'Chào {{ten_khach}}, lịch hẹn của bạn tại {{phong_kham}} đã được xác nhận: {{lich_hen}}. Vui lòng đến đúng giờ và mang theo giấy tờ tùy thân.'},
     {'key': 'reminder', 'name': 'Nhắc lịch hẹn', 'subject': 'Nhắc lịch hẹn tại {{phong_kham}}',
      'body': 'Chào {{ten_khach}}, {{phong_kham}} xin nhắc bạn có lịch hẹn: {{lich_hen}}. Nếu cần đổi lịch, vui lòng phản hồi tin nhắn này. Hẹn gặp bạn!'},
     {'key': 'aftercare', 'name': 'Chăm sóc sau điều trị', 'subject': 'Hướng dẫn chăm sóc sau điều trị',
@@ -99,15 +101,42 @@ def html_to_text(src):
     return htmllib.unescape(re.sub(r'<[^>]+>', '', t)).strip()
 
 
-def wrap_email(body_html, patient):
-    name = htmllib.escape(clinic_name())
-    return (f'<div style="background:#f3f6f9;padding:24px;font-family:Arial,Helvetica,sans-serif;color:#26323d">'
-            f'<div style="max-width:560px;margin:auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,.12)">'
-            f'<div style="padding:20px 28px;border-bottom:3px solid #0f7c8a"><b style="font-size:20px;color:#0f7c8a">{name}</b>'
-            f'<div style="font-size:12px;color:#6b7a86">Phòng khám da liễu</div></div>'
-            f'<div style="padding:24px 28px;font-size:15px;line-height:1.6">{body_html}</div>'
-            f'<div style="padding:14px 28px;background:#f8fafb;font-size:12px;color:#7a8791">Email này gửi riêng cho bạn. '
-            f'Vui lòng không chuyển tiếp nếu có thông tin cá nhân.</div></div></div>')
+def wrap_email(body_html, patient, heading=''):
+    """Khung email cùng phong cách email xác nhận đặt lịch (core/booking_notifications.py)."""
+    name = htmllib.escape(clinic_name()).upper()
+    head = htmllib.escape(heading or clinic_name())
+    return (
+        '<!doctype html><html><body style="margin:0;padding:0;background-color:#f1f5f7;font-family:Arial,Helvetica,sans-serif;color:#243746">'
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f1f5f7"><tr><td align="center" style="padding:24px 12px">'
+        '<table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border:1px solid #d9e3e8">'
+        f'<tr><td bgcolor="#0a5964" style="padding:24px 28px;background-color:#0a5964;color:#ffffff">'
+        f'<div style="font-size:12px;line-height:18px;font-weight:bold;letter-spacing:1px;color:#d9f0f1">{name}</div>'
+        f'<h1 style="margin:8px 0 0;font-size:21px;line-height:29px;font-weight:700;color:#ffffff">{head}</h1></td></tr>'
+        f'<tr><td style="padding:24px 28px;font-size:15px;line-height:24px;color:#243746">{body_html}</td></tr>'
+        f'<tr><td align="center" style="padding:14px 20px;background-color:#f7f9fa;border-top:1px solid #e6ecef;font-size:12px;line-height:18px;color:#526777">'
+        f'Email từ {htmllib.escape(clinic_name())}. Vui lòng không chia sẻ thông tin cá nhân công khai.</td></tr>'
+        '</table></td></tr></table></body></html>')
+
+
+def patient_for_booking(booking):
+    """Tìm hồ sơ bệnh nhân ứng với một lịch hẹn (theo tài khoản, email rồi số điện thoại)."""
+    q = Patient.objects.all()
+    if booking.user_id and (p := q.filter(user_id=booking.user_id).first()):
+        return p
+    if booking.customer_email and (p := q.filter(email__iexact=booking.customer_email).first()):
+        return p
+    phone = re.sub(r'\D', '', booking.customer_phone or '')
+    return q.filter(phone=phone).first() if phone else None
+
+
+def log_booking_email(booking, subject, text, html, to_address):
+    """Ghi email xác nhận / đổi / hủy lịch vào tab Liên lạc của bệnh nhân (nếu tìm được hồ sơ)."""
+    patient = patient_for_booking(booking)
+    if not patient:
+        return None
+    return PatientMessage.objects.create(patient=patient, channel=PatientMessage.EMAIL, subject=subject[:200], body=text,
+                                         body_html=html, from_address=settings.DEFAULT_FROM_EMAIL, to_address=to_address,
+                                         status=PatientMessage.SENT)
 
 
 def _email_is_real():
@@ -127,7 +156,7 @@ def send_email(patient, subject, body_html, user):
                          from_address=settings.DEFAULT_FROM_EMAIL, to_address=patient.email, sent_by=user)
     try:
         mail = EmailMultiAlternatives(subject, text, settings.DEFAULT_FROM_EMAIL, [patient.email])
-        mail.attach_alternative(wrap_email(clean, patient), 'text/html')
+        mail.attach_alternative(wrap_email(clean, patient, subject), 'text/html')
         mail.send(fail_silently=False)
         msg.status = PatientMessage.SENT if _email_is_real() else PatientMessage.SIMULATED
     except Exception as exc:  # lỗi SMTP không được làm hỏng request

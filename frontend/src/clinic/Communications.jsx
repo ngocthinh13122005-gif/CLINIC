@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import ForumOutlined from '@mui/icons-material/ForumOutlined';
+import OpenInNewRounded from '@mui/icons-material/OpenInNewRounded';
 import AddRounded from '@mui/icons-material/AddRounded';
 import CheckRounded from '@mui/icons-material/CheckRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
@@ -39,34 +42,51 @@ function Bubble({ m }) {
   return <div className="cm-bubble-wrap"><time>{fmtDate(m.created_at)}, {fmtTime(m.created_at)}</time><div className="cm-bubble">{m.body}</div><small>Gửi tới {m.to_address}</small></div>;
 }
 
-function Item({ m, open, onToggle, onResend, onDelete, canDelete }) {
+function MailFrame({ html }) {
+  const ref = useRef(null);
+  const doc = useMemo(() => (/<head[\s>]/i.test(html) ? html.replace(/<head([^>]*)>/i, '<head$1><base target="_blank">') : `<base target="_blank">${html}`), [html]);
+  const fit = () => { const d = ref.current?.contentDocument; if (d?.body) ref.current.style.height = `${Math.min(900, d.documentElement.scrollHeight + 4)}px`; };
+  return <iframe ref={ref} className="cm-frame" title="Nội dung email" sandbox="allow-same-origin" srcDoc={doc} onLoad={fit} />;
+}
+
+function Thread({ m, onOpenInbox }) {
+  return <div className="cm-thread">
+    <div className="cm-thread-head"><span>{m.channel_label} · {m.message_count} tin · {m.status_label}</span>
+      <button className="cm-link" onClick={() => onOpenInbox(m.conversation_id)}>Mở trong Hộp thư tư vấn<OpenInNewRounded /></button></div>
+    {m.messages.map((x) => <div key={x.id} className={`cm-msg ${x.own ? 'cust' : 'staff'}`}>
+      <small>{x.own ? x.name : `${x.name} (phòng khám)`} · {fmtDate(x.at)} {fmtTime(x.at)}</small>
+      <div className="cm-bubble">{x.text}</div></div>)}
+  </div>;
+}
+
+function Item({ m, open, onToggle, onResend, onDelete, canDelete, onOpenInbox }) {
   const [menu, setMenu] = useState(false);
   const ref = useRef(null);
   useEffect(() => { if (!menu) return undefined; const h = (e) => ref.current && !ref.current.contains(e.target) && setMenu(false); document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h); }, [menu]);
   const isSms = m.channel === 'sms';
+  const isChat = m.channel === 'chat';
   const preview = (m.body || '').replace(/\s+/g, ' ').slice(0, 160);
   const tone = statusTone[m.status];
   return <article className={`cm-item ${m.channel} ${open ? 'open' : ''}`}>
     <div className="cm-item-head" onClick={onToggle}>
-      <span className={`cm-ico ${m.channel}`}>{isSms ? <ChatBubbleOutlineRounded /> : <MailOutlineRounded />}</span>
+      <span className={`cm-ico ${m.channel}`}>{isChat ? <ForumOutlined /> : isSms ? <ChatBubbleOutlineRounded /> : <MailOutlineRounded />}</span>
       <div className="cm-item-main">
-        <h4>{isSms ? 'SMS' : m.subject || 'Email'}
+        <h4>{isChat ? `Chat · ${m.subject}` : isSms ? 'SMS' : m.subject || 'Email'}
           {m.status === 'sent' && (isSms ? <DoneAllRounded className="ok" /> : <CheckRounded className="ok" />)}
           {tone && <em className={tone}>{m.status === 'failed' ? <ErrorOutlineRounded /> : null}{m.status_label}</em>}</h4>
-        <p className="cm-meta">{fmtDate(m.created_at)}, {fmtTime(m.created_at)} · Từ: {m.from_address || '—'} · Đến: {m.to_address}{m.sent_by_name ? ` · Gửi bởi ${m.sent_by_name}` : ''}</p>
+        <p className="cm-meta">{fmtDate(m.created_at)}, {fmtTime(m.created_at)} · {isChat ? `${m.channel_label} · ${m.message_count} tin nhắn` : `Từ: ${m.from_address || '—'} · Đến: ${m.to_address}${m.sent_by_name ? ` · Gửi bởi ${m.sent_by_name}` : ''}`}</p>
         {m.error && <p className="cm-err">{m.error}</p>}
         {!open && <p className="cm-prev">{preview}</p>}
       </div>
       <button className="cm-icon-btn" aria-label={open ? 'Thu gọn' : 'Mở rộng'}><ExpandMoreRounded className="cm-chev" /></button>
-      <div className="cm-menu-wrap" ref={ref} onClick={(e) => e.stopPropagation()}>
+      {!isChat && <div className="cm-menu-wrap" ref={ref} onClick={(e) => e.stopPropagation()}>
         <button className="cm-icon-btn" aria-label="Thao tác" onClick={() => setMenu(!menu)}><MoreVertRounded /></button>
         {menu && <div className="cm-menu"><button onClick={() => { setMenu(false); onResend(m); }}>Gửi lại</button>{canDelete && <button className="red" onClick={() => { setMenu(false); onDelete(m); }}>Xóa</button>}</div>}
-      </div>
+      </div>}
     </div>
-    {open && <div className="cm-item-body">{isSms ? <Bubble m={m} /> : <div className="cm-mail">
-      <header><b>{m.subject}</b><time>{fmtDate(m.created_at)}, {fmtTime(m.created_at)}</time></header>
-      <dl><dt>Từ:</dt><dd>{m.from_address}</dd><dt>Tới:</dt><dd>{m.to_address}</dd></dl>
-      <div className="cm-mail-body" dangerouslySetInnerHTML={{ __html: m.body_html || `<p>${m.body}</p>` }} /></div>}</div>}
+    {open && <div className="cm-item-body">{isChat ? <Thread m={m} onOpenInbox={onOpenInbox} /> : isSms ? <Bubble m={m} /> : <div className="cm-mail">
+      <dl><dt>Tiêu đề:</dt><dd><b>{m.subject}</b></dd><dt>Từ:</dt><dd>{m.from_address}</dd><dt>Tới:</dt><dd>{m.to_address}</dd><dt>Lúc:</dt><dd>{fmtDate(m.created_at)}, {fmtTime(m.created_at)}</dd></dl>
+      <MailFrame html={m.html_full || `<p>${m.body}</p>`} /></div>}</div>}
   </article>;
 }
 
@@ -161,6 +181,7 @@ function SmsComposer({ patient, info, history, onClose, onSent }) {
 
 /* ------------------------------------------------------------- tab */
 export default function Communications({ patient, role, onChanged, toast }) {
+  const navigate = useNavigate();
   const [channel, setChannel] = useState('all');
   const [open, setOpen] = useState({}); const [fab, setFab] = useState(false);
   const [composer, setComposer] = useState(null); const [jump, setJump] = useState('');
@@ -181,8 +202,8 @@ export default function Communications({ patient, role, onChanged, toast }) {
   const resend = async (m) => { try { const { data: d } = await api.post(`/clinic/messages/${m.id}/resend/`); sent(d); } catch (e) { toast?.(errMsg(e), 'err'); } };
   const del = async (m) => { if (!window.confirm('Xóa mục này khỏi nhật ký liên lạc?')) return; try { await api.delete(`/clinic/messages/${m.id}/`); refresh(); } catch (e) { toast?.(errMsg(e), 'err'); } };
   const jumpTo = (v) => { setJump(v); const el = document.getElementById(`cm-day-${v}`) || [...document.querySelectorAll('[data-day]')].find((n) => n.dataset.day <= v); el?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
-  const counts = info?.counts || { all: 0, email: 0, sms: 0 };
-  const tabs = [['all', 'Tất cả', counts.all, null], ['email', 'Email', counts.email, MailOutlineRounded], ['sms', 'SMS', counts.sms, ChatBubbleOutlineRounded]];
+  const counts = info?.counts || { all: 0, email: 0, sms: 0, chat: 0 };
+  const tabs = [['all', 'Tất cả', counts.all, null], ['email', 'Email', counts.email, MailOutlineRounded], ['sms', 'SMS', counts.sms, ChatBubbleOutlineRounded], ['chat', 'Chat', counts.chat, ForumOutlined]];
   return <div className="cm">
     {info && (!info.email_live || !info.sms_live) && <div className="cm-banner"><ErrorOutlineRounded /><span>
       {!info.email_live && <>Email chưa cấu hình SMTP nên thư chỉ được lưu nhật ký, chưa gửi thật. </>}
@@ -195,12 +216,12 @@ export default function Communications({ patient, role, onChanged, toast }) {
         <button className="cm-btn" onClick={() => window.print()}><PrintOutlined />In tất cả</button></div>
     </div>
     {error && <div className="cl-alert error">{error}</div>}
-    {loading && !data ? <Loading /> : !rows.length ? <Empty title="Chưa có liên lạc nào" hint="Bấm nút + ở góc phải để gửi email hoặc SMS cho khách." />
+    {loading && !data ? <Loading /> : !rows.length ? <Empty title={channel === 'chat' && info && !info.has_account ? 'Khách chưa có tài khoản liên kết' : 'Chưa có liên lạc nào'} hint={channel === 'chat' ? (info?.has_account ? 'Khách chưa nhắn tin với phòng khám.' : 'Chỉ khách có tài khoản (hoặc nhắn qua Messenger) mới chat được. Liên kết hồ sơ với tài khoản để xem chat tại đây.') : 'Bấm nút + ở góc phải để gửi email hoặc SMS cho khách.'} />
       : <div className="cm-timeline">{Object.entries(months).sort((a, b) => b[0].localeCompare(a[0])).map(([mk, days]) => <section key={mk}>
         <h3 className="cm-month">THÁNG {mk.slice(5)}/{mk.slice(0, 4)}</h3>
         {days.map(([k, items]) => { const d = new Date(`${k}T00:00:00`); return <div key={k} className="cm-day" id={`cm-day-${k}`} data-day={k}>
           <div className="cm-day-head"><i />{DOW[d.getDay()]} {fmtDate(d)}<small> · {ago(d)} · {items.length} mục</small></div>
-          {items.map((m) => <Item key={m.id} m={m} open={!!open[m.id]} onToggle={() => setOpen((o) => ({ ...o, [m.id]: !o[m.id] }))} onResend={resend} onDelete={del} canDelete={role === 'manager'} />)}</div>; })}
+          {items.map((m) => <Item key={m.id} m={m} open={!!open[m.id]} onToggle={() => setOpen((o) => ({ ...o, [m.id]: !o[m.id] }))} onResend={resend} onDelete={del} canDelete={role === 'manager'} onOpenInbox={(id) => navigate(`/cskh?c=${id}`)} />)}</div>; })}
       </section>)}</div>}
 
     <div className="cm-fab-wrap">

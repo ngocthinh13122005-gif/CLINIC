@@ -162,6 +162,11 @@ def send_booking_email(booking_id: int, *, confirmation_url: str | None = None, 
         qr_part.add_header('Content-Disposition', 'inline', filename=f'AkinaClinic-{booking.confirm_code}-QR.png')
         email.attach(qr_part)
         email.send(fail_silently=False)
+        try:  # hiện trên tab Liên lạc của hồ sơ bệnh nhân; lỗi ở đây không được làm hỏng việc gửi mail
+            from clinic.comms import log_booking_email
+            log_booking_email(booking, email.subject, text_body, html_body, recipient)
+        except Exception:
+            logger.exception('Could not log booking email for booking_id=%s', booking_id)
         return True
     except Exception:
         logger.exception('AkinaClinic booking email failed for booking_id=%s', booking_id)
