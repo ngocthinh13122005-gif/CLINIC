@@ -6,11 +6,13 @@ from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from . import comms
+from django.utils import timezone
+
+from . import comms, comms_templates
 from .audit import audit
 from core.models import Conversation
 
-from .models import DataConsent, Patient, PatientMessage
+from .models import DataConsent, Invoice, MessageTemplate, Patient, PatientMessage
 from .permissions import CanReception
 
 
@@ -22,7 +24,7 @@ class MessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = PatientMessage
         fields = ['id', 'patient', 'channel', 'subject', 'body', 'body_html', 'from_address', 'to_address', 'status',
-                  'status_label', 'error', 'sent_by_name', 'created_at', 'html_full']
+                  'status_label', 'error', 'sent_by_name', 'created_at', 'html_full', 'cc', 'bcc']
 
     def get_html_full(self, obj):
         if obj.channel != 'email':
@@ -86,7 +88,8 @@ class PatientMessageViewSet(viewsets.GenericViewSet):
         return Response({'counts': counts, 'results': rows, 'has_account': bool(patient.user_id),
                          'patient': {'email': patient.email, 'phone': patient.phone}, 'contact_consent': has_contact,
                          'email_live': comms._email_is_real(), 'sms_live': bool(comms._sms_backend()),
-                         'templates': comms.TEMPLATES, 'merge_tags': comms.MERGE_TAGS})
+                         'merge_tags': comms.MERGE_TAGS, 'from_options': comms.from_options(request.user),
+                         'merge_values': comms.merge_values(patient, request.user), 'clinic': comms.emailkit.clinic()})
 
     def _deliver(self, request, fn):
         try:
@@ -99,7 +102,11 @@ class PatientMessageViewSet(viewsets.GenericViewSet):
     @action(detail=False, methods=['post'], url_path='send-email')
     def send_email(self, request):
         patient = self._patient(request)
-        return self._deliver(request, lambda: comms.send_email(patient, request.data.get('subject', ''), request.data.get('body_html', ''), request.user))
+        d = request.data
+        return self._deliver(request, lambda: comms.send_email(
+            patient, d.get('subject', ''), d.get('body_html', ''), request.user, to=d.get('to'), cc=d.get('cc'), bcc=d.get('bcc'),
+            from_name=d.get('from_name', ''), booking_ids=[int(x) for x in (d.get('booking_ids') or []) if str(x).isdigit()],
+            follow_up=bool(d.get('follow_up'))))
 
     @action(detail=False, methods=['post'], url_path='send-sms')
     def send_sms(self, request):
@@ -122,4 +129,63 @@ class PatientMessageViewSet(viewsets.GenericViewSet):
         if not n:
             return Response({'detail': 'Không tìm thấy.'}, status=status.HTTP_404_NOT_FOUND)
         audit(request.user, 'Xóa nhật ký liên lạc', f'#{pk}')
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=['get'])
+    def attachables(self, request):
+        """Lịch hẹn và hóa đơn gần đây của bệnh nhân, để chèn / đính kèm vào email."""
+        patient = self._patient(request)
+        from core.models import Booking
+        bookings = []
+        for b in Booking.objects.filter(patient_id=patient.id).exclude(status='cancelled').prefetch_related('items__service').order_by('-appointment')[:12]:
+            at = timezone.localtime(b.appointment)
+            bookings.append({'id': b.id, 'service': ', '.join(i.service.name for i in b.items.all()) or 'Lịch hẹn', 'at': at.isoformat(),
+                             'staff': b.staff.name if b.staff_id else '', 'code': b.confirm_code})
+        invoices = [{'id': i.id, 'code': i.code, 'at': i.created_at.isoformat(), 'total': i.total, 'status': i.status, 'status_label': i.get_status_display()}
+                    for i in Invoice.objects.filter(patient=patient).exclude(status='void').order_by('-created_at')[:12]]
+        return Response({'bookings': bookings, 'invoices': invoices})
+
+
+class TemplateSerializer(serializers.ModelSerializer):
+    category_label = serializers.CharField(source='get_category_display', read_only=True)
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MessageTemplate
+        fields = ['id', 'channel', 'category', 'category_label', 'name', 'subject', 'body', 'created_by_name', 'created_at']
+
+    def get_created_by_name(self, obj):
+        return (obj.created_by.get_full_name() or obj.created_by.username) if obj.created_by_id else 'Hệ thống'
+
+
+class MessageTemplateViewSet(viewsets.GenericViewSet):
+    """Danh sách / tạo / xóa mẫu email và SMS."""
+    serializer_class = TemplateSerializer
+    permission_classes = [CanReception]
+
+    def list(self, request):
+        comms_templates.ensure_defaults()
+        qs = MessageTemplate.objects.filter(is_active=True).select_related('created_by')
+        if request.query_params.get('channel') in ('email', 'sms'):
+            qs = qs.filter(channel=request.query_params['channel'])
+        return Response(TemplateSerializer(qs, many=True).data)
+
+    def create(self, request):
+        d = request.data
+        ch = d.get('channel')
+        if ch not in ('email', 'sms') or not str(d.get('name', '')).strip() or not str(d.get('body', '')).strip():
+            return Response({'detail': 'Cần nhập tên mẫu và nội dung.'}, status=status.HTTP_400_BAD_REQUEST)
+        cat = d.get('category') if d.get('category') in dict(MessageTemplate.CATEGORIES) else 'general'
+        t = MessageTemplate.objects.create(channel=ch, category=cat, name=str(d['name'])[:120], subject=str(d.get('subject', ''))[:200],
+                                           body=comms.sanitize_html(d['body']) if ch == 'email' else str(d['body']), created_by=request.user)
+        return Response(TemplateSerializer(t).data, status=status.HTTP_201_CREATED)
+
+    def destroy(self, request, pk=None):
+        t = MessageTemplate.objects.filter(pk=pk, is_active=True).first()
+        if not t:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if request.user.role != 'manager' and t.created_by_id != request.user.id:
+            return Response({'detail': 'Chỉ quản lý hoặc người tạo mới được xóa mẫu.'}, status=status.HTTP_403_FORBIDDEN)
+        t.is_active = False
+        t.save(update_fields=['is_active'])
         return Response(status=status.HTTP_204_NO_CONTENT)

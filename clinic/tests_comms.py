@@ -1,4 +1,5 @@
 from django.core import mail
+from django.utils import timezone
 from django.test import override_settings
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
@@ -126,3 +127,58 @@ class PatientChatAndBookingLogTests(APITestCase):
         r = self.client.post('/api/clinic/messages/send-email/', {'patient': self.p.id, 'subject': 'Xin chào', 'body_html': '<p>Nội dung</p>'}, format='json').data
         self.assertIn('#0a5964', r['html_full'])
         self.assertIn('Xin chào', r['html_full'])
+
+
+@override_settings(FIREBASE_ENABLED=False, EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend', SMS_BACKEND='')
+class ComposerFeatureTests(APITestCase):
+    def setUp(self):
+        self.cskh = User.objects.create_user(username='cskh3', password='pass12345', role='consultant', first_name='Lan', last_name='Nguyễn')
+        self.p = Patient.objects.create(full_name='Khách Mười', phone='0911111111', email='k10@example.com')
+        t, _ = Token.objects.get_or_create(user=self.cskh)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {t.key}')
+
+    def test_templates_seeded_filtered_and_custom(self):
+        r = self.client.get('/api/clinic/message-templates/?channel=email').data
+        self.assertGreaterEqual(len(r), 10)
+        self.assertTrue(all(x['channel'] == 'email' for x in r))
+        self.assertIn('confirmation', {x['category'] for x in r})
+        self.assertEqual(r[0]['created_by_name'], 'Hệ thống')
+        c = self.client.post('/api/clinic/message-templates/', {'channel': 'sms', 'name': 'Mẫu của tôi', 'body': 'Chào {{ten_khach}}'}, format='json')
+        self.assertEqual(c.status_code, 201)
+        self.assertEqual(c.data['created_by_name'], 'Lan Nguyễn')
+        self.assertEqual(self.client.delete(f"/api/clinic/message-templates/{c.data['id']}/").status_code, 204)
+
+    def test_send_with_cc_bcc_from_ics_and_followup(self):
+        from core.models import Booking, Category, Service
+        from clinic.models import CareTask
+        sv = Service.objects.create(category=Category.objects.create(name='Da'), name='Peel', price=1, duration=30)
+        b = Booking.objects.create(patient=self.p, appointment=timezone.now() + timezone.timedelta(days=1), status='confirmed')
+        b.items.create(service=sv, price=1)
+        att = self.client.get(f'/api/clinic/messages/attachables/?patient={self.p.id}').data
+        self.assertEqual(att['bookings'][0]['id'], b.id)
+        opts = self.client.get(f'/api/clinic/messages/?patient={self.p.id}').data['from_options']
+        r = self.client.post('/api/clinic/messages/send-email/', {
+            'patient': self.p.id, 'subject': 'Hẹn', 'body_html': '<p>Hi</p>', 'cc': ['a@example.com'], 'bcc': ['b@example.com'],
+            'from_name': opts[-1]['name'], 'booking_ids': [b.id], 'follow_up': True}, format='json')
+        self.assertEqual(r.status_code, 201, r.data)
+        m = mail.outbox[-1]
+        self.assertEqual((m.cc, m.bcc), (['a@example.com'], ['b@example.com']))
+        self.assertTrue(m.from_email.startswith('Lan Nguyễn'))
+        self.assertEqual(m.attachments[0][0], f'lich-hen-{b.id}.ics')
+        self.assertIn('BEGIN:VEVENT', m.attachments[0][1])
+        self.assertTrue(CareTask.objects.filter(patient=self.p, title__startswith='Theo dõi').exists())
+
+    def test_bad_cc_rejected(self):
+        r = self.client.post('/api/clinic/messages/send-email/', {'patient': self.p.id, 'subject': 'x', 'body_html': '<p>y</p>', 'cc': ['khong-phai-email']}, format='json')
+        self.assertEqual(r.status_code, 400)
+
+    def test_template_tags_and_blocks_render(self):
+        from clinic import comms_templates, emailkit
+        from clinic.models import MessageTemplate
+        comms_templates.ensure_defaults()
+        t = MessageTemplate.objects.get(key='confirm')
+        out = comms.wrap_email(comms.render_tags(t.body, comms.merge_values(self.p, self.cskh)), self.p, t.subject)
+        self.assertIn('Khách Mười', out)
+        self.assertNotIn('{{', out)
+        self.assertNotIn('<dl', out)  # dl được đổi thành bảng
+        self.assertIn('<table', out)

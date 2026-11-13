@@ -110,45 +110,23 @@ def send_booking_email(booking_id: int, *, confirmation_url: str | None = None, 
         safe_confirm_code = escape(booking.confirm_code)
         safe_url = escape(url, quote=True)
         appointment_text = appointment.strftime('%d/%m/%Y %H:%M')
-        html_body = f'''<!doctype html>
-<html><body style="margin:0;padding:0;background-color:#f1f5f7;font-family:Arial,Helvetica,sans-serif;color:#243746">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f1f5f7">
-  <tr><td align="center" style="padding:24px 12px">
-    <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border:1px solid #d9e3e8">
-      <tr><td bgcolor="#0a5964" style="padding:24px 28px;background-color:#0a5964;color:#ffffff">
-        <div style="font-size:12px;line-height:18px;font-weight:bold;letter-spacing:1px;color:#d9f0f1">AKINACLINIC</div>
-        <h1 style="margin:8px 0 0;font-size:21px;line-height:29px;font-weight:700;color:#ffffff">{escape(heading)}</h1>
-      </td></tr>
-      <tr><td style="padding:24px 28px">
-        <p style="margin:0 0 12px;font-size:15px;line-height:23px;color:#243746">Xin chào <strong>{customer_name}</strong>,</p>
-        <p style="margin:0 0 16px;font-size:14px;line-height:22px;color:#435767">Thông tin lịch hẹn của bạn tại AkinaClinic:</p>
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;font-size:14px;line-height:21px">
-          <tr><td style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#526777">Dịch vụ</td><td align="right" style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#243746;font-weight:bold">{safe_services}</td></tr>
-          <tr><td style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#526777">Ngày giờ</td><td align="right" style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#243746;font-weight:bold">{appointment_text}</td></tr>
-          <tr><td style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#526777">Chuyên viên</td><td align="right" style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#243746">{safe_staff_name}</td></tr>
-          <tr><td style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#526777">Trạng thái</td><td align="right" style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#243746">{safe_status}</td></tr>
-          <tr><td style="padding:9px 0;color:#526777">Chi phí</td><td align="right" style="padding:9px 0;color:#243746;font-weight:bold">{safe_amount}</td></tr>
-        </table>
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin-top:20px;background-color:#eaf4f5;border:1px solid #b8d7db">
-          <tr><td align="center" style="padding:16px">
-            <div style="font-size:12px;line-height:18px;font-weight:bold;color:#385866">MÃ VÉ / MÃ XÁC NHẬN</div>
-            <div style="margin-top:5px;font-size:25px;line-height:32px;font-weight:800;color:#123d47;letter-spacing:3px;word-break:break-all">{safe_confirm_code}</div>
-          </td></tr>
-        </table>
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin-top:18px">
-          <tr><td align="center">
-            <img src="cid:ohio-booking-qr" width="180" height="180" alt="QR check-in AkinaClinic" style="display:block;width:180px;height:180px;max-width:100%;border:0" />
-            <p style="margin:8px 0 0;font-size:12px;line-height:18px;color:#526777">Quét QR hoặc mở vé điện tử để check-in.</p>
-          </td></tr>
-          <tr><td align="center" style="padding-top:18px">
-            <a href="{safe_url}" style="display:inline-block;padding:12px 22px;background-color:#0f7280;color:#ffffff;text-decoration:none;font-size:14px;line-height:20px;font-weight:bold">Mở vé điện tử</a>
-          </td></tr>
-        </table>
-      </td></tr>
-      <tr><td align="center" style="padding:14px 20px;background-color:#f7f9fa;border-top:1px solid #e6ecef;font-size:12px;line-height:18px;color:#526777">Email tự động từ AkinaClinic. Vui lòng không chia sẻ mã vé công khai.</td></tr>
-    </table>
-  </td></tr>
-</table></body></html>'''
+        from clinic import emailkit
+        e = emailkit.esc
+        rows = [('Dịch vụ', safe_services), ('Ngày giờ', appointment_text), ('Chuyên viên', safe_staff_name),
+                ('Trạng thái', safe_status), ('Chi phí', safe_amount)]
+        inner = (
+            f'<p style="margin:0 0 14px;font-size:15px;line-height:25px">Xin chào <strong>{customer_name}</strong>,</p>'
+            '<p style="margin:0 0 6px;font-size:15px;line-height:25px">Dưới đây là thông tin lịch hẹn của bạn tại AkinaClinic:</p>'
+            + emailkit.details_table(rows)
+            + emailkit.callout(
+                '<div style="font-size:12px;letter-spacing:1px;font-weight:700;color:#385866">MÃ VÉ / MÃ XÁC NHẬN</div>'
+                f'<div style="margin-top:4px;font-size:26px;line-height:34px;font-weight:800;letter-spacing:3px;color:#123d47;word-break:break-all">{safe_confirm_code}</div>')
+            + '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td align="center" style="padding-top:6px">'
+            '<img src="cid:ohio-booking-qr" width="170" height="170" alt="QR check-in AkinaClinic" style="display:block;width:170px;height:170px;max-width:100%;border:0" />'
+            '<p style="margin:8px 0 0;font-size:12px;line-height:18px;color:#6b7c88">Quét QR hoặc mở vé điện tử để check-in.</p></td></tr>'
+            f'<tr><td align="center">{emailkit.button(url, "Mở vé điện tử")}</td></tr></table>'
+            '<p style="margin:0 0 14px;font-size:13px;line-height:21px;color:#6b7c88">Vui lòng xuất trình mã hoặc QR khi đến phòng khám. Nếu cần đổi lịch, hãy phản hồi email này hoặc liên hệ hotline.</p>')
+        html_body = emailkit.layout(heading, inner, eyebrow='Lịch hẹn', preheader=f'Mã xác nhận {booking.confirm_code} · {appointment_text}')
 
         email = EmailMultiAlternatives(
             subject=_subject(event, booking),

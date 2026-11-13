@@ -1178,6 +1178,8 @@ class PatientMessage(models.Model):
     status = models.CharField(max_length=10, choices=STATUSES, default=SENT)
     error = models.CharField(max_length=255, blank=True)
     sent_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    cc = models.CharField(max_length=255, blank=True)
+    bcc = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
     is_deleted = models.BooleanField(default=False)
 
@@ -1185,3 +1187,26 @@ class PatientMessage(models.Model):
         ordering = ['-created_at', '-id']
         verbose_name = 'Tin nhắn / email gửi bệnh nhân'
         verbose_name_plural = 'Tin nhắn / email gửi bệnh nhân'
+
+
+class MessageTemplate(models.Model):
+    """Mẫu email / SMS dùng khi soạn trong tab Liên lạc. Mẫu hệ thống (key) được tạo tự động."""
+    CATEGORIES = [('confirmation', 'Xác nhận'), ('reminder', 'Nhắc lịch'), ('precare', 'Trước điều trị'),
+                  ('aftercare', 'Sau điều trị'), ('general', 'Chung'), ('marketing', 'Ưu đãi')]
+    key = models.CharField(max_length=40, blank=True, null=True, unique=True)
+    channel = models.CharField(max_length=5, choices=PatientMessage.CHANNELS, db_index=True)
+    category = models.CharField(max_length=14, choices=CATEGORIES, default='general')
+    name = models.CharField(max_length=120)
+    subject = models.CharField(max_length=200, blank=True)
+    body = models.TextField()
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(default=timezone.now)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['category', 'name']
+        verbose_name = 'Mẫu email / SMS'
+        verbose_name_plural = 'Mẫu email / SMS'
+
+    def __str__(self):
+        return f'{self.get_channel_display()} · {self.name}'

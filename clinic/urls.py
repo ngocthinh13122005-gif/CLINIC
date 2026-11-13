@@ -19,6 +19,7 @@ router.register('payments', views_v2.PaymentViewSet, basename='clinic-payment')
 router.register('refunds', views_v2.RefundViewSet, basename='clinic-refund')
 router.register('debt-followups', views_v2.DebtFollowUpViewSet, basename='clinic-debt-followup')
 
+router.register('message-templates', views_comms.MessageTemplateViewSet, basename='clinic-message-template')
 router.register('messages', views_comms.PatientMessageViewSet, basename='clinic-message')
 router.register('suppliers', views_v3.SupplierViewSet, basename='clinic-supplier')
 router.register('lots', views_v3.LotViewSet, basename='clinic-lot')

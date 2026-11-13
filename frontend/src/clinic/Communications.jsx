@@ -18,10 +18,11 @@ import CalendarMonthOutlined from '@mui/icons-material/CalendarMonthOutlined';
 import ErrorOutlineRounded from '@mui/icons-material/ErrorOutlineRounded';
 import api from '../api/client';
 import { Avatar, Empty, Loading, errMsg, fmtDate, fmtTime, useLoad } from './ui';
+import { EmailComposer, SmsComposer } from './CommsComposer';
+import { JumpCalendar, PrintModal, dayKey } from './CommsExtras';
 import './communications.css';
 
 const DOW = ['Chủ nhật', 'Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy'];
-const dayKey = (v) => { const d = new Date(v); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const ago = (v) => {
   const days = Math.floor((Date.now() - new Date(v).getTime()) / 864e5);
   if (days < 1) return 'hôm nay';
@@ -29,12 +30,6 @@ const ago = (v) => {
   if (days < 30) return `${Math.floor(days / 7)} tuần trước`;
   if (days < 365) return `${Math.floor(days / 30)} tháng trước`;
   return `${Math.floor(days / 365)} năm trước`;
-};
-export const smsSegments = (t) => {
-  const n = [...(t || '')].length; if (!n) return 0;
-  const ascii = /^[\x00-\x7F]*$/.test(t);
-  const [one, multi] = ascii ? [160, 153] : [70, 67];
-  return n <= one ? 1 : Math.ceil(n / multi);
 };
 const statusTone = { sent: null, simulated: 'amber', failed: 'red' };
 
@@ -90,101 +85,12 @@ function Item({ m, open, onToggle, onResend, onDelete, canDelete, onOpenInbox })
   </article>;
 }
 
-/* ------------------------------------------------------------- soạn email / SMS */
-function MergeMenu({ tags, onPick }) {
-  const [o, setO] = useState(false);
-  return <span className="cm-pop"><button type="button" className="cm-tool" onClick={() => setO(!o)}># Thẻ ghép<ExpandMoreRounded /></button>
-    {o && <div className="cm-pop-box up">{tags.map(([k, t]) => <button key={k} onClick={() => { setO(false); onPick(`{{${k}}}`); }}>{t}<small>{`{{${k}}}`}</small></button>)}</div>}</span>;
-}
-function TemplateMenu({ templates, onPick, field }) {
-  const [o, setO] = useState(false);
-  return <span className="cm-pop"><button type="button" className="cm-tool" onClick={() => setO(!o)}>Mẫu có sẵn<ExpandMoreRounded /></button>
-    {o && <div className="cm-pop-box up">{templates.map((t) => <button key={t.key} onClick={() => { setO(false); onPick(t); }}>{t.name}</button>)}</div>}</span>;
-}
-
-function Dock({ patient, title, onClose, children, sizeClass = '' }) {
-  const [state, setState] = useState('normal');
-  return <div className={`cm-dock ${state} ${sizeClass}`} role="dialog" aria-label={title}>
-    <header><Avatar name={patient.full_name} size={28} /><b>{patient.full_name} – {title}</b>
-      <span><button aria-label="Thu nhỏ" onClick={() => setState(state === 'min' ? 'normal' : 'min')}><MinimizeRounded /></button>
-        <button aria-label="Phóng to" onClick={() => setState(state === 'max' ? 'normal' : 'max')}><OpenInFullRounded /></button>
-        <button aria-label="Đóng" onClick={onClose}><CloseRounded /></button></span></header>
-    {state !== 'min' && children}
-  </div>;
-}
-
-function EmailComposer({ patient, info, onClose, onSent }) {
-  const [subject, setSubject] = useState('');
-  const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
-  const ed = useRef(null);
-  const exec = (cmd, val) => { ed.current?.focus(); document.execCommand(cmd, false, val); };
-  const insert = (txt) => { ed.current?.focus(); document.execCommand('insertText', false, txt); };
-  const send = async () => {
-    setErr(''); setBusy(true);
-    try { const { data } = await api.post('/clinic/messages/send-email/', { patient: patient.id, subject, body_html: ed.current?.innerHTML || '' }); onSent(data); }
-    catch (e) { setErr(errMsg(e)); } finally { setBusy(false); }
-  };
-  const link = () => { const u = window.prompt('Nhập địa chỉ liên kết (https://…)'); if (u) exec('createLink', u); };
-  return <Dock patient={patient} title="Thư mới" onClose={onClose}>
-    <div className="cm-dock-body">
-      <div className="cm-details"><span className="cm-lbl">CHI TIẾT</span><b>{patient.email || <em className="cm-warn-txt">Chưa có email</em>}</b><span className="cm-dot">·</span>
-        <input aria-label="Tiêu đề" placeholder="Tiêu đề email" value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
-      <div className="cm-toolbar" role="toolbar" aria-label="Định dạng">
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('bold')} aria-label="In đậm"><b>B</b></button>
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('italic')} aria-label="In nghiêng"><i>I</i></button>
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('underline')} aria-label="Gạch chân"><u>U</u></button>
-        <span className="sep" />
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('insertUnorderedList')} aria-label="Danh sách chấm">• ―</button>
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('insertOrderedList')} aria-label="Danh sách số">1. ―</button>
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={link} aria-label="Chèn liên kết">Liên kết</button>
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('removeFormat')} aria-label="Xóa định dạng">Xóa định dạng</button></div>
-      <div ref={ed} className="cm-editor" contentEditable suppressContentEditableWarning data-ph="Bắt đầu soạn email…" />
-      {err && <div className="cm-alert">{err}</div>}
-    </div>
-    <footer className="cm-dock-foot">
-      <div className="cm-tools"><TemplateMenu templates={info.templates} onPick={(t) => { setSubject(t.subject); if (ed.current) ed.current.innerHTML = `<p>${t.body}</p>`; }} />
-        <MergeMenu tags={info.merge_tags} onPick={insert} /></div>
-      <button className="cm-send" disabled={busy || !patient.email || !subject.trim()} onClick={send}><SendRounded />{busy ? 'Đang gửi…' : 'Gửi'}</button>
-    </footer>
-  </Dock>;
-}
-
-function SmsComposer({ patient, info, history, onClose, onSent }) {
-  const [text, setText] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
-  const box = useRef(null); const area = useRef(null);
-  const chat = useMemo(() => [...history].filter((m) => m.channel === 'sms').reverse(), [history]);
-  useEffect(() => { if (box.current) box.current.scrollTop = box.current.scrollHeight; }, [chat.length]);
-  const insert = (tag) => { const el = area.current; const s = el?.selectionStart ?? text.length; setText(text.slice(0, s) + tag + text.slice(el?.selectionEnd ?? s)); el?.focus(); };
-  const send = async () => {
-    setErr(''); setBusy(true);
-    try { const { data } = await api.post('/clinic/messages/send-sms/', { patient: patient.id, body: text }); setText(''); onSent(data); }
-    catch (e) { setErr(errMsg(e)); } finally { setBusy(false); }
-  };
-  const seg = smsSegments(text);
-  let last = '';
-  return <Dock patient={patient} title="Gửi SMS" onClose={onClose} sizeClass="sms">
-    <div className="cm-chat" ref={box}>
-      <div className="cm-to">Gửi tới <b>{patient.phone || 'chưa có số điện thoại'}</b></div>
-      {chat.length === 0 && <p className="cm-chat-empty">Chưa có tin nhắn nào với khách này.</p>}
-      {chat.map((m) => { const k = dayKey(m.created_at); const showDay = k !== last; last = k;
-        return <div key={m.id}>{showDay && <div className="cm-daychip"><span>{fmtDate(m.created_at)}</span></div>}<div className="cm-bubble-wrap own"><div className="cm-bubble">{m.body}</div><small>{fmtTime(m.created_at)}{m.status !== 'sent' ? ` · ${m.status_label}` : ''}</small></div></div>; })}
-    </div>
-    {err && <div className="cm-alert">{err}</div>}
-    <div className="cm-sms-input"><textarea ref={area} rows={3} placeholder="Nhập nội dung tin nhắn…" value={text} onChange={(e) => setText(e.target.value)} /></div>
-    <footer className="cm-dock-foot">
-      <div className="cm-tools"><TemplateMenu templates={info.templates} onPick={(t) => setText(t.body)} /><MergeMenu tags={info.merge_tags} onPick={insert} />
-        <span className="cm-count">{[...text].length} ký tự · {seg} SMS</span></div>
-      <button className="cm-send" disabled={busy || !text.trim() || !patient.phone} onClick={send}><SendRounded />{busy ? 'Đang gửi…' : 'Gửi'}</button>
-    </footer>
-  </Dock>;
-}
-
 /* ------------------------------------------------------------- tab */
 export default function Communications({ patient, role, onChanged, toast }) {
   const navigate = useNavigate();
   const [channel, setChannel] = useState('all');
   const [open, setOpen] = useState({}); const [fab, setFab] = useState(false);
-  const [composer, setComposer] = useState(null); const [jump, setJump] = useState('');
+  const [composer, setComposer] = useState(null); const [calOpen, setCalOpen] = useState(false); const [printOpen, setPrintOpen] = useState(false);
   const { data, loading, error, reload } = useLoad(async () => (await api.get('/clinic/messages/', { params: { patient: patient.id, channel: channel === 'all' ? undefined : channel } })).data, [patient.id, channel]);
   const all = useLoad(async () => (await api.get('/clinic/messages/', { params: { patient: patient.id } })).data, [patient.id]);
   const info = all.data || data;
@@ -201,7 +107,8 @@ export default function Communications({ patient, role, onChanged, toast }) {
     if (d.channel === 'email') setComposer(null); };
   const resend = async (m) => { try { const { data: d } = await api.post(`/clinic/messages/${m.id}/resend/`); sent(d); } catch (e) { toast?.(errMsg(e), 'err'); } };
   const del = async (m) => { if (!window.confirm('Xóa mục này khỏi nhật ký liên lạc?')) return; try { await api.delete(`/clinic/messages/${m.id}/`); refresh(); } catch (e) { toast?.(errMsg(e), 'err'); } };
-  const jumpTo = (v) => { setJump(v); const el = document.getElementById(`cm-day-${v}`) || [...document.querySelectorAll('[data-day]')].find((n) => n.dataset.day <= v); el?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  const dayset = useMemo(() => new Set((all.data?.results || []).map((m) => dayKey(m.created_at))), [all.data]);
+  const jumpTo = (v) => { if (channel !== 'all') setChannel('all'); setTimeout(() => document.getElementById(`cm-day-${v}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80); };
   const counts = info?.counts || { all: 0, email: 0, sms: 0, chat: 0 };
   const tabs = [['all', 'Tất cả', counts.all, null], ['email', 'Email', counts.email, MailOutlineRounded], ['sms', 'SMS', counts.sms, ChatBubbleOutlineRounded], ['chat', 'Chat', counts.chat, ForumOutlined]];
   return <div className="cm">
@@ -212,8 +119,9 @@ export default function Communications({ patient, role, onChanged, toast }) {
     <div className="cm-bar">
       <nav className="cm-tabs" role="tablist">{tabs.map(([k, t, n, Ic]) => <button key={k} role="tab" aria-selected={channel === k} className={channel === k ? 'on' : ''} onClick={() => setChannel(k)}>{Ic && <Ic />}{t}<i>{n}</i></button>)}</nav>
       <div className="cm-right"><span className="cm-chip green"><i />{(all.data?.results || []).filter((m) => m.status === 'sent').length} đã gửi thật / {counts.all} mục</span>
-        <label className="cm-btn"><CalendarMonthOutlined />Nhảy tới ngày<input type="date" value={jump} onChange={(e) => jumpTo(e.target.value)} /></label>
-        <button className="cm-btn" onClick={() => window.print()}><PrintOutlined />In tất cả</button></div>
+        <span className="cm-cal-anchor"><button className={`cm-btn ${calOpen ? 'on' : ''}`} onClick={() => setCalOpen(!calOpen)}><CalendarMonthOutlined />Nhảy tới ngày</button>
+          {calOpen && <JumpCalendar days={dayset} onPick={jumpTo} onClose={() => setCalOpen(false)} />}</span>
+        <button className="cm-btn" onClick={() => setPrintOpen(true)}><PrintOutlined />In tất cả</button></div>
     </div>
     {error && <div className="cl-alert error">{error}</div>}
     {loading && !data ? <Loading /> : !rows.length ? <Empty title={channel === 'chat' && info && !info.has_account ? 'Khách chưa có tài khoản liên kết' : 'Chưa có liên lạc nào'} hint={channel === 'chat' ? (info?.has_account ? 'Khách chưa nhắn tin với phòng khám.' : 'Chỉ khách có tài khoản (hoặc nhắn qua Messenger) mới chat được. Liên kết hồ sơ với tài khoản để xem chat tại đây.') : 'Bấm nút + ở góc phải để gửi email hoặc SMS cho khách.'} />
@@ -230,7 +138,8 @@ export default function Communications({ patient, role, onChanged, toast }) {
         <button onClick={() => { setFab(false); setComposer('sms'); }}><span className="cm-ico sms"><ChatBubbleOutlineRounded /></span><span><b>SMS</b><small>Gửi tin nhắn SMS</small></span></button></div>}
       <button className="cm-fab" aria-label="Soạn liên lạc" aria-expanded={fab} onClick={() => setFab(!fab)}>{fab ? <CloseRounded /> : <AddRounded />}</button>
     </div>
-    {composer === 'email' && info && <EmailComposer patient={patient} info={info} onClose={() => setComposer(null)} onSent={sent} />}
-    {composer === 'sms' && info && <SmsComposer patient={patient} info={info} history={rows.length && channel !== 'email' ? rows : (all.data?.results || [])} onClose={() => setComposer(null)} onSent={sent} />}
+    {composer === 'email' && info && <EmailComposer patient={patient} info={info} role={role} onClose={() => setComposer(null)} onSent={sent} onToast={toast} />}
+    {composer === 'sms' && info && <SmsComposer patient={patient} info={info} role={role} history={all.data?.results || []} onClose={() => setComposer(null)} onSent={sent} onToast={toast} />}
+    {printOpen && <PrintModal patient={patient} items={all.data?.results || []} counts={counts} onClose={() => setPrintOpen(false)} />}
   </div>;
 }
