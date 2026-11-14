@@ -22,6 +22,7 @@ import { AdminStaffPage, AdminAttendancePage, AdminPayrollPage } from './pages/A
 import ClinicHome from './clinic/Home';
 import ReceptionPage from './clinic/Reception';
 import CalendarPage from './clinic/Calendar';
+import DayBoardPage from './clinic/DayBoard';
 import BookingListView from './clinic/BookingListView';
 import { PatientsPage } from './clinic/Patients';
 import ExamPage from './clinic/Exam';
@@ -87,6 +88,7 @@ export default function App(){return <Routes>
     <Route path="/change-password" element={<ChangePasswordPage/>}/>
     <Route path="/dashboard" element={<DashboardRoute/>}/>
     <Route path="/tiep-don" element={<Roles allow={['manager','doctor','consultant']}><ReceptionPage/></Roles>}/>
+    <Route path="/lich-hom-nay" element={<Roles allow={['manager','doctor','consultant']}><DayBoardPage/></Roles>}/>
     <Route path="/lich-hen" element={<Roles allow={CLINIC_ROLES}><CalendarPage/></Roles>}/>
     <Route path="/lich-hen/danh-sach" element={<Roles allow={CLINIC_ROLES}><BookingListView/></Roles>}/>
     <Route path="/benh-nhan" element={<Roles allow={CLINIC_ROLES}><PatientsPage/></Roles>}/>

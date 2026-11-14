@@ -107,7 +107,7 @@ const MENUS = {
   ],
 };
 
-const TITLES = [['/dashboard', 'Tổng quan'], ['/tiep-don', 'Tiếp đón'], ['/lich-hen', 'Lịch hẹn'], ['/benh-nhan', 'Bệnh nhân'], ['/kham', 'Khám bệnh'], ['/lieu-trinh', 'Liệu trình'], ['/ban-hang', 'Bán hàng'], ['/hoa-don', 'Hóa đơn'],
+const TITLES = [['/dashboard', 'Tổng quan'], ['/tiep-don', 'Tiếp đón'], ['/lich-hen', 'Lịch hẹn'], ['/lich-hom-nay', 'Lịch hôm nay'], ['/benh-nhan', 'Bệnh nhân'], ['/kham', 'Khám bệnh'], ['/lieu-trinh', 'Liệu trình'], ['/ban-hang', 'Bán hàng'], ['/hoa-don', 'Hóa đơn'],
   ['/thu-ngan', 'Thu ngân & công nợ'], ['/kho-thuoc', 'Kho & nhập hàng'], ['/cham-soc', 'Chăm sóc sau điều trị'], ['/hoat-dong', 'Hoạt động'], ['/bao-cao', 'Báo cáo quản trị'], ['/nhat-ky', 'Nhật ký hệ thống'], ['/tuan-thu', 'Tuân thủ & bảo mật'], ['/admin/services', 'Dịch vụ & bảng giá'], ['/admin/staff', 'Nhân sự'], ['/admin/attendance', 'Chấm công'],
   ['/admin/payroll', 'Bảng lương'], ['/admin/crm', 'Khách hàng thành viên'], ['/admin/vouchers', 'Ưu đãi & voucher'], ['/admin/email-marketing', 'Email Marketing'], ['/admin/conversations', 'Hộp thư tư vấn'], ['/cskh', 'Hộp thư tư vấn'], ['/bac-si/tu-van', 'Tư vấn'], ['/settings', 'Cài đặt'], ['/profile', 'Hồ sơ cá nhân'], ['/change-password', 'Đổi mật khẩu']];
 const titleOf = (path) => (TITLES.find(([p]) => path === p || path.startsWith(p + '/')) || [])[1] || '';
@@ -285,7 +285,7 @@ export default function ClinicShell() {
         <GlobalSearch />
         <div id="cl-top-actions" className="cl-top-actions" />
         <div className="cl-top-right">
-          {['manager', 'consultant', 'doctor', 'staff'].includes(user?.role) && <button type="button" className="cl-icon-btn cl-top-quick" aria-label="Mở lịch hẹn" title="Lịch hẹn" onClick={() => nav('/lich-hen')}><CalendarMonthRounded /></button>}
+          {['manager', 'consultant', 'doctor', 'staff'].includes(user?.role) && <button type="button" className="cl-icon-btn cl-top-quick" aria-label="Lịch hôm nay" title="Lịch hôm nay" onClick={() => nav(['manager', 'consultant', 'doctor'].includes(user?.role) ? '/lich-hom-nay' : '/lich-hen')}><CalendarMonthRounded /></button>}
           {['manager', 'consultant', 'doctor'].includes(user?.role) && <div className="cl-create-wrap">
             <button type="button" className="cl-create-trigger" aria-expanded={createOpen} aria-controls="cl-create-menu" onClick={() => setCreateOpen((value) => !value)}><AddRounded/><span>Tạo mới</span><ExpandMoreRounded/></button>
             {createOpen && <><button type="button" className="cl-create-dismiss" aria-label="Đóng menu tạo mới" onClick={() => setCreateOpen(false)} /><div id="cl-create-menu" className="cl-create-menu" role="menu" aria-label="Tạo mới">

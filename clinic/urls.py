@@ -1,7 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from . import activities_api, marketing, views, views_money, views_pkg, views_comms, views_stock, views_v2, views_v3, views_v4
+from . import activities_api, marketing, views, views_money, views_pkg, views_comms, views_dayboard, views_stock, views_v2, views_v3, views_v4
 
 router = DefaultRouter()
 router.register('patients', views.PatientViewSet, basename='clinic-patient')
@@ -37,6 +37,7 @@ router.register('data-requests', views_v4.DataRequestViewSet, basename='clinic-d
 router.register('incidents', views_v4.IncidentViewSet, basename='clinic-incident')
 
 urlpatterns = [
+    path('day-board/', views_dayboard.day_board),
     path('patients/<int:pk>/notes/', views_pkg.patient_notes),
     path('patients/<int:pk>/notes/<int:note_id>/', views_pkg.patient_note_delete),
     path('money/overview/', views_money.overview),

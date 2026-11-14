@@ -207,3 +207,41 @@ class PatientSummaryStatsTests(APITestCase):
         self.assertEqual(d['finance']['paid'], 400000)
         self.assertEqual(d['finance']['outstanding'], 600000)
         self.assertEqual(d['loyalty']['tier'], 'Bronze')
+
+
+class DayBoardTests(APITestCase):
+    """/api/clinic/day-board/: lịch hẹn của một ngày kèm giai đoạn và thanh toán."""
+
+    def test_stages_and_payment(self):
+        from datetime import datetime, time
+        from core.models import Booking
+        from clinic.models import Invoice, InvoiceItem, Payment, Visit
+        mgr = User.objects.create_user('mgr_db', password='x', role='manager', email='db@example.com')
+        p = Patient.objects.create(full_name='Khách Bảng Ngày', phone='0900000009')
+        day = timezone.localdate()
+        tz = timezone.get_current_timezone()
+
+        def mk(hour, status, visit_status=None, code='X'):
+            b = Booking.objects.create(patient=p, guest_name=p.full_name, appointment=timezone.make_aware(datetime.combine(day, time(hour, 0)), tz),
+                                       status=status, confirm_code=code)
+            v = Visit.objects.create(patient=p, booking=b, source='appointment', status=visit_status) if visit_status else None
+            return b, v
+        mk(8, 'confirmed', code='D1')
+        mk(9, 'checked_in', 'waiting', code='D2')
+        mk(10, 'in_progress', 'in_consult', code='D3')
+        b4, v4 = mk(11, 'completed', 'completed', code='D4')
+        mk(12, 'cancelled', code='D5')
+        inv = Invoice.objects.create(patient=p, visit=v4, created_by=mgr)
+        InvoiceItem.objects.create(invoice=inv, name='Peel', quantity=1, unit_price=500000)
+        inv.recalc()
+        Payment.objects.create(invoice=inv, amount=500000, method='cash')
+        inv.recalc()
+        self.client.force_authenticate(mgr)
+        d = self.client.get('/api/clinic/day-board/').json()
+        self.assertEqual(d['counts'], {'scheduled': 1, 'waiting': 1, 'progress': 1, 'done': 1, 'cancelled': 1, 'no_show': 0})
+        done = next(r for r in d['results'] if r['stage'] == 'done')
+        self.assertEqual(done['pay'], 'paid')
+        self.assertEqual(next(r for r in d['results'] if r['stage'] == 'scheduled')['pay'], 'none')
+        # ngày khác: rỗng
+        d2 = self.client.get('/api/clinic/day-board/?date=2001-01-01').json()
+        self.assertEqual(d2['results'], [])
