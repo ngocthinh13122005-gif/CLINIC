@@ -6,24 +6,15 @@ import PrintRounded from '@mui/icons-material/PrintRounded';
 import SearchRounded from '@mui/icons-material/SearchRounded';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { MedPicker, printHtml, useMedicines } from './Prescription';
+import { MedPicker, useMedicines } from './Prescription';
+import { loadClinicInfo, printInvoiceDoc } from './InvoiceDoc';
 import { Avatar, Btn, Card, Empty, Field, Loading, Modal, PageHead, Pill, errMsg, fmtDate, fmtDateTime, fmtTime, isoDay, money, useDebounce, useLoad, useToast } from './ui';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 export const invTone = { unpaid: 'red', partial: 'amber', paid: 'green', void: 'gray' };
 const METHODS = [['cash', 'Tiền mặt'], ['transfer', 'Chuyển khoản'], ['card', 'Quẹt thẻ'], ['ewallet', 'Ví điện tử']];
 
-export function printInvoice(inv) {
-  printHtml(`Hóa đơn ${inv.code}`, `<h1>HÓA ĐƠN THANH TOÁN</h1><div class="sub">Số: ${inv.code} · ${fmtDateTime(inv.created_at)}</div>
-  <div class="meta"><div><b>Khách hàng:</b> ${esc(inv.patient_name)}</div><div><b>Mã BN:</b> ${esc(inv.patient_code)}</div><div><b>SĐT:</b> ${esc(inv.patient_phone)}</div><div><b>Thu ngân:</b> ${esc(inv.created_by_name)}</div><div><b>Điều khoản:</b> ${esc(inv.payment_term_label)}</div><div><b>Ngày đến hạn:</b> ${fmtDate(inv.due_date)}</div></div>
-  <table><tr><th>#</th><th>Nội dung</th><th class="r">SL</th><th class="r">Đơn giá</th><th class="r">Thành tiền</th></tr>
-  ${inv.items.map((i, n) => `<tr><td>${n + 1}</td><td>${esc(i.name)}</td><td class="r">${i.quantity}</td><td class="r">${money(i.unit_price)}</td><td class="r">${money(i.amount)}</td></tr>`).join('')}
-  <tr><td colspan="4" class="r">Tạm tính</td><td class="r">${money(inv.subtotal)}</td></tr>${inv.discount ? `<tr><td colspan="4" class="r">Giảm giá</td><td class="r">-${money(inv.discount)}</td></tr>` : ''}
-  <tr class="tot"><td colspan="4" class="r">Tổng cộng</td><td class="r">${money(inv.total)}</td></tr><tr><td colspan="4" class="r">Đã thanh toán ròng</td><td class="r">${money(inv.paid)}</td></tr>${inv.refunded_total ? `<tr><td colspan="4" class="r">Đã hoàn tiền</td><td class="r">${money(inv.refunded_total)}</td></tr>` : ''}
-  <tr class="tot"><td colspan="4" class="r">Còn lại</td><td class="r">${money(inv.balance)}</td></tr></table>
-  ${inv.payments.length ? `<h3>Lịch sử thanh toán</h3><table>${inv.payments.map((p) => `<tr><td>${fmtDateTime(p.paid_at)}</td><td>${p.method_label}${p.reference ? ' · ' + esc(p.reference) : ''}</td><td class="r">${money(p.amount)}</td></tr>`).join('')}</table>` : ''}
-  <div class="sign"><b>Người lập</b><div style="height:46px"></div></div>`);
-}
+export async function printInvoice(inv) { printInvoiceDoc(inv, await loadClinicInfo()); }
 
 export function InvoiceForm({ patient, visitId, invoice, onClose, onSaved }) {
   const meds = useMedicines();

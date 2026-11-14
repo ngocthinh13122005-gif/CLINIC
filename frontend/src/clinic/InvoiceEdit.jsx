@@ -3,6 +3,12 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import AddRounded from '@mui/icons-material/AddRounded';
 import BlockRounded from '@mui/icons-material/BlockRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
+import EditNoteOutlined from '@mui/icons-material/EditNoteOutlined';
+import DescriptionOutlined from '@mui/icons-material/DescriptionOutlined';
+import ExpandLessRounded from '@mui/icons-material/ExpandLessRounded';
+import NotesOutlined from '@mui/icons-material/NotesOutlined';
+import PaymentsOutlined from '@mui/icons-material/PaymentsOutlined';
+import ReplayRounded from '@mui/icons-material/ReplayRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import PrintRounded from '@mui/icons-material/PrintRounded';
@@ -13,19 +19,25 @@ import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { MedPicker, useMedicines } from './Prescription';
 import { printInvoice } from './Billing';
+import { InvoicePreviewModal, useClinicInfo } from './InvoiceDoc';
 import { Loading, errMsg, fmtDate, fmtTime, money, useLoad, useToast } from './ui';
 import './sale.css';
+import './invoice.css';
 
 const TONE = { paid: '', partial: 'amber', unpaid: 'red', void: 'gray' };
 const EINV = { none: ['gray', 'Không xuất HĐĐT'], requested: ['amber', 'Khách yêu cầu xuất HĐĐT'], issued: ['', 'Đã xuất HĐĐT'] };
 const CLINIC_NAME = 'Phòng khám Da liễu OHIO';
+
+function Fold({ id, icon, title, sub, open, toggle, children }) {
+  return <section className={`iv-card iv-fold ${open ? 'open' : ''}`}><button type="button" className="iv-fold-h" aria-expanded={open} onClick={() => toggle(id)}><span className="ic">{icon}</span><span className="tx"><b>{title}</b><small>{sub}</small></span>{open ? <ExpandLessRounded /> : <ChevronRightRounded style={{ transform: 'rotate(90deg)' }} />}</button>{open && <div className="iv-fold-b">{children}</div>}</section>;
+}
 const sig = (rows) => JSON.stringify(rows.map((i) => [i.kind, i.name, i.medicine || null, i.service || null, Number(i.quantity), Number(i.unit_price)]));
 
 export default function InvoiceEditPage() {
   const { id } = useParams(); const [sp, setSp] = useSearchParams(); const nav = useNavigate(); const { user } = useAuth();
   const canBill = ['manager', 'consultant'].includes(user.role);
   const l = useLoad(async () => (await api.get(`/clinic/invoices/${id}/`)).data, [id]);
-  const meds = useMedicines();
+  const meds = useMedicines(); const clinic = useClinicInfo();
   const services = useLoad(async () => { const { data } = await api.get('/services/'); return data.results || data; }, []);
   const [toast, toastNode] = useToast();
   const inv = l.data;
@@ -33,7 +45,9 @@ export default function InvoiceEditPage() {
   const setTab = (t) => setSp(t === 'details' ? {} : { tab: t }, { replace: true });
   const [items, setItems] = useState([]); const [discount, setDiscount] = useState(0); const [note, setNote] = useState('');
   const [buyer, setBuyer] = useState({ buyer_name: '', buyer_tax_code: '', buyer_address: '', buyer_email: '', request: false });
-  const [err, setErr] = useState(''); const [busy, setBusy] = useState(false); const [menu, setMenu] = useState(false);
+  const [err, setErr] = useState(''); const [busy, setBusy] = useState(false); const [menu, setMenu] = useState(false); const [preview, setPreview] = useState(false);
+  const [open, setOpen] = useState({ ids: true, bill: true, adj: true, notes: true, einv: false });
+  const tgl = (k) => setOpen((o) => ({ ...o, [k]: !o[k] }));
   const menuRef = useRef(null);
   useEffect(() => { const h = (e) => menuRef.current && !menuRef.current.contains(e.target) && setMenu(false); document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h); }, []);
   useEffect(() => {
@@ -75,6 +89,13 @@ export default function InvoiceEditPage() {
   };
   const share = () => { navigator.clipboard?.writeText(`Hóa đơn ${inv.code} — ${money(inv.total)} — ${CLINIC_NAME}`).then(() => toast('Đã sao chép thông tin hóa đơn.'), () => toast('Không sao chép được.', 'err')); };
   const e = EINV[inv.einvoice_status] || EINV.none;
+  const feed = [
+    { at: inv.created_at, t: 'Tạo hóa đơn', d: `${inv.created_by_name || 'Hệ thống'} · ${fmtDate(inv.created_at)} ${fmtTime(inv.created_at)}`, tone: 'new' },
+    ...inv.payments.map((p) => ({ at: p.paid_at, t: `Thu ${money(p.amount)}`, d: `${p.method_label}${p.received_by_name ? ` · ${p.received_by_name}` : ''} · ${fmtDate(p.paid_at)} ${fmtTime(p.paid_at)}`, tone: 'pay' })),
+    ...(inv.refunds || []).map((r) => ({ at: r.created_at, t: `Hoàn tiền ${money(r.amount)} · ${r.status_label}`, d: `${r.method_label} · ${r.requested_by_name || ''} · ${fmtDate(r.created_at)} ${fmtTime(r.created_at)}`, tone: 'ref' })),
+    ...(inv.einvoice_at ? [{ at: inv.einvoice_at, t: 'Đã xuất hóa đơn điện tử', d: `${inv.einvoice_symbol}-${inv.einvoice_no}`, tone: 'new' }] : []),
+  ].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  if (isVoid) feed.unshift({ at: '', t: 'Hóa đơn đã hủy', d: inv.void_reason || '', tone: 'void' });
 
   return <div className="sx-edit">
     <header className="sx-edit-head">
@@ -82,12 +103,14 @@ export default function InvoiceEditPage() {
       <div><h1>{canBill ? 'Sửa hóa đơn' : 'Hóa đơn'} #{inv.code}</h1>
         <div className="pills"><span className={`sx-pillx ${e[0]}`}><i />{e[1]}</span><span className={`sx-pillx ${TONE[inv.status]}`}>{inv.status_label}</span></div></div>
       <span className="sp" />
-      <button className="sx-hbtn" onClick={() => printInvoice(inv)}><VisibilityOutlined fontSize="small" />Xem trước</button>
+      <button className="sx-hbtn" onClick={() => setPreview(true)}><VisibilityOutlined fontSize="small" />Xem trước</button>
       <button className="sx-hbtn round" onClick={share} aria-label="Sao chép thông tin"><ShareOutlined fontSize="small" /></button>
       <div ref={menuRef} style={{ position: 'relative' }}>
         <button className="sx-hbtn" onClick={() => setMenu(!menu)}>Tùy chọn<ExpandMoreRounded fontSize="small" /></button>
         {menu && <div className="sx-pop">
+          <button onClick={() => { setMenu(false); setPreview(true); }}><VisibilityOutlined fontSize="small" />Xem trước</button>
           <button onClick={() => { setMenu(false); printInvoice(inv); }}><PrintRounded fontSize="small" />In hóa đơn</button>
+          {inv.paid > 0 && !isVoid && canBill && <button onClick={() => { setMenu(false); nav(`/hoa-don/${id}/hoan-tien`); }}><ReplayRounded fontSize="small" />Hoàn tiền</button>}
           {inv.balance > 0 && !isVoid && canBill && <button onClick={() => nav(`/ban-hang/thu-tien/${id}`)}><ReceiptLongOutlined fontSize="small" />Thu tiền</button>}
           {user.role === 'manager' && !isVoid && !hasPay && <button className="dng" onClick={() => { setMenu(false); voidIt(); }}><BlockRounded fontSize="small" />Hủy hóa đơn</button>}
         </div>}
@@ -102,24 +125,37 @@ export default function InvoiceEditPage() {
     </nav>
 
     <div className="sx-edit-body">
-      {tab === 'details' && <section className="sx-panel"><header><h2>Chi tiết hóa đơn</h2></header>
-        <div className="sx-form">
-          <label>Khách hàng<span className="val">{walk ? 'Khách vãng lai' : <Link to={`/benh-nhan/${inv.patient}`}>{inv.patient_name}</Link>}</span></label>
-          <label>Cơ sở<span className="val">{CLINIC_NAME}</span></label>
-          <label>Ngày lập<span className="val">{fmtDate(inv.created_at)} {fmtTime(inv.created_at)}</span></label>
-          <label>Người lập<span className="val">{inv.created_by_name || '—'}</span></label>
-          <label>Giảm giá (đ)<input type="number" min={0} step={1000} disabled={lockAll} value={discount} onChange={(x) => setDiscount(x.target.value)} /></label>
-          <label>Tổng cộng<span className="val">{money(total)}</span></label>
-          <label className="span">Ghi chú<textarea disabled={lockAll} value={note} maxLength={255} onChange={(x) => setNote(x.target.value)} /></label>
-          <h3>Xuất hóa đơn điện tử</h3>
-          {issued && <div className="sx-note span" style={{ gridColumn: '1/-1', margin: 0 }}>Đã xuất hóa đơn điện tử {inv.einvoice_symbol}-{inv.einvoice_no}. Không sửa được thông tin người mua; cần lập hóa đơn điều chỉnh trên hệ thống của nhà cung cấp.</div>}
-          <label>Tên đơn vị / người mua<input disabled={lockAll || issued} value={buyer.buyer_name} onChange={(x) => setBuyer({ ...buyer, buyer_name: x.target.value })} /></label>
-          <label>Mã số thuế<input disabled={lockAll || issued} placeholder="10 hoặc 13 số" value={buyer.buyer_tax_code} onChange={(x) => setBuyer({ ...buyer, buyer_tax_code: x.target.value })} /></label>
-          <label>Email nhận hóa đơn<input disabled={lockAll || issued} value={buyer.buyer_email} onChange={(x) => setBuyer({ ...buyer, buyer_email: x.target.value })} /></label>
-          <label>Địa chỉ<input disabled={lockAll || issued} value={buyer.buyer_address} onChange={(x) => setBuyer({ ...buyer, buyer_address: x.target.value })} /></label>
-          <label className="chk span"><input type="checkbox" disabled={lockAll || issued} checked={buyer.request} onChange={(x) => setBuyer({ ...buyer, request: x.target.checked })} />Khách yêu cầu xuất hóa đơn điện tử</label>
-          {inv.void_reason && <label className="span">Lý do hủy<span className="val">{inv.void_reason}</span></label>}
-        </div></section>}
+      {tab === 'details' && <div className="iv-cols">
+        <aside className="iv-side">
+          <section className="iv-card iv-sum"><h3>Tóm tắt thanh toán</h3>
+            <dl><div><dt>Tổng hóa đơn</dt><dd>{money(total)}</dd></div><div><dt>Đã thanh toán</dt><dd className="g">{money(inv.paid)}</dd></div>{!!inv.refunded && <div><dt>Đã hoàn tiền</dt><dd>{money(inv.refunded)}</dd></div>}
+              <div className="due"><dt>Còn lại</dt><dd className={inv.balance && !isVoid ? 'r' : ''}>{isVoid ? '—' : money(inv.balance)}</dd></div></dl>
+            <div className="iv-bar" aria-hidden="true"><i style={{ width: `${total ? Math.min(100, Math.round((inv.paid / total) * 100)) : 0}%` }} /></div>
+            {canBill && inv.balance > 0 && !isVoid && <button className="iv-btn pri block" onClick={() => nav(`/ban-hang/thu-tien/${id}`)}><AddRounded fontSize="small" />Thu tiền</button>}</section>
+          <section className="iv-card"><h3>Hoạt động <em>{feed.length}</em></h3>
+            <ol className="iv-feed">{feed.map((a, i) => <li key={i} className={a.tone}><span className="dot" /><div><b>{a.t}</b><small>{a.d}</small></div></li>)}</ol></section>
+        </aside>
+        <div className="iv-main">
+          <Fold id="ids" icon={<DescriptionOutlined />} title="Thông tin hóa đơn" sub="Số hóa đơn, ngày lập và lịch hẹn liên quan" open={open.ids} toggle={tgl}>
+            <div className="iv-grid"><label>Số hóa đơn<input readOnly value={inv.code} /></label><label>Ngày lập<input readOnly value={`${fmtDate(inv.created_at)} ${fmtTime(inv.created_at)}`} /></label>
+              <label className="span">Liên quan đến<input readOnly value={inv.treatment_plan_title ? `Liệu trình: ${inv.treatment_plan_title}` : inv.visit ? `Lượt khám #${inv.visit}` : 'Không gắn lịch hẹn / lượt khám'} /></label></div></Fold>
+          <Fold id="bill" icon={<PaymentsOutlined />} title="Thanh toán & người nhận" sub="Cơ sở, người lập và điều khoản thanh toán" open={open.bill} toggle={tgl}>
+            <div className="iv-grid"><label>Khách hàng{walk ? <input readOnly value="Khách vãng lai" /> : <span className="val"><Link to={`/benh-nhan/${inv.patient}`}>{inv.patient_name}</Link></span>}</label>
+              <label>Cơ sở<input readOnly value={clinic.name} /></label><label>Người lập<input readOnly value={inv.created_by_name || '—'} /></label>
+              <label>Điều khoản thanh toán<input readOnly value={`${inv.payment_term_label || 'Thanh toán ngay'}${inv.due_date ? ` · hạn ${fmtDate(inv.due_date)}` : ''}`} /></label></div></Fold>
+          <Fold id="adj" icon={<EditNoteOutlined />} title="Điều chỉnh giá" sub="Giảm giá áp dụng cho toàn hóa đơn" open={open.adj} toggle={tgl}>
+            <div className="iv-grid"><label>Giảm giá (đ)<input type="number" min={0} step={1000} disabled={lockAll} value={discount} onChange={(x) => setDiscount(x.target.value)} /></label><label>Tổng cộng<input readOnly value={money(total)} /></label></div></Fold>
+          <Fold id="notes" icon={<NotesOutlined />} title="Ghi chú hóa đơn" sub="Hiển thị trên hóa đơn in cho khách" open={open.notes} toggle={tgl}>
+            <label className="iv-one"><textarea rows={3} disabled={lockAll} value={note} maxLength={255} placeholder="Thêm ghi chú, hướng dẫn đặc biệt…" onChange={(x) => setNote(x.target.value)} /><small>{note.length}/255</small></label>
+            {inv.void_reason && <p className="iv-void">Lý do hủy: {inv.void_reason}</p>}</Fold>
+          <Fold id="einv" icon={<ReceiptLongOutlined />} title="Xuất hóa đơn điện tử" sub={`${e[1]} · thông tin người mua, mã số thuế`} open={open.einv} toggle={tgl}>
+            {issued && <div className="sx-note" style={{ margin: '0 0 12px' }}>Đã xuất hóa đơn điện tử {inv.einvoice_symbol}-{inv.einvoice_no}. Không sửa được thông tin người mua; cần lập hóa đơn điều chỉnh trên hệ thống của nhà cung cấp.</div>}
+            <div className="iv-grid"><label>Tên đơn vị / người mua<input disabled={lockAll || issued} value={buyer.buyer_name} onChange={(x) => setBuyer({ ...buyer, buyer_name: x.target.value })} /></label>
+              <label>Mã số thuế<input disabled={lockAll || issued} placeholder="10 hoặc 13 số" value={buyer.buyer_tax_code} onChange={(x) => setBuyer({ ...buyer, buyer_tax_code: x.target.value })} /></label>
+              <label>Email nhận hóa đơn<input disabled={lockAll || issued} value={buyer.buyer_email} onChange={(x) => setBuyer({ ...buyer, buyer_email: x.target.value })} /></label>
+              <label>Địa chỉ<input disabled={lockAll || issued} value={buyer.buyer_address} onChange={(x) => setBuyer({ ...buyer, buyer_address: x.target.value })} /></label>
+              <label className="chk span"><input type="checkbox" disabled={lockAll || issued} checked={buyer.request} onChange={(x) => setBuyer({ ...buyer, request: x.target.checked })} />Khách yêu cầu xuất hóa đơn điện tử</label></div></Fold>
+        </div></div>}
 
       {tab === 'items' && <section className="sx-panel"><header><h2>Mặt hàng</h2></header>
         {hasPackage && !isVoid && <div className="sx-note">Hóa đơn có gói liệu trình; không thể sửa các dòng hàng để bảo toàn giá trị gói và số buổi.</div>}
@@ -153,6 +189,7 @@ export default function InvoiceEditPage() {
         <div className="sx-foot3"><div><span>Còn nợ</span><b className={inv.balance && !isVoid ? 'r' : ''}>{isVoid ? '—' : money(inv.balance)}</b></div><div><span>Đã phân bổ</span><b className="g">{money(inv.paid)}</b></div><div><span>Tổng hóa đơn</span><b>{money(inv.total)}</b></div></div>
       </section>}
     </div>
+    {preview && <InvoicePreviewModal inv={inv} onClose={() => setPreview(false)} />}
     {toastNode}
   </div>;
 }

@@ -35,6 +35,7 @@ import MoneyPage from './clinic/Money';
 import ClientProfilePage from './clinic/ClientProfile';
 import SalePage, { AddPaymentPage } from './clinic/Sale';
 import InvoiceEditPage from './clinic/InvoiceEdit';
+import InvoiceRefundPage from './clinic/InvoiceRefund';
 import { ChangePasswordPage, ForgotPasswordPage } from './pages/AuthSecurityPages';
 import EmailMarketingPage from './pages/EmailMarketingPage';
 import CRMPage from './pages/CRMPage';
@@ -94,6 +95,7 @@ export default function App(){return <Routes>
     <Route path="/thu-ngan" element={<Roles allow={['manager','consultant']}><MoneyPage/></Roles>}/>
     <Route path="/ban-hang" element={<Roles allow={['manager','consultant']}><SalePage/></Roles>}/>
     <Route path="/ban-hang/thu-tien/:id" element={<Roles allow={['manager','consultant']}><AddPaymentPage/></Roles>}/>
+    <Route path="/hoa-don/:id/hoan-tien" element={<Roles allow={['manager','consultant']}><InvoiceRefundPage/></Roles>}/>
     <Route path="/hoa-don/:id" element={<Roles allow={['manager','consultant','doctor']}><InvoiceEditPage/></Roles>}/>
     <Route path="/kho-thuoc" element={<Roles allow={['manager','doctor','consultant']}><PharmacyPage/></Roles>}/>
     <Route path="/bao-cao" element={<Roles allow={['manager']}><ReportsPage/></Roles>}/>

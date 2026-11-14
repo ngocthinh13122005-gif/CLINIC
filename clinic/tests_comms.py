@@ -182,3 +182,28 @@ class ComposerFeatureTests(APITestCase):
         self.assertNotIn('{{', out)
         self.assertNotIn('<dl', out)  # dl được đổi thành bảng
         self.assertIn('<table', out)
+
+
+class PatientSummaryStatsTests(APITestCase):
+    """Dải thống kê cuối hồ sơ khách: summary phải trả stats / finance / loyalty."""
+
+    def setUp(self):
+        from clinic.models import Invoice, InvoiceItem, Payment
+        self.mgr = User.objects.create_user('mgr_sum', password='x', role='manager', email='m@example.com')
+        self.p = Patient.objects.create(full_name='Khách Thống Kê', phone='0900000001')
+        inv = Invoice.objects.create(patient=self.p, created_by=self.mgr)
+        InvoiceItem.objects.create(invoice=inv, name='Peel', quantity=1, unit_price=1000000)
+        inv.recalc()
+        Payment.objects.create(invoice=inv, amount=400000, method='cash')
+        inv.recalc()
+
+    def test_manager_gets_stats_and_finance(self):
+        self.client.force_authenticate(self.mgr)
+        d = self.client.get(f'/api/clinic/patients/{self.p.id}/summary/').json()
+        self.assertEqual(d['stats']['bookings'], 0)
+        self.assertEqual(d['stats']['upcoming'], 0)
+        self.assertIsNone(d['stats']['days_since_last_visit'])
+        self.assertEqual(d['finance']['billed'], 1000000)
+        self.assertEqual(d['finance']['paid'], 400000)
+        self.assertEqual(d['finance']['outstanding'], 600000)
+        self.assertEqual(d['loyalty']['tier'], 'Bronze')

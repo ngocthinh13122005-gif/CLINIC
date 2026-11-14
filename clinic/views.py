@@ -278,6 +278,29 @@ class PatientViewSet(viewsets.ModelViewSet):
         av = p.visits.filter(status__in=[Visit.WAITING, Visit.IN_CONSULT]).first()
         if av:
             data['active_visit'] = {'id': av.id, 'status': av.status, 'status_label': av.get_status_display()}
+        # Số liệu cho dải thống kê cuối hồ sơ (lịch hẹn + tài chính)
+        bookings = Booking.objects.filter(patient=p)
+        last_seen = data['last_visit'] or (bookings.filter(appointment__lt=now).exclude(status=Booking.CANCELLED)
+                                           .order_by('-appointment').values_list('appointment', flat=True).first())
+        data['stats'] = {
+            'bookings': bookings.count(),
+            'upcoming': upcoming.count(),
+            'cancelled': bookings.filter(status=Booking.CANCELLED).count(),
+            'no_show': bookings.filter(status=Booking.NO_SHOW).count(),
+            'days_since_last_visit': (timezone.localdate() - timezone.localtime(last_seen).date()).days if last_seen else None,
+        }
+        if request.user.role in {'manager', 'consultant', 'doctor'}:
+            invs = [i for i in p.invoices.all() if i.status != 'void']
+            billed = sum(i.total for i in invs)
+            paid = sum(i.paid for i in invs)
+            data['finance'] = {'billed': billed, 'paid': paid, 'outstanding': sum(i.balance for i in invs),
+                               'invoice_count': len(invs), 'credit': 0}
+            tier_name = 'Bronze'
+            if p.user_id:
+                from accounts.models import User
+                tier_name = p.user.membership_tier_override or User.loyalty_tier_for_spend(paid)['name']
+            data['loyalty'] = {'tier': tier_name, 'spend': paid, 'linked': bool(p.user_id),
+                               'points': p.user.loyalty_points if p.user_id else 0}
         if request.user.role in CLINICAL_READ | {'staff'}:
             plans = p.plans.filter(status=TreatmentPlan.ACTIVE)
             data['active_plans'] = [{'id': x.id, 'title': x.title, 'done': x.done_sessions, 'total': x.total_sessions} for x in plans]

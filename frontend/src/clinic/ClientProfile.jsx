@@ -14,6 +14,7 @@ import Inventory2Outlined from '@mui/icons-material/Inventory2Outlined';
 import LoyaltyOutlined from '@mui/icons-material/LoyaltyOutlined';
 import PlayArrowRounded from '@mui/icons-material/PlayArrowRounded';
 import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined';
+import SearchRounded from '@mui/icons-material/SearchRounded';
 import TaskAltOutlined from '@mui/icons-material/TaskAltOutlined';
 import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
 import api from '../api/client';
@@ -89,23 +90,34 @@ function Appointments({ list }) {
 /* ------------------------------------------------------------------ tài chính */
 function Finance({ patient, invoices, openInv, canSell }) {
   const nav = useNavigate();
-  const [sub, setSub] = useState('inv'); const [f, setF] = useState('all');
+  const [sub, setSub] = useState('inv'); const [f, setF] = useState('all'); const [q, setQ] = useState(''); const [openRow, setOpenRow] = useState(null);
   const inv = invoices || [];
   const pays = inv.flatMap((i) => i.payments.map((p) => ({ ...p, invoice_code: i.code, invoice: i.id }))).sort((a, b) => b.paid_at.localeCompare(a.paid_at));
   const items = inv.filter((i) => i.status !== 'void').flatMap((i) => i.items.map((x) => ({ ...x, invoice_code: i.code, invoice: i.id, created_at: i.created_at })));
   const open = inv.filter((i) => ['unpaid', 'partial'].includes(i.status)); const closed = inv.filter((i) => ['paid', 'void'].includes(i.status));
-  const shown = f === 'open' ? open : f === 'closed' ? closed : inv;
+  const byF = f === 'open' ? open : f === 'closed' ? closed : inv;
+  const kw = q.trim().toLowerCase();
+  const shown = kw ? byF.filter((i) => `${i.code} ${i.items.map((x) => x.name).join(' ')} ${i.created_by_name}`.toLowerCase().includes(kw)) : byF;
+  const totalBilled = inv.filter((i) => i.status !== 'void').reduce((n, i) => n + i.total, 0); const totalDebt = inv.filter((i) => i.status !== 'void').reduce((n, i) => n + i.balance, 0);
   const firstDebt = open.find((i) => Number(i.balance) > 0);
   return <>
     {canSell && <div className="pb-actions-row"><Link className="pb-btn blue" to={`/ban-hang?patient=${patient.id}`}>Tạo hóa đơn</Link><button className="pb-btn" disabled={!firstDebt} title={firstDebt ? 'Thu tiền cho hóa đơn còn nợ' : 'Khách chưa có hóa đơn còn nợ'} onClick={() => firstDebt && nav(`/ban-hang/thu-tien/${firstDebt.id}`)}>Thu nhanh</button></div>}
-    <Sub value={sub} onChange={setSub} items={[['inv', 'Hóa đơn', inv.length], ['pay', 'Thanh toán', pays.length], ['items', 'Mặt hàng', items.length]]} />
+    <nav className="pb-bigpills" role="tablist">{[['inv', 'Hóa đơn', inv.length], ['pay', 'Thanh toán', pays.length], ['items', 'Mặt hàng', items.length]].map(([k, t, n]) => <button key={k} role="tab" aria-selected={sub === k} className={sub === k ? 'on' : ''} onClick={() => setSub(k)}>{t}<i>{n}</i></button>)}</nav>
     {sub === 'inv' && <>
-      <nav className="pb-pills"><button className={f === 'all' ? 'on' : ''} onClick={() => setF('all')}>Tất cả<i>{inv.length}</i></button><button className={f === 'open' ? 'on' : ''} onClick={() => setF('open')}>Còn nợ<i>{open.length}</i></button><button className={f === 'closed' ? 'on' : ''} onClick={() => setF('closed')}>Đã đóng<i>{closed.length}</i></button></nav>
-      <section className="pb-card pb-grid"><div className="pb-table-wrap"><table className="pb-table"><thead><tr><th>Hóa đơn</th><th>Nội dung</th><th>Người lập</th><th>Trạng thái</th><th className="r">Số tiền</th><th className="r">Còn nợ</th></tr></thead>
-        <tbody>{shown.map((i) => <tr key={i.id} className="click" onClick={() => openInv(i.id)}><td><b className="pb-code">{i.code}</b><small className="pb-sub2">{fmtDate(i.created_at)}</small></td>
-          <td><span className="pb-ellip w">{i.items.map((x) => x.name).join(', ') || '—'}</span></td><td>{i.created_by_name}</td><td><Pill tone={invTone[i.status]} dot>{i.status_label}</Pill></td>
-          <td className="r"><b>{money(i.total)}</b></td><td className="r"><span className={i.balance && i.status !== 'void' ? 'pb-red' : ''}>{i.status === 'void' ? '—' : money(i.balance)}</span></td></tr>)}
-          {!shown.length && <tr><td className="pb-none" colSpan={6}>Chưa có hóa đơn.</td></tr>}</tbody></table></div></section></>}
+      <div className="pb-invbar">
+        <nav className="pb-seg">{[['all', 'Tất cả', inv.length, ''], ['open', 'Còn nợ', open.length, 'amber'], ['closed', 'Đã đóng', closed.length, 'green']].map(([k, t, n, c]) => <button key={k} className={f === k ? 'on' : ''} onClick={() => setF(k)}>{c && <u className={c} />}{t}<i>{n}</i></button>)}</nav>
+        <label className="pb-search"><SearchRounded /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm theo mã, dịch vụ, người lập…" aria-label="Tìm hóa đơn" /></label>
+      </div>
+      <section className="pb-card pb-grid"><div className="pb-table-wrap"><table className="pb-table pb-invtable"><thead><tr><th>Hóa đơn</th><th>Nội dung</th><th>Người lập</th><th>Trạng thái</th><th className="r">Số tiền</th><th className="r">Còn nợ</th><th aria-label="Mở rộng" /></tr></thead>
+        <tbody>{shown.map((i) => [<tr key={i.id} className="click" onClick={() => openInv(i.id)}><td><span className="pb-sub2 d">{fmtDate(i.created_at)}</span><b className="pb-code lnk">{i.code}</b></td>
+          <td><span className="pb-ellip w">{i.items.length ? <>{i.items[0].name}{i.items.length > 1 && <em className="pb-more">+{i.items.length - 1}</em>}</> : '—'}</span></td><td>{i.created_by_name || '—'}</td><td><Pill tone={invTone[i.status]} dot>{i.status_label}</Pill></td>
+          <td className="r"><b>{money(i.total)}</b></td><td className="r"><span className={i.balance && i.status !== 'void' ? 'pb-red' : 'pb-dim'}>{i.status === 'void' ? '—' : money(i.balance)}</span></td>
+          <td className="x"><button aria-label="Xem nhanh" aria-expanded={openRow === i.id} onClick={(e) => { e.stopPropagation(); setOpenRow(openRow === i.id ? null : i.id); }}><ExpandMoreRounded style={{ transform: openRow === i.id ? 'rotate(180deg)' : 'none' }} /></button></td></tr>,
+          openRow === i.id && <tr key={`${i.id}x`} className="pb-invx"><td colSpan={7}><div className="pb-invx-in">
+            <div><h5>Mặt hàng</h5>{i.items.map((x) => <p key={x.id}><span>{x.quantity} × {x.name}</span><b>{money(x.amount)}</b></p>)}</div>
+            <div><h5>Thanh toán</h5>{i.payments.length ? i.payments.map((x) => <p key={x.id}><span>{fmtDate(x.paid_at)} · {x.method_label}</span><b>{money(x.amount)}</b></p>) : <p className="pb-dim">Chưa có thanh toán.</p>}</div></div></td></tr>])}
+          {!shown.length && <tr><td className="pb-none" colSpan={7}>{kw ? 'Không có hóa đơn phù hợp.' : 'Chưa có hóa đơn.'}</td></tr>}</tbody></table></div></section>
+      <div className="pb-totchip" aria-live="polite"><span>Còn nợ<b className={totalDebt ? 'red' : ''}>{money(totalDebt)}</b></span><span>Tổng đã lập<b>{money(totalBilled)}</b></span></div></>}
     {sub === 'pay' && <section className="pb-card pb-grid"><div className="pb-table-wrap"><table className="pb-table"><thead><tr><th>Thời gian</th><th>Hóa đơn</th><th>Phương thức</th><th>Mã giao dịch</th><th>Người thu</th><th className="r">Số tiền</th></tr></thead>
       <tbody>{pays.map((p) => <tr key={p.id} className="click" onClick={() => openInv(p.invoice)}><td>{fmtDate(p.paid_at)} {fmtTime(p.paid_at)}</td><td><b className="pb-code">{p.invoice_code}</b></td><td>{p.method_label}</td><td>{p.reference || '—'}</td><td>{p.received_by_name}</td><td className="r"><b>{money(p.amount)}</b></td></tr>)}
         {!pays.length && <tr><td className="pb-none" colSpan={6}>Chưa có thanh toán.</td></tr>}</tbody></table></div></section>}
@@ -202,10 +214,19 @@ export default function ClientProfilePage() {
         {tab === 'comm' && canFinance && <Communications patient={patient} role={role} toast={toast} onChanged={() => comms.reload(true)} />}
         {tab === 'act' && canFinance && <PatientActivities patient={patient} onChanged={() => activitySummary.reload(true)} />}
       </div>
-      <footer className="pb-statbar">
-        <div className="grp"><small>LỊCH HẸN</small><div><span><b>{s?.stats?.bookings ?? '—'}</b>Tổng lịch hẹn</span><span className="blue"><b>{s?.stats?.upcoming ?? '—'}</b>Sắp tới</span><span><b>{s?.stats?.cancelled ?? '—'}</b>Đã hủy</span><span><b>{s?.stats?.days_since_last_visit ?? '—'}</b>Ngày từ lần khám cuối</span></div></div>
-        {canFinance && s?.finance && <div className="grp"><small>TÀI CHÍNH</small><div><span><b>{money(s.finance.billed)}</b>Tổng đã lập</span><span><b>{money(s.finance.paid)}</b>Đã thanh toán</span><span className={s.finance.outstanding ? 'hot' : ''}><b>{money(s.finance.outstanding)}</b>Còn nợ</span></div></div>}
-      </footer>
+      {tab !== 'fin' && <footer className="pb-statbar" aria-label="Tổng quan khách hàng">
+        <div className="grp"><small>LỊCH HẸN</small><div>
+          <span><b>{s ? s.stats?.bookings ?? 0 : '…'}</b>Tổng lịch hẹn</span>
+          <span className="blue"><b>{s ? s.stats?.upcoming ?? 0 : '…'}</b>Sắp tới</span>
+          <span className={s?.stats?.no_show ? 'warn' : ''}><b>{s ? s.stats?.no_show ?? 0 : '…'}</b>Không đến</span>
+          <span><b>{s ? s.stats?.cancelled ?? 0 : '…'}</b>Đã hủy</span>
+          <span><b>{s ? (s.stats?.days_since_last_visit ?? '—') : '…'}</b>Ngày từ lần khám cuối</span></div></div>
+        {canFinance && <div className="grp"><small>TÀI CHÍNH</small><div>
+          <span><b>{s?.finance ? money(s.finance.billed) : '…'}</b>Tổng đã lập</span>
+          <span><b>{s?.finance ? money(s.finance.paid) : '…'}</b>Đã thanh toán</span>
+          <span><b>{s?.finance ? money(s.finance.credit) : '…'}</b>Số dư có</span>
+          <span className={`hot ${s?.finance?.outstanding ? 'red' : ''}`}><b>{s?.finance ? money(s.finance.outstanding) : '…'}</b>Còn nợ</span></div></div>}
+      </footer>}
     </main>
     <PatientFormModal open={editing} patient={patient} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); reloadAll(); toast('Đã cập nhật hồ sơ.'); }} />
     {notesOpen && <NotesModal patient={patient} onClose={() => setNotesOpen(false)} onChanged={() => { sum.reload(true); p.reload(true); }} />}
