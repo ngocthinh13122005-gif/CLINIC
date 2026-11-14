@@ -268,3 +268,7 @@ body.pk-lock{overflow:hidden}
   .public-shell *,.public-shell *::before,.public-shell *::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
   .pk-reveal{opacity:1;transform:none}.pk-card:hover{transform:none}
 }
+
+/* Ảnh dịch vụ trong bước chọn dịch vụ của trang đặt lịch */
+.public-shell .bk-svc-row .bk-svc-image,.public-shell .bk-svc-row .pk-photo-ph{width:72px;height:56px;flex:none;border-radius:8px;object-fit:cover}
+.public-shell .bk-svc-row .pk-photo-ph svg{font-size:24px}

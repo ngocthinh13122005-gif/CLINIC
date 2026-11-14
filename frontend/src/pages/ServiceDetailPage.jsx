@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import AccessTimeRounded from '@mui/icons-material/AccessTimeRounded';
 import MedicalServicesOutlined from '@mui/icons-material/MedicalServicesOutlined';
 import api from '../api/client';
-import { BOOKING_POLICY, bookLabel, bookLink, money, useDoctors } from '../components/public/usePublic';
+import { BOOKING_POLICY, bookLabel, bookLink, money, serviceImg, useDoctors } from '../components/public/usePublic';
 import { DoctorCard, PageHero, Photo, Section, SectionHead } from '../components/public/PublicParts';
 
 export default function ServiceDetailPage() {
@@ -17,7 +17,7 @@ export default function ServiceDetailPage() {
   return <div className="pk-page">
     <PageHero title={s.name} eyebrow={s.category_name || 'Dịch vụ'} crumbs={[{ label: 'Trang chủ', to: '/' }, { label: 'Dịch vụ', to: '/dich-vu' }, { label: s.name }]}/>
     <div className="pk-wrap pk-body pk-detail">
-      <div className="pk-detail-media"><Photo src={s.image_url} alt={s.name} fallback={<MedicalServicesOutlined/>} loading="eager"/></div>
+      <div className="pk-detail-media"><Photo src={serviceImg(s)} alt={s.name} fallback={<MedicalServicesOutlined/>} loading="eager"/></div>
       <div className="pk-detail-info">
         <h2>Giới thiệu dịch vụ</h2>
         <p className="pk-prose">{s.description || 'Thông tin chi tiết về dịch vụ sẽ được bác sĩ trao đổi trong buổi thăm khám, dựa trên tình trạng da của bạn.'}</p>

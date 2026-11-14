@@ -4,7 +4,7 @@ import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
 import MedicalServicesOutlined from '@mui/icons-material/MedicalServicesOutlined';
 import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded';
 import SpaOutlined from '@mui/icons-material/SpaOutlined';
-import { bookLabel, bookLink, money, useReveal } from './usePublic';
+import { bookLabel, bookLink, money, serviceImg, useReveal } from './usePublic';
 
 /** Ảnh có dự phòng: nếu không tải được sẽ hiện khung màu nhạt thay vì ảnh lỗi. */
 export function Photo({ src, alt, className = '', fallback, loading = 'lazy' }) {
@@ -30,7 +30,7 @@ export function TextLink({ to, children }) { return <Link to={to} className="pk-
 export function ServiceCard({ s }) {
   return <article className="pk-card pk-svc">
     <Link to={`/dich-vu/${s.id}`} className="pk-svc-media" aria-label={`Xem chi tiết ${s.name}`} tabIndex={-1}>
-      <Photo src={s.image_url} alt={s.name} fallback={<MedicalServicesOutlined/>}/>
+      <Photo src={serviceImg(s)} alt={s.name} fallback={<MedicalServicesOutlined/>}/>
     </Link>
     <div className="pk-svc-body">
       <span className="pk-tag">{s.category_name || 'Dịch vụ'}</span>

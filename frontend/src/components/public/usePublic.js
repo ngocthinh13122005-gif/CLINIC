@@ -62,3 +62,13 @@ export const BOOKING_POLICY = {
 
 export const bookLink = (s) => `/book?service_id=${s.id}${s.booking_policy === 'direct' ? '&appointment_type=procedure' : ''}`;
 export const bookLabel = (s) => (s.booking_policy === 'direct' ? 'Đặt lịch' : 'Đặt lịch tư vấn');
+
+const UP = 'https://akinacenter.com/wp-content/uploads/';
+export const CLINIC_PHOTO = `${UP}2022/01/MG_4616-1.jpg`;
+const SERVICE_PHOTOS = [
+  [/peel/i, `${UP}2021/09/akina-chemical-peel-scaled.jpg`],
+  [/plasma|profhilo|tái tạo/i, `${UP}2021/09/akina-plasma-med-scaled.jpg`],
+  [/rf|lăn kim|trẻ hóa/i, `${UP}2021/09/akina-lan-kim-tre-hoa-scaled.jpg`],
+];
+/** Ảnh dịch vụ: ưu tiên ảnh tải lên trong hệ thống, sau đó ảnh tương ứng trên akinacenter.com, cuối cùng là ảnh phòng khám. */
+export const serviceImg = (s) => s.image_url || (SERVICE_PHOTOS.find(([re]) => re.test(s.name || '')) || [null, CLINIC_PHOTO])[1];

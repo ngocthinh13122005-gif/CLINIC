@@ -7,9 +7,8 @@ import EventRepeatOutlined from '@mui/icons-material/EventRepeatOutlined';
 import FactCheckOutlined from '@mui/icons-material/FactCheckOutlined';
 import MedicalInformationOutlined from '@mui/icons-material/MedicalInformationOutlined';
 import { CardSkeletons, DoctorCard, Photo, Section, SectionHead, ServiceCard, StateBox, TextLink } from '../components/public/PublicParts';
-import { DEFAULT_HOTLINE, telHref, useClinicProfile, useDoctors, useServices } from '../components/public/usePublic';
+import { CLINIC_PHOTO as HERO_IMG, DEFAULT_HOTLINE, telHref, useClinicProfile, useDoctors, useServices } from '../components/public/usePublic';
 
-const HERO_IMG = 'https://akinacenter.com/wp-content/uploads/2022/01/MG_4616-1.jpg';
 const WHY = [
   { icon: MedicalInformationOutlined, t: 'Thăm khám chuyên môn', d: 'Bác sĩ đánh giá tình trạng da trực tiếp trước khi đề xuất bất kỳ dịch vụ nào.' },
   { icon: FactCheckOutlined, t: 'Kế hoạch điều trị cá nhân hóa', d: 'Hướng chăm sóc và liệu trình được xây dựng theo tình trạng và mục tiêu của từng người.' },
