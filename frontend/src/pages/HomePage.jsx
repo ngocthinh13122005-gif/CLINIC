@@ -1,179 +1,91 @@
-import AutoAwesomeRounded from '@mui/icons-material/AutoAwesomeRounded';
-import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
-import CheckCircleOutlineRounded from '@mui/icons-material/CheckCircleOutlineRounded';
-import MedicalServicesOutlined from '@mui/icons-material/MedicalServicesOutlined';
-import SpaOutlined from '@mui/icons-material/SpaOutlined';
 import { Link } from 'react-router-dom';
-import '../styles/home.css';
+import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
+import CheckRounded from '@mui/icons-material/CheckRounded';
+import CallOutlined from '@mui/icons-material/CallOutlined';
+import ForumOutlined from '@mui/icons-material/ForumOutlined';
+import EventRepeatOutlined from '@mui/icons-material/EventRepeatOutlined';
+import FactCheckOutlined from '@mui/icons-material/FactCheckOutlined';
+import MedicalInformationOutlined from '@mui/icons-material/MedicalInformationOutlined';
+import { CardSkeletons, DoctorCard, Photo, Section, SectionHead, ServiceCard, StateBox, TextLink } from '../components/public/PublicParts';
+import { DEFAULT_HOTLINE, telHref, useClinicProfile, useDoctors, useServices } from '../components/public/usePublic';
 
-const IMAGES = {
-  consultation: 'https://akinacenter.com/wp-content/uploads/2022/01/MG_4616-1.jpg',
-  doctor: 'https://akinacenter.com/wp-content/uploads/2025/10/BS-Nguyen-1141x2048.jpg',
-  peel: 'https://akinacenter.com/wp-content/uploads/2021/09/akina-chemical-peel-scaled.jpg',
-  plasma: 'https://akinacenter.com/wp-content/uploads/2021/09/akina-plasma-med-scaled.jpg',
-  rf: 'https://akinacenter.com/wp-content/uploads/2021/09/akina-lan-kim-tre-hoa-scaled.jpg',
-};
-
-const SERVICES = [
-  {
-    title: 'Chemical Peel',
-    description: 'Phương pháp chăm sóc da có sử dụng hoạt chất peel, được tư vấn theo tình trạng da.',
-    image: IMAGES.peel,
-    alt: 'Hình ảnh dịch vụ Chemical Peel tại Akina',
-    icon: SpaOutlined,
-  },
-  {
-    title: 'Plasma Med',
-    description: 'Tìm hiểu liệu trình Plasma Med và trao đổi với bác sĩ về mức độ phù hợp.',
-    image: IMAGES.plasma,
-    alt: 'Hình ảnh dịch vụ Plasma Med tại Akina',
-    icon: MedicalServicesOutlined,
-  },
-  {
-    title: 'RF Rolling',
-    description: 'Lăn kim vi điểm kết hợp RF; cần được thăm khám và tư vấn trước khi thực hiện.',
-    image: IMAGES.rf,
-    alt: 'Hình ảnh liệu trình RF Rolling tại Akina',
-    icon: AutoAwesomeRounded,
-  },
+const HERO_IMG = 'https://akinacenter.com/wp-content/uploads/2022/01/MG_4616-1.jpg';
+const WHY = [
+  { icon: MedicalInformationOutlined, t: 'Thăm khám chuyên môn', d: 'Bác sĩ đánh giá tình trạng da trực tiếp trước khi đề xuất bất kỳ dịch vụ nào.' },
+  { icon: FactCheckOutlined, t: 'Kế hoạch điều trị cá nhân hóa', d: 'Hướng chăm sóc và liệu trình được xây dựng theo tình trạng và mục tiêu của từng người.' },
+  { icon: EventRepeatOutlined, t: 'Theo dõi và tái khám', d: 'Lịch tái khám và các buổi liệu trình được ghi nhận, nhắc lịch trong hồ sơ của bạn.' },
+  { icon: ForumOutlined, t: 'Quy trình rõ ràng', d: 'Thông tin dịch vụ, thời lượng, chi phí và lịch hẹn được xác nhận minh bạch với bạn.' },
 ];
-
-const VISIT_STEPS = [
-  { title: 'Đón tiếp', description: 'Tiếp nhận thông tin và nhu cầu chăm sóc da.' },
-  { title: 'Thăm khám', description: 'Bác sĩ đánh giá tình trạng da và tư vấn.' },
-  { title: 'Thực hiện', description: 'Tiến hành dịch vụ theo kế hoạch đã trao đổi.' },
-  { title: 'Theo dõi', description: 'Hướng dẫn chăm sóc sau dịch vụ.' },
+const STEPS = [
+  { t: 'Chọn dịch vụ', d: 'Chọn dịch vụ quan tâm hoặc đặt lịch tư vấn nếu bạn chưa biết nên bắt đầu từ đâu.' },
+  { t: 'Chọn bác sĩ và thời gian', d: 'Xem các khung giờ còn trống thực tế của phòng khám và chọn chuyên viên phù hợp.' },
+  { t: 'Xác nhận lịch hẹn', d: 'Điền thông tin liên hệ, nhận mã xác nhận và phòng khám sẽ xác nhận lại với bạn.' },
+  { t: 'Đến phòng khám', d: 'Đến đúng giờ hẹn, bác sĩ thăm khám và tư vấn trực tiếp.' },
 ];
-
-function ClinicImage({ src, alt, className = '', loading = 'lazy' }) {
-  return <img className={className} src={src} alt={alt} loading={loading} decoding="async"/>;
-}
 
 export default function HomePage() {
-  return (
-    <div className="home-page">
-      <section className="home-hero">
-        <div className="home-container home-hero-grid">
-          <div className="home-hero-copy">
-            <p className="home-eyebrow">AKINA CENTER · DA LIỄU</p>
-            <h1>Chăm sóc da<br/>bằng sự <span>thấu hiểu.</span></h1>
-            <p className="home-hero-description">
-              Mỗi làn da có một câu chuyện riêng. Hãy bắt đầu bằng buổi thăm khám cùng bác sĩ để hiểu rõ tình trạng da và lựa chọn hướng chăm sóc phù hợp.
-            </p>
-            <div className="home-actions">
-              <Link to="/book" className="home-button primary">Đặt lịch thăm khám <ArrowForwardRounded/></Link>
-              <Link to="/dich-vu" className="home-button secondary">Khám phá dịch vụ</Link>
-            </div>
-            <div className="home-hero-trust">
-              <span><CheckCircleOutlineRounded/> Bác sĩ trực tiếp thăm khám</span>
-              <span><CheckCircleOutlineRounded/> Tư vấn theo tình trạng da</span>
-            </div>
-          </div>
-          <div className="home-hero-visual">
-            <ClinicImage
-              src={IMAGES.consultation}
-              alt="Bác sĩ tư vấn trực tiếp cho khách hàng tại phòng khám Akina"
-              className="home-hero-image"
-              loading="eager"
-            />
-            <div className="home-photo-caption">
-              <span className="home-photo-icon"><MedicalServicesOutlined/></span>
-              <span><strong>Thăm khám cùng bác sĩ</strong><small>Lắng nghe và tư vấn rõ ràng</small></span>
-            </div>
-          </div>
-        </div>
-      </section>
+  const clinic = useClinicProfile();
+  const services = useServices();
+  const doctors = useDoctors();
+  const hotline = clinic?.hotline || DEFAULT_HOTLINE;
+  const svcList = (services.data || []).slice(0, 6);
+  const docList = (doctors.data || []).slice(0, 4);
 
-      <section className="home-trust-strip" aria-label="Cam kết chăm sóc">
-        <div className="home-container home-trust-grid">
-          <div><span className="home-trust-mark">01</span><span><strong>Chuyên môn</strong><small>Bác sĩ thăm khám và tư vấn</small></span></div>
-          <div><span className="home-trust-mark">02</span><span><strong>Cá nhân hóa</strong><small>Trao đổi theo tình trạng da</small></span></div>
-          <div><span className="home-trust-mark">03</span><span><strong>Đồng hành</strong><small>Hướng dẫn chăm sóc sau dịch vụ</small></span></div>
-        </div>
-      </section>
-
-      <section className="home-section">
-        <div className="home-container">
-          <header className="home-section-heading">
-            <div>
-              <p className="home-eyebrow">DỊCH VỤ TẠI AKINA</p>
-              <h2>Công nghệ chăm sóc da<br className="home-desktop-break"/> tại Akina</h2>
-            </div>
-            <Link to="/dich-vu" className="home-text-link">Xem tất cả dịch vụ <ArrowForwardRounded/></Link>
-          </header>
-          <div className="home-service-grid">
-            {SERVICES.map(({ title, description, image, alt, icon: Icon }) => (
-              <Link to="/dich-vu" className="home-service-card" key={title}>
-                <div className="home-service-image-wrap">
-                  <ClinicImage src={image} alt={alt} className="home-service-image"/>
-                </div>
-                <div className="home-service-content">
-                  <span className="home-service-icon"><Icon/></span>
-                  <h3>{title}</h3>
-                  <p>{description}</p>
-                  <span className="home-service-link">Tìm hiểu thêm <ArrowForwardRounded/></span>
-                </div>
-              </Link>
-            ))}
+  return <div className="pk-page">
+    <section className="pk-hero">
+      <div className="pk-wrap pk-hero-grid">
+        <div className="pk-hero-copy">
+          <p className="pk-eyebrow">Da liễu &amp; Thẩm mỹ</p>
+          <h1>Chăm sóc da bắt đầu từ một buổi thăm khám đúng cách</h1>
+          <p className="pk-lead">Bác sĩ lắng nghe, đánh giá tình trạng da và cùng bạn lựa chọn hướng điều trị phù hợp, với quy trình và chi phí rõ ràng ngay từ đầu.</p>
+          <div className="pk-hero-actions">
+            <Link to="/book" className="pk-btn lg">Đặt lịch thăm khám<ArrowForwardRounded/></Link>
+            <Link to="/dich-vu" className="pk-btn line lg">Khám phá dịch vụ</Link>
           </div>
+          <ul className="pk-checks">
+            <li><CheckRounded/>Bác sĩ trực tiếp thăm khám và tư vấn</li>
+            <li><CheckRounded/>Khung giờ trống cập nhật theo lịch thực tế</li>
+            <li><CheckRounded/>Nhận mã xác nhận ngay sau khi đặt lịch</li>
+          </ul>
         </div>
-      </section>
+        <div className="pk-hero-media">
+          <Photo src={HERO_IMG} alt="Bác sĩ tư vấn trực tiếp cho khách hàng tại phòng khám" loading="eager"/>
+        </div>
+      </div>
+    </section>
 
-      <section className="home-process-section">
-        <div className="home-container">
-          <header className="home-section-heading centered">
-            <div>
-              <p className="home-eyebrow">QUY TRÌNH THĂM KHÁM</p>
-              <h2>Rõ ràng trong từng bước</h2>
-              <p className="home-section-intro">Bạn luôn được trao đổi về tình trạng da và hướng chăm sóc trước khi thực hiện dịch vụ.</p>
-            </div>
-          </header>
-          <ol className="home-process-grid">
-            {VISIT_STEPS.map((step, index) => (
-              <li className="home-process-step" key={step.title}>
-                <span className="home-step-number">{String(index + 1).padStart(2, '0')}</span>
-                <h3>{step.title}</h3>
-                <p>{step.description}</p>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </section>
+    <Section id="dich-vu">
+      <SectionHead eyebrow="Dịch vụ" title="Dịch vụ tại phòng khám" desc="Danh sách dịch vụ đang được phòng khám cung cấp. Mỗi dịch vụ đều có thông tin thời lượng và hình thức đặt lịch phù hợp."
+        action={<TextLink to="/dich-vu">Xem tất cả dịch vụ</TextLink>}/>
+      <div className="pk-grid3">
+        {services.loading ? <CardSkeletons n={3}/> : <StateBox error={services.error && 'Vui lòng thử lại sau ít phút.'} empty={!svcList.length && 'Danh sách dịch vụ đang được cập nhật.'}>{svcList.map((s) => <ServiceCard key={s.id} s={s}/>)}</StateBox>}
+      </div>
+    </Section>
 
-      <section className="home-doctor-section">
-        <div className="home-container home-doctor-grid">
-          <div className="home-doctor-photo-wrap">
-            <ClinicImage
-              src={IMAGES.doctor}
-              alt="Thạc sĩ, bác sĩ Cao Nguyên, Giám đốc chuyên môn Akina Center"
-              className="home-doctor-photo"
-            />
-            <span className="home-doctor-photo-label">Đội ngũ chuyên môn Akina</span>
-          </div>
-          <div className="home-doctor-copy">
-            <p className="home-eyebrow">CHUYÊN MÔN & TẬN TÂM</p>
-            <h2>Được thăm khám kỹ lưỡng, an tâm hơn trên hành trình chăm sóc da.</h2>
-            <p>
-              Tại Akina, bác sĩ trực tiếp thăm khám và tư vấn. Mỗi bước được trao đổi rõ ràng để bạn hiểu tình trạng da, phương án chăm sóc và cách theo dõi sau dịch vụ.
-            </p>
-            <div className="home-doctor-name">
-              <strong>ThS.BS. Cao Nguyên</strong>
-              <span>Giám đốc chuyên môn · Bác sĩ da liễu</span>
-            </div>
-            <Link to="/book" className="home-button primary">Đặt lịch với bác sĩ <ArrowForwardRounded/></Link>
-          </div>
-        </div>
-      </section>
+    <Section tone="soft">
+      <SectionHead eyebrow="Vì sao chọn chúng tôi" title="Một quy trình thăm khám rõ ràng, lấy người bệnh làm trung tâm"/>
+      <div className="pk-grid4">
+        {WHY.map(({ icon: Icon, t, d }) => <div className="pk-why" key={t}><span className="pk-ico"><Icon/></span><h3>{t}</h3><p>{d}</p></div>)}
+      </div>
+    </Section>
 
-      <section className="home-cta-section">
-        <div className="home-container home-cta-content">
-          <div>
-            <p className="home-eyebrow">BẮT ĐẦU TỪ MỘT BUỔI THĂM KHÁM</p>
-            <h2>Sẵn sàng lắng nghe làn da của bạn.</h2>
-          </div>
-          <Link to="/book" className="home-button primary">Đặt lịch ngay <ArrowForwardRounded/></Link>
-        </div>
-      </section>
-    </div>
-  );
+    <Section id="bac-si">
+      <SectionHead eyebrow="Đội ngũ" title="Đội ngũ bác sĩ" desc="Bác sĩ phụ trách thăm khám và theo dõi quá trình điều trị của bạn." action={<TextLink to="/doi-ngu-bac-si">Xem toàn bộ đội ngũ</TextLink>}/>
+      <div className="pk-grid4">
+        {doctors.loading ? <CardSkeletons n={4} kind="doc"/> : <StateBox error={doctors.error && 'Vui lòng thử lại sau ít phút.'} empty={!docList.length && 'Thông tin đội ngũ bác sĩ đang được cập nhật.'}>{docList.map((d) => <DoctorCard key={d.id} d={d}/>)}</StateBox>}
+      </div>
+    </Section>
+
+    <Section tone="soft" id="quy-trinh">
+      <SectionHead eyebrow="Quy trình" title="Đặt lịch trong bốn bước"/>
+      <ol className="pk-steps">
+        {STEPS.map((s, i) => <li key={s.t}><span className="pk-step-n">{i + 1}</span><h3>{s.t}</h3><p>{s.d}</p></li>)}
+      </ol>
+    </Section>
+
+    <section className="pk-cta-band"><div className="pk-wrap pk-cta-in">
+      <div><h2>Sẵn sàng đặt lịch thăm khám?</h2><p>Chọn thời gian phù hợp, phòng khám sẽ xác nhận lại với bạn.</p></div>
+      <div className="pk-hero-actions"><Link to="/book" className="pk-btn inv lg">Đặt lịch ngay</Link><a href={telHref(hotline)} className="pk-btn ghost lg"><CallOutlined/>{hotline}</a></div>
+    </div></section>
+  </div>;
 }

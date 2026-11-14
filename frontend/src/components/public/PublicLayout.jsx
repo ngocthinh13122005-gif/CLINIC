@@ -5,6 +5,7 @@ import { CustomerFooter, CustomerHeader } from './CustomerChrome';
 import '../../styles/public.css';
 import '../../styles/operations.css';
 import '../../styles/public-theme.css';
+import '../../styles/akina.css';
 
 export default function PublicLayout() {
   const { user, logout } = useAuth();

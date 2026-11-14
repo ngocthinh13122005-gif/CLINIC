@@ -8,6 +8,8 @@ import PublicBookingPage from './pages/PublicBookingPage';
 import TicketPage from './pages/TicketPage';
 import LoginPage from './pages/LoginPage';
 import ContactPage from './pages/ContactPage';
+import ServiceDetailPage from './pages/ServiceDetailPage';
+import { DoctorsPage, DoctorProfilePage } from './pages/DoctorsPage';
 import DashboardPage from './pages/DashboardPage';
 import BookingsPage from './pages/BookingsPage';
 import ServicesPage from './pages/ServicesPage';
@@ -77,6 +79,9 @@ export default function App(){return <Routes>
   <Route element={<PublicLayout/>}>
     <Route path="/" element={<HomePage/>}/>
     <Route path="/dich-vu" element={<PublicServicesPage/>}/>
+    <Route path="/dich-vu/:id" element={<ServiceDetailPage/>}/>
+    <Route path="/doi-ngu-bac-si" element={<DoctorsPage/>}/>
+    <Route path="/doi-ngu-bac-si/:id" element={<DoctorProfilePage/>}/>
     <Route path="/book" element={<PublicBookingPage/>}/>
     <Route path="/ticket/:code" element={<TicketPage/>}/>
     <Route path="/contact" element={<ContactPage/>}/>

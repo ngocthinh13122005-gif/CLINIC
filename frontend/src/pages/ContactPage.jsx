@@ -1,9 +1,37 @@
-import { useEffect, useState } from 'react';
-import api from '../api/client';
+import { Link } from 'react-router-dom';
+import CallOutlined from '@mui/icons-material/CallOutlined';
+import ForumOutlined from '@mui/icons-material/ForumOutlined';
+import MailOutlineRounded from '@mui/icons-material/MailOutlineRounded';
+import PlaceOutlined from '@mui/icons-material/PlaceOutlined';
+import EventAvailableOutlined from '@mui/icons-material/EventAvailableOutlined';
+import { PageHero } from '../components/public/PublicParts';
+import { DEFAULT_HOTLINE, telHref, useClinicProfile } from '../components/public/usePublic';
+
+const real = (v) => (v && !/^\[.*\]$/.test(String(v).trim()) ? String(v).trim() : '');
 
 export default function ContactPage() {
-  const [clinic, setClinic] = useState(null);
-  useEffect(() => { let active = true; api.get('/clinic/profile/').then(({ data }) => { if (active) setClinic(data); }).catch(() => {}); return () => { active = false; }; }, []);
-  const phone = clinic?.hotline || '0919 005 523';
-  return <div className="public-page narrow"><h1 className="public-page-title">Liên hệ {clinic?.brand_name || 'AkinaClinic'}</h1><p className="public-page-subtitle">Nếu cần hỗ trợ về dịch vụ hoặc lịch hẹn, bạn có thể đăng nhập để trao đổi trực tiếp với đội ngũ CSKH trong hệ thống.</p><div className="public-card"><h2 style={{ fontSize: 'var(--fs-md)', margin: '0 0 8px', color: '#172235' }}>Thông tin phòng khám</h2><p className="muted" style={{ lineHeight: 1.65, margin: 0 }}>{clinic?.address || 'Địa chỉ đang được cập nhật.'}</p><p style={{ margin: '10px 0 0' }}><a href={`tel:${phone.replace(/[^+\d]/g, '')}`}>Hotline: {phone}</a></p>{clinic?.email && <p style={{ margin: '6px 0 0' }}><a href={`mailto:${clinic.email}`}>{clinic.email}</a></p>}</div></div>;
+  const clinic = useClinicProfile();
+  const phone = clinic?.hotline || DEFAULT_HOTLINE;
+  const address = real(clinic?.address); const email = real(clinic?.email);
+  const items = [
+    { icon: CallOutlined, t: 'Hotline tư vấn', v: <a href={telHref(phone)}>{phone}</a> },
+    email && { icon: MailOutlineRounded, t: 'Email', v: <a href={`mailto:${email}`}>{email}</a> },
+    { icon: PlaceOutlined, t: 'Địa chỉ', v: address || 'Địa chỉ đang được cập nhật. Vui lòng gọi hotline để được hướng dẫn.' },
+  ].filter(Boolean);
+  return <div className="pk-page">
+    <PageHero eyebrow="Liên hệ" title={`Liên hệ AkinaClinic`} desc="Cần hỗ trợ về dịch vụ hoặc lịch hẹn? Hãy gọi cho phòng khám hoặc đặt lịch trực tuyến." crumbs={[{ label: 'Trang chủ', to: '/' }, { label: 'Liên hệ' }]}/>
+    <div className="pk-wrap pk-body pk-contact">
+      <div className="pk-card pk-contact-card">
+        <h2>Thông tin phòng khám</h2>
+        <ul className="pk-contact-list">{items.map(({ icon: Icon, t, v }) => <li key={t}><span className="pk-ico"><Icon/></span><div><small>{t}</small><div>{v}</div></div></li>)}</ul>
+      </div>
+      <div className="pk-card pk-contact-card">
+        <h2>Bạn muốn làm gì tiếp theo?</h2>
+        <div className="pk-contact-actions">
+          <Link to="/book" className="pk-action"><EventAvailableOutlined/><span><strong>Đặt lịch thăm khám</strong><small>Chọn dịch vụ, bác sĩ và khung giờ còn trống.</small></span></Link>
+          <Link to="/chat" className="pk-action"><ForumOutlined/><span><strong>Trao đổi với phòng khám</strong><small>Đăng nhập để nhắn tin trực tiếp với bộ phận CSKH.</small></span></Link>
+        </div>
+      </div>
+    </div>
+  </div>;
 }
