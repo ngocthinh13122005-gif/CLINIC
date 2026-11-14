@@ -199,3 +199,7 @@
 .cm-pop-box .cm-mini{width:auto;padding:0 14px;border:1px solid #b9d5ee;background:#eaf3fc;color:#0a5aa8;border-radius:8px;justify-content:center}
 .cm-pop-box .cm-mini:hover{background:#dcebfa}
 .cm-tpl-table th{white-space:nowrap}
+
+/* Phóng to toàn màn hình: phải đặt SAU .cm-dock.email để thắng width/height/right của nó */
+.cm-dock.max,.cm-dock.email.max,.cm-dock.sms.max{position:fixed;inset:0;left:0;right:0;top:0;bottom:0;width:100vw;height:100vh;max-height:none;border-radius:0}
+.cm-dock.max .cm-dock-body{flex:1;min-height:0}

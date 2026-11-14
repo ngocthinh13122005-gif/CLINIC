@@ -19,6 +19,7 @@ import GridViewRounded from '@mui/icons-material/GridViewRounded';
 import ViewListRounded from '@mui/icons-material/ViewListRounded';
 import MinimizeRounded from '@mui/icons-material/MinimizeRounded';
 import OpenInFullRounded from '@mui/icons-material/OpenInFullRounded';
+import CloseFullscreenRounded from '@mui/icons-material/CloseFullscreenRounded';
 import RedoRounded from '@mui/icons-material/RedoRounded';
 import UndoRounded from '@mui/icons-material/UndoRounded';
 import SearchRounded from '@mui/icons-material/SearchRounded';
@@ -46,10 +47,11 @@ function usePop() {
 
 export function Dock({ patient, title, onClose, children, sizeClass = '' }) {
   const [state, setState] = useState('normal');
+  useEffect(() => { if (state !== 'max') return undefined; const k = (e) => e.key === 'Escape' && setState('normal'); window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [state]);
   return <div className={`cm-dock ${state} ${sizeClass}`} role="dialog" aria-label={title}>
     <header><Avatar name={patient.full_name} size={28} /><b>{patient.full_name} – {title}</b>
       <span><button aria-label="Thu nhỏ" onClick={() => setState(state === 'min' ? 'normal' : 'min')}><MinimizeRounded /></button>
-        <button aria-label="Phóng to" onClick={() => setState(state === 'max' ? 'normal' : 'max')}><OpenInFullRounded /></button>
+        <button aria-label={state === 'max' ? 'Thu về cửa sổ nhỏ' : 'Phóng to toàn màn hình'} title={state === 'max' ? 'Thu nhỏ lại (Esc)' : 'Toàn màn hình'} onClick={() => setState(state === 'max' ? 'normal' : 'max')}>{state === 'max' ? <CloseFullscreenRounded /> : <OpenInFullRounded />}</button>
         <button aria-label="Đóng" onClick={onClose}><CloseRounded /></button></span></header>
     {state !== 'min' && children}
   </div>;
