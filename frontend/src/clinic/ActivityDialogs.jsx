@@ -31,7 +31,7 @@ export function AcModal({ title, lead, onClose, children, footer, width = 640, c
   }, [onClose]);
   return <div className="ac-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
     <div className={`ac-modal ${className}`} style={{ width }} role="dialog" aria-modal="true" aria-label={title}>
-      <header>{lead}<h2>{title}</h2><button className="ac-x" onClick={onClose} aria-label="Đóng">×</button></header>
+      <header>{lead}<h2>{title}</h2><button className="ac-x" onClick={onClose} aria-label="Đóng"><span className="ak-icon-glyph">×</span></button></header>
       <div className="ac-modal-b">{children}</div>
       {footer && <footer>{footer}</footer>}
     </div>
@@ -92,7 +92,7 @@ function LeadPicker({ value, onPick }) {
   const [open, setOpen] = useState(false);
   const dq = useDebounce(q, 250);
   const l = useLoad(async () => (open ? arr((await api.get('/clinic/activities/leads/', { params: { q: dq } })).data) : []), [dq, open]);
-  if (value) return <div className="ac-picked"><span>{value.label}</span><button type="button" onClick={() => onPick(null)} aria-label="Bỏ chọn">×</button></div>;
+  if (value) return <div className="ac-picked"><span>{value.label}</span><button type="button" onClick={() => onPick(null)} aria-label="Bỏ chọn"><span className="ak-icon-glyph">×</span></button></div>;
   return <div className="ac-search"><input value={q} onFocus={() => setOpen(true)} onChange={(e) => { setQ(e.target.value); setOpen(true); }} placeholder="Chọn khách tiềm năng…" />
     {open && <div className="ac-search-list" onMouseLeave={() => setOpen(false)}>{(l.data || []).map((c) => <button type="button" key={c.id} onClick={() => { onPick(c); setOpen(false); }}>{c.label}</button>)}
       {l.data && !l.data.length && <div className="ac-muted pad">Không có ca tư vấn phù hợp.</div>}</div>}</div>;
@@ -209,7 +209,7 @@ export function ActivityForm({ item, preset, onClose, onSaved }) {
       <span className="ac-muted">Chèn hóa đơn, liệu trình, lịch hẹn của bệnh nhân vào ghi chú.</span>
     </div>
     {tokensIn(f.note).length > 0 && <div className="ac-chips">{tokensIn(f.note).map((tk) => <span className="ac-chip" key={tk}>{labelOf(tk)}
-      {!readOnly && <button type="button" onClick={() => set('note', removeToken(f.note, tk))} aria-label="Gỡ liên kết">×</button>}</span>)}</div>}
+      {!readOnly && <button type="button" onClick={() => set('note', removeToken(f.note, tk))} aria-label="Gỡ liên kết"><span className="ak-icon-glyph">×</span></button>}</span>)}</div>}
 
     <label className="ac-lab" htmlFor="ac-emp">Chọn nhân viên phụ trách</label>
     <select id="ac-emp" className="ac-input" value={f.assigned_to} disabled={readOnly} onChange={(e) => set('assigned_to', e.target.value ? Number(e.target.value) : '')}>
@@ -221,7 +221,7 @@ export function ActivityForm({ item, preset, onClose, onSaved }) {
       <LeadPicker value={f.conversation} onPick={(c) => set('conversation', c)} />
       <label className="ac-lab">Bệnh nhân</label>
       {f.patient ? <div className="ac-picked"><span className="ac-av sm">{initials(f.patient.full_name)}</span><span><b>{f.patient.full_name}</b> <small className="ac-muted">{f.patient.code}</small></span>
-        {!readOnly && <button type="button" onClick={() => set('patient', null)} aria-label="Bỏ chọn bệnh nhân">×</button>}</div>
+        {!readOnly && <button type="button" onClick={() => set('patient', null)} aria-label="Bỏ chọn bệnh nhân"><span className="ak-icon-glyph">×</span></button>}</div>
         : <PatientPicker value={null} onPick={(p) => set('patient', p)} />}
       {err('patient')}
     </details>}
@@ -244,7 +244,7 @@ export function ActivityDrawer({ id, onClose, onChanged, onEdit }) {
     const esc = (e) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', esc); return () => window.removeEventListener('keydown', esc);
   }, [onClose]);
-  if (!a) return <aside className="ac-drawer"><div className="ac-drawer-loading">{l.error ? 'Không tải được hoạt động.' : 'Đang tải…'}<button className="ac-x" onClick={onClose}>×</button></div></aside>;
+  if (!a) return <aside className="ac-drawer"><div className="ac-drawer-loading">{l.error ? 'Không tải được hoạt động.' : 'Đang tải…'}<button className="ac-x" onClick={onClose}><span className="ak-icon-glyph">×</span></button></div></aside>;
   const state = draft.set_state || a.state, owner = draft.assigned_to ?? a.assigned_to ?? '';
   const events = expand ? a.events : a.events.slice(-3);
   const locked = a.status !== 'pending';
@@ -255,7 +255,7 @@ export function ActivityDrawer({ id, onClose, onChanged, onEdit }) {
   const save = () => call(() => (Object.keys(draft).length ? api.patch(`/clinic/activities/${a.id}/`, draft) : Promise.resolve()), 'Đã cập nhật hoạt động.', draft.set_state === 'done');
   return <aside className="ac-drawer" role="dialog" aria-label="Chi tiết hoạt động">
     <header><span className="ac-typetag"><TypeIcon icon={a.type_icon} size={16} />{a.type_name}</span>
-      <button className="ac-x" onClick={onClose} aria-label="Đóng">×</button></header>
+      <button className="ac-x" onClick={onClose} aria-label="Đóng"><span className="ak-icon-glyph">×</span></button></header>
     <h2 className="ac-drawer-title">{a.title}</h2>
     <div className="ac-drawer-b">
       <dl className="ac-props">
@@ -268,7 +268,7 @@ export function ActivityDrawer({ id, onClose, onChanged, onEdit }) {
       </dl>
       <h6>GHI CHÚ</h6><div className="ac-notebox"><NoteView note={a.note} links={a.links} /><ImplicitLinks links={a.links} /></div>
       {a.outcome && <><h6>KẾT QUẢ</h6><div className="ac-notebox">{a.outcome}</div></>}
-      <div className="ac-tl-h"><h6>DÒNG THỜI GIAN</h6>{a.events.length > 3 && <button className="ac-btn ghost sm" onClick={() => setExpand(!expand)}>{expand ? 'Thu gọn ˄' : 'Mở rộng ˅'}</button>}</div>
+      <div className="ac-tl-h"><h6>DÒNG THỜI GIAN</h6>{a.events.length > 3 && <button className="ac-btn ghost sm ac-expand-btn" onClick={() => setExpand(!expand)}><span>{expand ? 'Thu gọn' : 'Mở rộng'}</span><span className={`ac-expand-chevron${expand ? ' is-open' : ''}`} aria-hidden="true" /></button>}</div>
       <ol className="ac-tl">{events.map((e) => <li key={e.id}><i>{EV_ICON[e.kind] || '•'}</i><div><b>{e.text}</b></div><time>{fmtDue(e.at).replace(/ (\d\d:\d\d) /, ' $1 ')}</time></li>)}</ol>
       {err && <div className="ac-alert">{err}</div>}
     </div>

@@ -15,7 +15,7 @@ ACTION_ALIASES = {
     'open': 'create', 'close': 'update', 'pay': 'create', 'reconcile': 'approve',
     'approve': 'approve', 'reject': 'approve', 'void': 'approve',
     'receive': 'approve', 'scrap': 'approve', 'validate': 'approve',
-    'campaign_send': 'approve', 'send': 'approve', 'export': 'export',
+    'send': 'approve', 'export': 'export',
     'contact': 'update', 'cancel_entry': 'cancel', 'book': 'create',
 }
 
@@ -44,8 +44,6 @@ def module_for_view(view, fallback=''):
         return 'billing'
     if any(part in name for part in ('medicine', 'inventory', 'stock', 'supplier', 'purchaseorder', 'lot')):
         return 'inventory'
-    if any(part in name for part in ('marketing', 'campaign', 'mailinglist', 'contact')):
-        return 'marketing'
     if 'crm' in name or 'loyalty' in name or 'voucher' in name:
         return 'crm'
     return fallback

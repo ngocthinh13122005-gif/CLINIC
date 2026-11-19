@@ -60,7 +60,7 @@ class ActivityTests(APITestCase):
 
     def test_note_links_must_belong_to_patient(self):
         ok = self.make(note=f'Hóa đơn {{{{invoice:{self.inv.pk}}}}} còn nợ')
-        self.assertEqual(ok['links'][0]['url'], f'/thu-ngan?hd={self.inv.pk}')
+        self.assertEqual(ok['links'][0]['url'], f'/hoa-don/{self.inv.pk}')
         r = self.client.post('/api/clinic/activities/', self.body(note=f'{{{{invoice:{self.inv_other.pk}}}}}'), format='json')
         self.assertEqual(r.status_code, 400)
         self.assertIn('không thuộc bệnh nhân', str(r.json()))
@@ -118,7 +118,7 @@ class ActivityTests(APITestCase):
         t.refresh_from_db()
         self.assertEqual(t.status, CareTask.DONE)
         link = self.client.get(f'/api/clinic/activities/{t.pk}/').json()['links'][0]
-        self.assertEqual(link['url'], f'/thu-ngan?hd={self.inv.pk}')
+        self.assertEqual(link['url'], f'/hoa-don/{self.inv.pk}')
 
     def test_old_care_task_still_works(self):
         t = CareTask.objects.create(patient=self.patient, kind=CareTask.REVISIT, title='Nhắc tái khám', due_date=timezone.localdate())

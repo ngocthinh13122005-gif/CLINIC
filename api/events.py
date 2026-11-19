@@ -9,7 +9,6 @@ OPTIONAL_NOTIFICATION_SETTINGS = {
     'payroll.updated': 'notification.payroll_updates',
     'loyalty.adjusted': 'notification.loyalty_updates',
     'loyalty.tier': 'notification.loyalty_updates',
-    'marketing.campaign': 'notification.marketing_updates',
 }
 
 

@@ -1,7 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from . import activities_api, marketing, views, views_money, views_pkg, views_stock, views_v2, views_v3, views_v4
+from . import activities_api, views, views_comms, views_dayboard, views_money, views_pkg, views_stock, views_v2, views_v3, views_v4
 
 router = DefaultRouter()
 router.register('patients', views.PatientViewSet, basename='clinic-patient')
@@ -19,6 +19,8 @@ router.register('payments', views_v2.PaymentViewSet, basename='clinic-payment')
 router.register('refunds', views_v2.RefundViewSet, basename='clinic-refund')
 router.register('debt-followups', views_v2.DebtFollowUpViewSet, basename='clinic-debt-followup')
 
+router.register('message-templates', views_comms.MessageTemplateViewSet, basename='clinic-message-template')
+router.register('messages', views_comms.PatientMessageViewSet, basename='clinic-message')
 router.register('suppliers', views_v3.SupplierViewSet, basename='clinic-supplier')
 router.register('lots', views_v3.LotViewSet, basename='clinic-lot')
 router.register('purchase-orders', views_v3.PurchaseOrderViewSet, basename='clinic-po')
@@ -35,6 +37,7 @@ router.register('data-requests', views_v4.DataRequestViewSet, basename='clinic-d
 router.register('incidents', views_v4.IncidentViewSet, basename='clinic-incident')
 
 urlpatterns = [
+    path('day-board/', views_dayboard.day_board),
     path('patients/<int:pk>/notes/', views_pkg.patient_notes),
     path('patients/<int:pk>/notes/<int:note_id>/', views_pkg.patient_note_delete),
     path('money/overview/', views_money.overview),
@@ -44,12 +47,6 @@ urlpatterns = [
     path('money/appointments/', views_money.appointments),
     path('money/receivables/', views_money.receivables),
     path('my-portal/', views.patient_portal, name='clinic-patient-portal'),
-    path('marketing/overview/', marketing.overview),
-    path('marketing/contacts/', marketing.contacts),
-    path('marketing/lists/', marketing.lists),
-    path('marketing/campaigns/', marketing.campaigns),
-    path('marketing/campaigns/<int:pk>/send/', marketing.campaign_send),
-    path('marketing/unsubscribe/<uuid:token>/', marketing.unsubscribe),
     path('compliance/notice/', views_v4.notice),
     path('compliance/overview/', views_v4.overview),
     path('compliance/retention/', views_v4.retention),

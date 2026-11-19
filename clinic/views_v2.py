@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from core.models import Service
 from core.role_permissions import view_action_allowed
 from .audit import audit
+from . import plan_billing
 from .models import (CashierShift, DebtFollowUp, Invoice, InvoiceItem, Medicine, Patient, Payment, Prescription,
                      PackageTemplate, PrescriptionItem, Refund, StockMovement, TreatmentPlan, Visit)
 from .packages import create_plans_for_invoice
@@ -456,7 +457,11 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         invoice = Invoice.objects.select_for_update().get(pk=invoice.pk)
         if invoice.status == Invoice.VOID:
             raise serializers.ValidationError({'detail': 'Hóa đơn đã hủy.'})
+        if not creating and invoice.treatment_plan_id and any(field in d for field in ('items', 'discount')):
+            raise serializers.ValidationError({'detail': 'Không thể sửa dòng tiền hoặc giảm giá trực tiếp trên hóa đơn liệu trình.'})
         if 'items' in d:
+            if not creating and invoice.treatment_plan_id:
+                raise serializers.ValidationError({'detail': 'Không thể sửa trực tiếp các dòng của hóa đơn liệu trình.'})
             if not creating and (invoice.items.filter(kind=InvoiceItem.PACKAGE).exists() or invoice.plans.exists()):
                 raise serializers.ValidationError({'detail': 'Hóa đơn đã bán gói liệu trình; không thể sửa dòng hàng.'})
             if invoice.payments.exists():
@@ -551,6 +556,8 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         reason = (request.data.get('reason') or '').strip()
         if inv.status == Invoice.VOID:
             return deny('Hóa đơn đã hủy.', 400)
+        if inv.treatment_plan_id:
+            return deny('Hãy hủy liệu trình để đối chiếu các buổi đã dùng và công nợ trên hóa đơn.', 400)
         if inv.payments.exists():
             return deny('Hóa đơn đã thu tiền, không thể hủy (chức năng hoàn tiền sẽ có ở bản sau).', 400)
         if inv.plans.filter(sessions__status='done').exists() or (
@@ -739,9 +746,10 @@ class RefundViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.Retri
             amount = int(request.data.get('amount'))
         except (TypeError, ValueError):
             return deny('Số tiền hoàn không hợp lệ.', 400)
-        pending = inv.refunds.filter(status__in=[Refund.PENDING, Refund.APPROVED]).aggregate(v=Sum('amount'))['v'] or 0
-        if amount <= 0 or amount > inv.paid - pending:
-            return deny('Số tiền hoàn vượt quá số tiền có thể hoàn.', 400)
+        if inv.treatment_plan_id and inv.treatment_plan.status != TreatmentPlan.CANCELLED:
+            return deny('Cần hủy liệu trình và đối chiếu buổi đã sử dụng trước khi yêu cầu hoàn tiền.', 400)
+        if amount <= 0 or amount > plan_billing.refund_capacity(inv):
+            return deny('Số tiền hoàn vượt quá số tiền có thể hoàn sau khi đối chiếu liệu trình.', 400)
         reason = (request.data.get('reason') or '').strip()
         if len(reason) < 5:
             return deny('Nhập lý do hoàn tiền (tối thiểu 5 ký tự).', 400)
@@ -751,10 +759,16 @@ class RefundViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.Retri
         return Response(self.get_serializer(refund).data, status=201)
 
     @action(detail=True, methods=['post'])
+    @transaction.atomic
     def approve(self, request, pk=None):
-        refund = self.get_object()
+        refund = Refund.objects.select_for_update().get(pk=self.get_object().pk)
         if refund.status != Refund.PENDING:
             return deny('Yêu cầu không còn ở trạng thái chờ duyệt.', 400)
+        invoice = Invoice.objects.select_for_update().get(pk=refund.invoice_id)
+        if invoice.treatment_plan_id and invoice.treatment_plan.status != TreatmentPlan.CANCELLED:
+            return deny('Liệu trình phải được hủy và đối chiếu buổi đã sử dụng trước khi duyệt hoàn tiền.', 400)
+        if refund.amount > plan_billing.refund_capacity(invoice, exclude_refund_id=refund.pk):
+            return deny('Số tiền hoàn vượt quá số tiền có thể hoàn sau khi đối chiếu liệu trình.', 400)
         refund.status, refund.approved_by, refund.approved_at = Refund.APPROVED, request.user, timezone.now()
         refund.save(update_fields=['status', 'approved_by', 'approved_at'])
         audit(request.user, 'refund.approve', f'{refund.invoice.code}: {refund.amount}')
@@ -776,13 +790,18 @@ class RefundViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.Retri
         refund = Refund.objects.select_for_update().get(pk=self.get_object().pk)
         if refund.status != Refund.APPROVED:
             return deny('Yêu cầu hoàn tiền chưa được quản lý duyệt.', 400)
+        invoice = Invoice.objects.select_for_update().get(pk=refund.invoice_id)
+        if invoice.treatment_plan_id and invoice.treatment_plan.status != TreatmentPlan.CANCELLED:
+            return deny('Liệu trình phải được hủy và đối chiếu buổi đã sử dụng trước khi hoàn tiền.', 400)
+        if refund.amount > plan_billing.refund_capacity(invoice, exclude_refund_id=refund.pk):
+            return deny('Số tiền hoàn vượt quá số tiền có thể hoàn sau khi đối chiếu liệu trình.', 400)
         shift = CashierShift.objects.filter(cashier=request.user, status=CashierShift.OPEN).first()
         if refund.method == Payment.CASH and not shift:
             return deny('Cần mở ca thu ngân trước khi hoàn tiền mặt.', 400)
         refund.status, refund.completed_by, refund.completed_at = Refund.COMPLETED, request.user, timezone.now()
         refund.reference, refund.shift = (request.data.get('reference') or '')[:60], shift
         refund.save()
-        refund.invoice.recalc()
+        invoice.recalc()
         audit(request.user, 'refund.complete', f'{refund.invoice.code}: {refund.amount}')
         return Response(self.get_serializer(refund).data)
 

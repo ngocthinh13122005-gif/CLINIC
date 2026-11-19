@@ -296,6 +296,7 @@ class TreatmentPlanSerializer(serializers.ModelSerializer):
     display_status_label = serializers.SerializerMethodField()
     value_each = serializers.SerializerMethodField()
     invoice_code = serializers.CharField(source='invoice.code', read_only=True, default='')
+    payment = serializers.SerializerMethodField()
 
     class Meta:
         model = TreatmentPlan
@@ -303,7 +304,7 @@ class TreatmentPlanSerializer(serializers.ModelSerializer):
                   'diagnosis', 'content', 'total_sessions', 'interval_days', 'price', 'status', 'status_label',
                   'start_date', 'note', 'created_at', 'done_sessions', 'sessions', 'record_code', 'record_status',
                   'package_invoice', 'code', 'expires_at', 'invoice', 'invoice_code', 'template', 'display_status',
-                  'display_status_label', 'value_each')
+                  'display_status_label', 'value_each', 'payment')
         read_only_fields = (
             'doctor', 'created_at', 'status', 'code', 'expires_at', 'invoice', 'invoice_code',
             'display_status', 'display_status_label', 'value_each',
@@ -331,6 +332,12 @@ class TreatmentPlanSerializer(serializers.ModelSerializer):
 
     def get_value_each(self, o):
         return round(o.price / o.total_sessions) if o.total_sessions else 0
+
+    def get_payment(self, o):
+        if o.template_id and not o.package_invoices.exclude(status='void').exists():
+            return None
+        from .plan_billing import payment_summary
+        return payment_summary(o)
 
     def validate_total_sessions(self, v):
         if not 1 <= v <= 60:

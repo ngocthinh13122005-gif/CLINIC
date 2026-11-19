@@ -2,16 +2,26 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import NotificationsNoneRounded from '@mui/icons-material/NotificationsNoneRounded';
 import DoneAllRounded from '@mui/icons-material/DoneAllRounded';
 import api from '../api/client';
+import { useNavigate } from 'react-router-dom';
 import { ensureFirebaseAuth, firebaseEnabled, subscribeNotifications } from '../services/firebase';
 
 export default function NotificationBell({ user }) {
+  const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const timer = useRef(null);
   const load = () => api.get('/notifications/').then(({data}) => setItems(data.results || data || [])).catch(()=>{});
   useEffect(()=>{ load(); let unsub=()=>{}; let alive=true; (async()=>{ if(firebaseEnabled && await ensureFirebaseAuth()) { unsub=subscribeNotifications(user?.id, rows=>{ if(alive){ setItems(rows); window.dispatchEvent(new CustomEvent('ohio:realtime',{detail:rows?.[0]||null})); } }, ()=>{timer.current=setInterval(load,8000)}); } else timer.current=setInterval(load,8000); })(); return()=>{alive=false;unsub();if(timer.current)clearInterval(timer.current)}; },[user?.id]);
   const unread = useMemo(()=>items.filter(i=>!i.is_read && !i.isRead).length,[items]);
-  const readOne = async(item)=>{ setOpen(false); if(item.id) try { await api.post(`/notifications/${item.id}/read/`); } catch {} load(); };
+  const readOne = async(item)=>{
+    setOpen(false);
+    const bookingId = Number(item.data?.booking_id);
+    if (Number.isSafeInteger(bookingId) && bookingId > 0 && ['manager', 'doctor', 'consultant', 'staff'].includes(user?.role)) {
+      navigate(`/lich-hen?booking=${bookingId}`);
+    }
+    if(item.id) try { await api.post(`/notifications/${item.id}/read/`); } catch {}
+    load();
+  };
   const readAll = async()=>{ try{await api.post('/notifications/read_all/');}catch{} load(); };
   return <div className="notif-wrap">
     <button className="ap-icon-btn notif-button" onClick={()=>setOpen(v=>!v)} aria-label="Thông báo"><NotificationsNoneRounded/>{unread>0&&<span className="notif-badge">{unread>99?'99+':unread}</span>}</button>

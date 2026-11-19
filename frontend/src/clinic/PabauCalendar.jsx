@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import EventNoteRounded from '@mui/icons-material/EventNoteRounded';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -19,6 +19,8 @@ const DOW = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
 export default function PabauCalendar({ initialDate, onDateChange, onSwitchList }) {
   const { user } = useAuth();
   const nav = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const bookingId = /^\d+$/.test(searchParams.get('booking') || '') ? Number(searchParams.get('booking')) : null;
   const canBook = ['consultant', 'manager', 'doctor'].includes(user.role);
   const [view, setView] = useState('day');
   const [date, setCalendarDate] = useState(initialDate || isoDay());
@@ -53,6 +55,32 @@ export default function PabauCalendar({ initialDate, onDateChange, onSwitchList 
   const services = useLoad(async () => (await api.get('/services/')).data, []);
   const hoursQ = useLoad(async () => (await api.get('/working-hours/')).data, []);
   const bookQ = useLoad(async () => { const { data } = await api.get('/bookings/', { params: { from: range[0], to: range[1] } }); return data.results || data; }, [range[0], range[1]]);
+  const [focused, setFocused] = useState({ data: null, error: '' });
+  const [focusRevision, setFocusRevision] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setFocused({ data: null, error: '' });
+    if (bookingId) api.get(`/bookings/${bookingId}/`).then(({ data }) => {
+      if (active) setFocused({ data, error: '' });
+    }).catch((error) => {
+      if (active) setFocused({ data: null, error: errMsg(error, 'Không tìm thấy lịch hẹn hoặc bạn không có quyền xem.') });
+    });
+    return () => { active = false; };
+  }, [bookingId, focusRevision]);
+  useEffect(() => {
+    setDrawerId(null);
+    setSel(null);
+  }, [bookingId]);
+  useEffect(() => {
+    if (focused.data?.id === bookingId) {
+      setDate(isoDay(new Date(focused.data.appointment)));
+      setDrawerId(bookingId);
+    }
+  }, [focused.data, bookingId]);
+  const closeDrawer = () => {
+    setDrawerId(null);
+    if (bookingId) setSearchParams((params) => { params.delete('booking'); return params; }, { replace: true });
+  };
   const blockQ = useLoad(async () => { const { data } = await api.get('/blocked-times/', { params: { from: range[0], to: range[1] } }); return data.results || data; }, [range[0], range[1]]);
 
   const allDoctors = useMemo(() => {
@@ -69,9 +97,10 @@ export default function PabauCalendar({ initialDate, onDateChange, onSwitchList 
     services.reload(true);
     hoursQ.reload(true);
     bookQ.reload(true);
+    if (bookingId) setFocusRevision((value) => value + 1);
     blockQ.reload(true);
   };
-  const loadError = staff.error || services.error || hoursQ.error || bookQ.error || blockQ.error;
+  const loadError = focused.error || staff.error || services.error || hoursQ.error || bookQ.error || blockQ.error;
   const days = view === 'week' ? Array.from({ length: 7 }, (_, i) => addDays(mondayOf(date), i)) : [date];
   const cols = days.flatMap((d, di) => doctors.map((s, si) => ({ key: `${d}|${s.id}`, day: d, staff: s, first: si === 0 && di > 0 })));
   const gridCols = `66px repeat(${Math.max(1, cols.length)}, minmax(${view === 'week' ? 84 : 170}px, 1fr))`;
@@ -181,17 +210,17 @@ export default function PabauCalendar({ initialDate, onDateChange, onSwitchList 
     ? `${parseDay(days[0]).getDate()} – ${parseDay(days[6]).getDate()} ${MON[parseDay(days[6]).getMonth()]} ${parseDay(days[6]).getFullYear()}`
     : date === todayIso ? 'Go to Today' : parseDay(date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
   const step = view === 'week' ? 7 : 1;
-  const drawerB = drawerId && (bookQ.data || []).find((b) => b.id === drawerId);
+  const drawerB = drawerId && ((focused.data?.id === drawerId && focused.data) || (bookQ.data || []).find((b) => b.id === drawerId));
   const panelOpen = !!panel;
 
   return <div className="pb-calendar" ref={rootRef}>
     <div className="pb-bar">
       <div className="pb-nav">
-        <button onClick={() => go(-step)} title={view === 'week' ? 'Tuần trước' : 'Ngày trước'}>‹</button>
+        <button onClick={() => go(-step)} title={view === 'week' ? 'Tuần trước' : 'Ngày trước'}><span className="ak-icon-glyph">‹</span></button>
         <button onClick={() => go(-7)} title="Tuần trước">«</button>
-        <button className="pb-date" onClick={() => togglePop('date')} title="Chọn ngày">{dateLabel} ▾</button>
+        <button className="pb-date" onClick={() => togglePop('date')} title="Chọn ngày">{dateLabel}<span className="ak-icon-glyph">▾</span></button>
         <button onClick={() => go(7)} title="Tuần sau">»</button>
-        <button onClick={() => go(step)} title={view === 'week' ? 'Tuần sau' : 'Ngày sau'}>›</button>
+        <button onClick={() => go(step)} title={view === 'week' ? 'Tuần sau' : 'Ngày sau'}><span className="ak-icon-glyph">›</span></button>
       </div>
       {pop.date && <DatePopover date={date} onPick={(d) => { setDate(d); setPop({ ...pop, date: false }); }} onClose={() => setPop((p) => ({ ...p, date: false }))} />}
       {date !== todayIso && <button className="pb-ghost" onClick={() => setDate(todayIso)}>Hôm nay</button>}
@@ -201,7 +230,7 @@ export default function PabauCalendar({ initialDate, onDateChange, onSwitchList 
         {pop.filter && <FilterPopover doctors={allDoctors} hidden={hidden} setHidden={setHidden} onClose={() => setPop((p) => ({ ...p, filter: false }))} />}</div>
       <button className="pb-icon" onClick={() => togglePop('confirm')} title="Tổng quan xác nhận">✉{unconfirmed > 0 && <sup>{unconfirmed}</sup>}</button>
       <button className="pb-icon" onClick={toggleFull} title="Toàn màn hình">⤢</button>
-      <button className="pb-icon" onClick={reload} title="Làm mới">↻</button>
+      <button className="pb-icon" onClick={reload} title="Làm mới"><span className="ak-icon-glyph">↻</span></button>
       <button className="pb-icon" onClick={onSwitchList} title="Xem danh sách lịch hẹn" aria-label="Xem danh sách lịch hẹn"><EventNoteRounded fontSize="small" /></button>
       <select className="pb-select" value={view} onChange={(e) => setView(e.target.value)} aria-label="Chế độ xem"><option value="day">Day</option><option value="week">Week</option></select>
       <div className="pb-relative">
@@ -239,7 +268,7 @@ export default function PabauCalendar({ initialDate, onDateChange, onSwitchList 
     {ghost && ghost.error && <div className="pb-tip err" style={{ right: 24, bottom: 24 }}>{ghost.error}</div>}
 
     {sel && <DetailPopover sel={sel} canBook={canBook} onClose={() => setSel(null)} act={act} />}
-    {drawerB && <DetailDrawer b={drawerB} canBook={canBook} onClose={() => setDrawerId(null)} act={act} />}
+    {drawerB && <DetailDrawer b={drawerB} canBook={canBook} onClose={closeDrawer} act={act} />}
     {panelOpen && <BookingPanel key={panel.booking?.id || panel.block?.id || `${panel.staff}${panel.date}${panel.time}${panel.tab}`} init={panel} doctors={allDoctors} services={svcList}
       bookings={bookings} blocks={blocks} hours={hours} onClose={() => setPanel(null)} onSaved={(m) => { setPanel(null); toast(m); reload(); }} />}
 

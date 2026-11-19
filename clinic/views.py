@@ -12,11 +12,13 @@ from rest_framework.response import Response
 
 from api.events import notify_users
 from core.models import Booking, BookingHistory, Staff
+from core.role_permissions import view_action_allowed
 from .audit import audit
 from .constants import FITZPATRICK, LESION_TYPES, REGIONS
 from .models import (Icd10Code, MedicalRecord, Patient, PatientImage, Prescription, RecordAddendum, Room,
                      TreatmentPlan, TreatmentSession, Visit)
 from .packages import add_months, display_status, make_sessions
+from . import plan_billing
 from .permissions import (CLINICAL_READ, CLINICAL_WRITE, CanReadClinical, CanReception, CanWriteClinical,
                           IsClinicStaff)
 from .serializers import (AddendumSerializer, Icd10Serializer, MedicalRecordSerializer, PatientImageSerializer,
@@ -278,6 +280,29 @@ class PatientViewSet(viewsets.ModelViewSet):
         av = p.visits.filter(status__in=[Visit.WAITING, Visit.IN_CONSULT]).first()
         if av:
             data['active_visit'] = {'id': av.id, 'status': av.status, 'status_label': av.get_status_display()}
+        # Số liệu cho dải thống kê cuối hồ sơ (lịch hẹn + tài chính)
+        bookings = Booking.objects.filter(patient=p)
+        last_seen = data['last_visit'] or (bookings.filter(appointment__lt=now).exclude(status=Booking.CANCELLED)
+                                           .order_by('-appointment').values_list('appointment', flat=True).first())
+        data['stats'] = {
+            'bookings': bookings.count(),
+            'upcoming': upcoming.count(),
+            'cancelled': bookings.filter(status=Booking.CANCELLED).count(),
+            'no_show': bookings.filter(status=Booking.NO_SHOW).count(),
+            'days_since_last_visit': (timezone.localdate() - timezone.localtime(last_seen).date()).days if last_seen else None,
+        }
+        if request.user.role in {'manager', 'consultant', 'doctor'}:
+            invs = [i for i in p.invoices.all() if i.status != 'void']
+            billed = sum(i.total for i in invs)
+            paid = sum(i.paid for i in invs)
+            data['finance'] = {'billed': billed, 'paid': paid, 'outstanding': sum(i.balance for i in invs),
+                               'invoice_count': len(invs), 'credit': 0}
+            tier_name = 'Bronze'
+            if p.user_id:
+                from accounts.models import User
+                tier_name = p.user.membership_tier_override or User.loyalty_tier_for_spend(paid)['name']
+            data['loyalty'] = {'tier': tier_name, 'spend': paid, 'linked': bool(p.user_id),
+                               'points': p.user.loyalty_points if p.user_id else 0}
         if request.user.role in CLINICAL_READ | {'staff'}:
             plans = p.plans.filter(status=TreatmentPlan.ACTIVE)
             data['active_plans'] = [{'id': x.id, 'title': x.title, 'done': x.done_sessions, 'total': x.total_sessions} for x in plans]
@@ -727,6 +752,8 @@ class TreatmentPlanViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in {'list', 'retrieve'}:
             return [IsClinicStaff()]
+        if self.action == 'collect':
+            return [_Roles('consultant', 'manager')]
         if self.action == 'complete_session':
             return [_Roles('doctor', 'staff')]
         if self.action in {'schedule_session', 'extend', 'link_session'}:
@@ -738,7 +765,11 @@ class TreatmentPlanViewSet(viewsets.ModelViewSet):
         return [_Roles('doctor')]
 
     def get_queryset(self):
-        qs = TreatmentPlan.objects.select_related('patient', 'doctor', 'service', 'invoice', 'template')
+        qs = TreatmentPlan.objects.select_related('patient', 'doctor', 'service', 'invoice', 'template').prefetch_related(
+            'package_invoices__payments',
+            'package_invoices__refunds',
+            'package_invoices__items__treatment_session',
+        )
         user = self.request.user
         if user.role == 'doctor':
             qs = qs.filter(Q(doctor=user) | Q(invoice__isnull=False)).distinct()
@@ -794,6 +825,9 @@ class TreatmentPlanViewSet(viewsets.ModelViewSet):
         return resp
 
     def _mask(self, request, rows):
+        if request.user.role == 'staff':
+            for row in rows:
+                row['payment'] = None
         if request.user.role in CLINICAL_READ:
             return
         for r in rows:
@@ -812,15 +846,29 @@ class TreatmentPlanViewSet(viewsets.ModelViewSet):
         self._make_sessions(plan)
         audit(self.request.user, 'plan.create', f'#{plan.pk} {plan.patient.code}')
 
+    @transaction.atomic
     def perform_update(self, serializer):
-        if serializer.instance.doctor_id != self.request.user.id:
+        previous = TreatmentPlan.objects.select_for_update().get(pk=serializer.instance.pk)
+        serializer.instance = previous
+        if previous.doctor_id != self.request.user.id:
             raise PermissionDenied('Chỉ bác sĩ phụ trách mới được chỉnh sửa liệu trình.')
-        if serializer.instance.status in {TreatmentPlan.COMPLETED, TreatmentPlan.CANCELLED}:
+        if previous.status in {TreatmentPlan.COMPLETED, TreatmentPlan.CANCELLED}:
             raise serializers.ValidationError({'detail': 'Liệu trình đã kết thúc, không thể chỉnh sửa.'})
+        billing_changed = any(
+            field in serializer.validated_data
+            and serializer.validated_data[field] != getattr(previous, field)
+            for field in ('price', 'total_sessions')
+        )
+        if billing_changed and plan_billing.has_paid_invoice(previous):
+            raise serializers.ValidationError(
+                {'detail': 'Liệu trình đã thu tiền, không đổi được giá hoặc số buổi. Hãy hủy và tạo liệu trình mới.'}
+            )
         plan = serializer.save()
         if plan.total_sessions < plan.done_sessions:
             raise serializers.ValidationError({'total_sessions': 'Ít hơn số buổi đã thực hiện.'})
         self._make_sessions(plan)
+        if billing_changed:
+            plan_billing.resync_invoice(plan, self.request.user)
 
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
@@ -842,20 +890,44 @@ class TreatmentPlanViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(plan).data)
 
     @action(detail=True, methods=['post'])
+    @transaction.atomic
     def cancel(self, request, pk=None):
-        plan = self.get_object()
+        plan = TreatmentPlan.objects.select_for_update().get(pk=self.get_object().pk)
         if plan.doctor_id != request.user.id:
             return deny('Chỉ bác sĩ phụ trách mới được hủy liệu trình.', 403)
         if plan.status in {TreatmentPlan.COMPLETED, TreatmentPlan.CANCELLED}:
             return deny('Liệu trình đã kết thúc.', 400)
         plan.status = TreatmentPlan.CANCELLED
         plan.save(update_fields=['status'])
+        plan_billing.settle_cancellation(plan, request.user)
+        audit(request.user, 'plan.cancel', f'#{plan.pk}')
         return Response(self.get_serializer(plan).data)
+
+    @action(detail=True, methods=['post'])
+    @transaction.atomic
+    def collect(self, request, pk=None):
+        if not view_action_allowed(request, self, module='billing', action='create'):
+            return deny('Phòng khám đang giới hạn thao tác thu tiền với vai trò của bạn.', 403)
+        plan = TreatmentPlan.objects.select_for_update().get(pk=self.get_object().pk)
+        data = request.data
+        plan_billing.collect(
+            plan,
+            request.user,
+            data.get('mode'),
+            amount=data.get('amount'),
+            count=data.get('count') or 1,
+            method=data.get('method'),
+            reference=data.get('reference'),
+            note=data.get('note'),
+        )
+        serialized = self.get_serializer(TreatmentPlan.objects.get(pk=plan.pk)).data
+        self._mask(request, [serialized])
+        return Response(serialized)
 
     @action(detail=True, methods=['post'], url_path='complete-session')
     @transaction.atomic
     def complete_session(self, request, pk=None):
-        plan = self.get_object()
+        plan = TreatmentPlan.objects.select_for_update().get(pk=self.get_object().pk)
         if plan.status != TreatmentPlan.ACTIVE:
             return deny('Liệu trình chưa được xác nhận hoặc đã kết thúc.', 400)
         if display_status(plan) == TreatmentPlan.EXPIRED:

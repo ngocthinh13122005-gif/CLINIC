@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import CloseRounded from '@mui/icons-material/CloseRounded';
 import api from '../api/client';
 import { errMsg, initials, money } from './ui';
 import { PatientPicker } from './PatientForm';
@@ -27,7 +28,7 @@ function useOutside(onClose) {
 export function Dialog({ title, children, footer, onClose, wide }) {
   return <div className="pb-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
     <div className="pb-modal" style={wide ? { width: 520 } : undefined} role="dialog" aria-label={title}>
-      <div className="pb-modal-h">{title}<button onClick={onClose} aria-label="Đóng">×</button></div>
+      <div className="pb-modal-h">{title}<button onClick={onClose} aria-label="Đóng"><span className="ak-icon-glyph">×</span></button></div>
       <div className="pb-modal-b">{children}</div>
       <div className="pb-modal-f">{footer}</div>
     </div>
@@ -60,8 +61,8 @@ export function DatePopover({ date, onPick, onClose }) {
         <div className="pb-month-ctl">
           <select value={view.m} onChange={(e) => setView({ ...view, m: Number(e.target.value) })}>{MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}</select>
           <select value={view.y} onChange={(e) => setView({ ...view, y: Number(e.target.value) })}>{years.map((y) => <option key={y}>{y}</option>)}</select>
-          <button onClick={() => setView({ y: view.m ? view.y : view.y - 1, m: (view.m + 11) % 12 })}>‹</button>
-          <button onClick={() => setView({ y: view.m < 11 ? view.y : view.y + 1, m: (view.m + 1) % 12 })}>›</button>
+          <button onClick={() => setView({ y: view.m ? view.y : view.y - 1, m: (view.m + 11) % 12 })}><span className="ak-icon-glyph">‹</span></button>
+          <button onClick={() => setView({ y: view.m < 11 ? view.y : view.y + 1, m: (view.m + 1) % 12 })}><span className="ak-icon-glyph">›</span></button>
         </div>
         <div className="pb-months-g"><MonthGrid year={view.y} month={view.m} date={date} onPick={onPick} /><MonthGrid year={next.getFullYear()} month={next.getMonth()} date={date} onPick={onPick} /></div>
       </div>
@@ -84,7 +85,7 @@ export function FilterPopover({ doctors, hidden, setHidden, onClose }) {
 export function CreateMenu({ onPick, onClose, canBook }) {
   const ref = useOutside(onClose);
   const items = [['client', '👤', 'Bệnh nhân', 'Shift + C'], canBook && ['appt', '▦', 'Lịch hẹn', 'Shift + A'], canBook && ['block', '⛔', 'Khóa giờ', 'Shift + B']].filter(Boolean);
-  return <div className="pb-createmenu" ref={ref}><div className="pb-cm-h">Tạo mới<button onClick={onClose}>×</button></div>
+  return <div className="pb-createmenu" ref={ref}><div className="pb-cm-h">Tạo mới<button onClick={onClose}><span className="ak-icon-glyph">×</span></button></div>
     <div className="pb-cm-g">{items.map(([k, ic, l, sc]) => <button key={k} onClick={() => onPick(k)}><i>{ic}</i><span>{l}</span><kbd>{sc}</kbd></button>)}</div></div>;
 }
 
@@ -186,7 +187,7 @@ export function BookingPanel({ init, doctors, services, bookings, blocks, hours,
   const pat = patient || (editing && { full_name: editing.customer_name, code: editing.patient_code, phone: editing.customer_phone });
 
   return <div className="pb-dlg" role="dialog" aria-label="Tạo lịch hẹn mới">
-    <div className="pb-dlg-h"><span>{editing ? 'Chỉnh sửa lịch hẹn' : editBlock ? 'Chỉnh sửa khung giờ khóa' : 'Tạo lịch hẹn mới'}</span><button onClick={onClose} aria-label="Đóng">×</button></div>
+    <div className="pb-dlg-h"><span>{editing ? 'Chỉnh sửa lịch hẹn' : editBlock ? 'Chỉnh sửa khung giờ khóa' : 'Tạo lịch hẹn mới'}</span><button onClick={onClose} aria-label="Đóng"><span className="ak-icon-glyph">×</span></button></div>
     <div className="pb-tabs">{TAB_KINDS.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} disabled={(editing || editBlock) && ((editing ? 'appt' : editBlock.kind) !== k)}
       onClick={() => setTab(k)}>{l}</button>)}</div>
     <div className="pb-dlg-c">
@@ -245,7 +246,7 @@ export function DetailPopover({ sel: { b, x, y }, canBook, onClose, act }) {
   const statusLabel = b.status === 'no_show' ? 'Vắng mặt' : b.status === 'cancelled' ? 'Đã hủy' : b.running_late ? 'Đến trễ' : STEPS[cur];
   return <div className="pb-pop" style={{ left: x, top: y }} onMouseDown={(e) => e.stopPropagation()}>
     <div className="pb-pop-h">
-      <button className="pb-x" onClick={onClose} aria-label="Đóng">×</button>
+      <button className="pb-x" onClick={onClose} aria-label="Đóng"><span className="ak-icon-glyph">×</span></button>
       <span className="pb-pop-av">{initials(b.customer_name)}</span>
       <h3>{b.customer_name}</h3>
       <span className="pb-chip">✉ {b.customer_email || '—'}</span>
@@ -298,7 +299,7 @@ export function DetailDrawer({ b, canBook, onClose, act }) {
   const chips = [['Chờ xác nhận', b.status === 'pending', null], ['Đã đến', cur >= 2, open ? 'arrive' : null], ['Hoàn thành', cur === 4, null], ['Đến trễ', b.running_late, open ? 'late' : null]];
   return <aside className="pb-drawer" onMouseDown={(e) => e.stopPropagation()}>
     <div className="pb-drawer-l">
-      <div className="pb-dr-top"><button onClick={onClose}>× TỔNG QUAN BỆNH NHÂN</button></div>
+      <div className="pb-dr-top"><button type="button" className="pb-dr-close" onClick={onClose} aria-label="Đóng chi tiết lịch hẹn" title="Đóng chi tiết lịch hẹn"><CloseRounded /></button><span>TỔNG QUAN BỆNH NHÂN</span></div>
       <div className="pb-dr-client"><span className="pb-pop-av dark">{initials(b.customer_name)}</span>
         <div><h3>{b.customer_name}</h3><p>{b.patient_code || 'Chưa có hồ sơ'}</p></div></div>
       <div className="pb-dr-card"><small>SĐT</small><b>{b.customer_phone || '—'}</b><small>Email</small><b>{b.customer_email || '—'}</b></div>
@@ -311,6 +312,7 @@ export function DetailDrawer({ b, canBook, onClose, act }) {
       <div className="pb-dr-status">{chips.map(([l, on, key]) => <button key={l} className={on ? 'on' : ''} disabled={!canBook || !key} onClick={() => act(key, b)}>{l}</button>)}
         <button className="pb-noshow big" disabled={!canBook || !(open && d <= new Date()) && b.status !== 'no_show'} onClick={() => act(b.status === 'no_show' ? 'undo_no_show' : 'no_show', b)}>{b.status === 'no_show' ? 'Bỏ vắng mặt' : 'Vắng mặt'}</button></div>
       <h6>Dịch vụ</h6>
+      {canBook && b.status === 'pending' && !b.visit_id && <button className="pb-btn blue" onClick={() => act('confirm', b)}>Xác nhận lịch hẹn</button>}
       {(b.items || []).map((i) => <div className="pb-dr-svc" key={i.id}><b>{i.service_name}</b><span>{money(i.price)} · {b.staff_name}</span></div>)}
       <h6>Ghi chú</h6><div className="pb-dr-note">{b.note || 'Không có ghi chú.'}</div>
       <div className="pb-dr-total"><span>Tổng cộng</span><b>{money(b.total)}</b></div>

@@ -20,8 +20,6 @@ DEFINITIONS = {
                                          'label': 'Thông báo bảng lương'},
         'notification.loyalty_updates': {'group': 'personal', 'type': 'boolean', 'default': True,
                                          'label': 'Thông báo điểm thưởng và hạng thành viên'},
-        'notification.marketing_updates': {'group': 'personal', 'type': 'boolean', 'default': True,
-                                           'label': 'Thông báo hoạt động marketing'},
     },
     'clinic': {
         'clinic.brand_name': {'group': 'clinic-info', 'type': 'text', 'max_length': 120,
@@ -112,11 +110,6 @@ DEFINITIONS = {
                                 'help_text': 'Chỉ áp dụng cho lượt hoàn tất từ thời điểm này; không cộng bù giao dịch cũ.'},
         'crm.vnd_per_point': {'group': 'crm', 'type': 'integer', 'min': 1000, 'max': 1000000,
                               'default': getattr(settings, 'LOYALTY_VND_PER_POINT', 10000), 'label': 'Chi tiêu để nhận 1 điểm (VNĐ)'},
-        'marketing.campaigns_enabled': {'group': 'marketing', 'type': 'boolean', 'default': True,
-                                        'label': 'Cho phép gửi chiến dịch email',
-                                        'help_text': 'Khi bật, backend vẫn loại người đã rút đồng ý, hủy đăng ký hoặc bị chặn.'},
-        'marketing.max_recipients': {'group': 'marketing', 'type': 'integer', 'min': 1, 'max': 5000,
-                                     'default': 500, 'label': 'Số người nhận tối đa mỗi chiến dịch'},
         'access.restricted_actions': {
             'group': 'access', 'type': 'choice_list', 'default': [], 'label': 'Giới hạn thao tác theo vai trò',
             'help_text': 'Chỉ áp dụng thêm giới hạn. Không thể cấp quyền vượt quá ma trận vai trò và quy tắc bảo vệ bệnh án hiện có.',
@@ -134,7 +127,6 @@ DEFINITIONS = {
                 {'value': 'staff:booking:update', 'label': 'Nhân viên · Cập nhật lịch hẹn'},
                 {'value': 'manager:billing:approve', 'label': 'Quản lý · Duyệt nghiệp vụ tài chính'},
                 {'value': 'manager:inventory:approve', 'label': 'Quản lý · Duyệt nghiệp vụ kho'},
-                {'value': 'manager:marketing:approve', 'label': 'Quản lý · Gửi chiến dịch marketing'},
             ],
         },
     },

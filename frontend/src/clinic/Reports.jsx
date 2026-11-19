@@ -8,11 +8,32 @@ import TableChartRounded from '@mui/icons-material/TableChartRounded';
 import ShowChartRounded from '@mui/icons-material/ShowChartRounded';
 import DonutLargeRounded from '@mui/icons-material/DonutLargeRounded';
 import ViewWeekRounded from '@mui/icons-material/ViewWeekRounded';
+import AccountBalanceWalletOutlined from '@mui/icons-material/AccountBalanceWalletOutlined';
+import PaymentsOutlined from '@mui/icons-material/PaymentsOutlined';
+import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined';
+import PeopleOutlineRounded from '@mui/icons-material/PeopleOutlineRounded';
+import PersonAddAltOutlined from '@mui/icons-material/PersonAddAltOutlined';
+import ReplayRounded from '@mui/icons-material/ReplayRounded';
+import AccessTimeRounded from '@mui/icons-material/AccessTimeRounded';
+import Inventory2Outlined from '@mui/icons-material/Inventory2Outlined';
+import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
+import EventBusyOutlined from '@mui/icons-material/EventBusyOutlined';
+import SupportAgentRounded from '@mui/icons-material/SupportAgentRounded';
+import TaskAltRounded from '@mui/icons-material/TaskAltRounded';
+import MedicalServicesOutlined from '@mui/icons-material/MedicalServicesOutlined';
 import api from '../api/client';
-import { Btn, Card, Empty, Loading, PageHead, errMsg, fmtDate, isoDay, money, useLoad, useToast } from './ui';
+import { Btn, Card, Empty, Loading, errMsg, fmtDate, isoDay, money, useLoad, useToast } from './ui';
 
 const TABS = [['revenue', 'Doanh thu'], ['visits', 'Lượt khám & bệnh nhân'], ['receivables', 'Công nợ'], ['inventory', 'Kho & xuất nhập'], ['care', 'Chăm sóc & liệu trình']];
 const COLORS = ['#0f7280', '#315f9e', '#587086', '#237453', '#b54747', '#7357b3', '#8a99a8', '#b04470'];
+const KPI_ICONS = {
+  revenue: [AccountBalanceWalletOutlined, PaymentsOutlined, ReceiptLongOutlined, ReceiptLongOutlined],
+  visits: [MedicalServicesOutlined, PersonAddAltOutlined, ReplayRounded, AccessTimeRounded],
+  receivables: [AccountBalanceWalletOutlined, ReceiptLongOutlined, PeopleOutlineRounded, AccessTimeRounded],
+  inventory: [Inventory2Outlined, ViewWeekRounded, WarningAmberRounded, EventBusyOutlined],
+  care: [SupportAgentRounded, TaskAltRounded, AccessTimeRounded, MedicalServicesOutlined],
+};
+const KPI_TONES = ['blue', 'teal', 'purple', 'amber'];
 const num = (v) => new Intl.NumberFormat('vi-VN').format(Math.round(v || 0));
 
 const fmt = (v, type) => {
@@ -59,14 +80,14 @@ function Chart({ c }) {
   if (mode === 'pie') {
     return <Card title={c.title} subtitle="Phân bổ theo tỷ trọng" action={tools} className="rp-chart">{rows.length ? <ResponsiveContainer width="100%" height={280}>
       <PieChart><Pie data={rows} dataKey="value" nameKey="name" innerRadius={52} outerRadius={88} paddingAngle={2}>{rows.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}</Pie>
-        <Tooltip formatter={tip} /><Legend verticalAlign="bottom" iconType="circle" wrapperStyle={{ fontSize: 12.5 }} /></PieChart></ResponsiveContainer> : <Empty title="Không có dữ liệu" />}</Card>;
+        <Tooltip formatter={tip} /><Legend verticalAlign="bottom" iconType="circle" wrapperStyle={{ fontSize: 12.5 }} formatter={(value) => <span style={{ color: 'var(--ink2)' }}>{value}</span>} /></PieChart></ResponsiveContainer> : <Empty title="Không có dữ liệu" />}</Card>;
   }
   const many = data.length > 14;
   const axes = <><CartesianGrid vertical={false} stroke="#e8eef3" />
       <XAxis dataKey="x" tick={{ fontSize: 11.5, fill: '#6b7c8d' }} tickLine={false} axisLine={{ stroke: '#e3eaf0' }} interval={many ? 'preserveStartEnd' : 0} angle={c.x.some((x) => String(x).length > 9) ? -20 : 0} textAnchor={c.x.some((x) => String(x).length > 9) ? 'end' : 'middle'} height={c.x.some((x) => String(x).length > 9) ? 56 : 28} />
       <YAxis tick={{ fontSize: 11.5, fill: '#6b7c8d' }} tickLine={false} axisLine={false} tickFormatter={f} width={46} />
       <Tooltip formatter={tip} cursor={{ fill: 'rgba(13,122,138,.06)' }} />
-      {c.series.length > 1 && <Legend iconType="circle" wrapperStyle={{ fontSize: 12.5 }} />}</>;
+      {c.series.length > 1 && <Legend iconType="circle" wrapperStyle={{ fontSize: 12.5 }} formatter={(value) => <span style={{ color: 'var(--ink2)' }}>{value}</span>} />}</>;
   return <Card title={c.title} subtitle={mode === 'line' ? 'Xu hướng biến động theo kỳ' : 'So sánh theo nhóm dữ liệu'} action={tools} className="rp-chart">{data.length ? <ResponsiveContainer width="100%" height={280}>
     {mode === 'line' ? <LineChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>{axes}
       {c.series.map((s, i) => <Line key={s.name} type="monotone" dataKey={s.name} stroke={COLORS[i % COLORS.length]} strokeWidth={2.4} dot={{ r: 3, fill: '#fff', strokeWidth: 2 }} activeDot={{ r: 5 }} />)}
@@ -117,24 +138,28 @@ export default function ReportsPage() {
   };
   const isPreset = (p) => range.from === p[1] && range.to === p[2];
   return <div className="rp">
-    <PageHead actions={<><Btn icon={<PrintRounded />} onClick={() => window.print()}>In báo cáo</Btn><Btn kind="primary" icon={<FileDownloadRounded />} disabled={busy} onClick={exportXlsx}>{busy ? 'Đang xuất…' : 'Xuất Excel'}</Btn></>} />
     <section className="rp-command rp-noprint">
-      <nav className="cl-tabs rp-report-tabs" role="tablist">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{t}</button>)}</nav>
-      <div className="rp-filter">
-        <div><span className="rp-control-label">Kỳ báo cáo</span><div className="cl-tabs-pill">{ps.map((p) => <button key={p[0]} className={isPreset(p) ? 'on' : ''} onClick={() => setRange({ from: p[1], to: p[2] })}>{p[0]}</button>)}</div></div>
-        <div className="rp-dates"><label><span>Từ ngày</span><input type="date" value={range.from} max={range.to} onChange={(e) => e.target.value && setRange((r) => ({ ...r, from: e.target.value }))} /></label>
-          <label><span>Đến ngày</span><input type="date" value={range.to} min={range.from} onChange={(e) => e.target.value && setRange((r) => ({ ...r, to: e.target.value }))} /></label></div>
+      <div className="rp-toolbar">
+        <nav className="pb-tabs" role="tablist">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{t}</button>)}</nav>
+        <div className="rp-toolbar-actions"><Btn icon={<PrintRounded />} onClick={() => window.print()}>In báo cáo</Btn><Btn kind="primary" icon={<FileDownloadRounded />} disabled={busy} onClick={exportXlsx}>{busy ? 'Đang xuất…' : 'Xuất Excel'}</Btn></div>
       </div>
-      <div className="rp-viewbar"><div><span className="rp-control-label">Chế độ xem</span><p>Chuyển nhanh giữa dashboard, biểu đồ và bảng phân tích.</p></div>
-        <div className="rp-view-switch">
-          <button className={view === 'overview' ? 'on' : ''} onClick={() => setView('overview')}><DashboardRounded />Tổng quan</button>
-          <button className={view === 'charts' ? 'on' : ''} onClick={() => setView('charts')}><BarChartRounded />Biểu đồ</button>
-          <button className={view === 'tables' ? 'on' : ''} onClick={() => setView('tables')}><TableChartRounded />Bảng phân tích</button>
+      <div className="rp-filter">
+        <div><div className="cl-tabs-pill" role="group" aria-label="Kỳ báo cáo">{ps.map((p) => <button key={p[0]} className={isPreset(p) ? 'on' : ''} onClick={() => setRange({ from: p[1], to: p[2] })}>{p[0]}</button>)}</div></div>
+        <div className="rp-filter-tools"><div className="rp-dates"><label><span>Từ ngày</span><input type="date" value={range.from} max={range.to} onChange={(e) => e.target.value && setRange((r) => ({ ...r, from: e.target.value }))} /></label>
+          <label><span>Đến ngày</span><input type="date" value={range.to} min={range.from} onChange={(e) => e.target.value && setRange((r) => ({ ...r, to: e.target.value }))} /></label></div>
+        <div className="rp-view-switch" role="group" aria-label="Chế độ xem">
+          <button aria-label="Tổng quan" title="Tổng quan" aria-pressed={view === 'overview'} className={view === 'overview' ? 'on' : ''} onClick={() => setView('overview')}><DashboardRounded /></button>
+          <button aria-label="Biểu đồ" title="Biểu đồ" aria-pressed={view === 'charts'} className={view === 'charts' ? 'on' : ''} onClick={() => setView('charts')}><BarChartRounded /></button>
+          <button aria-label="Bảng phân tích" title="Bảng phân tích" aria-pressed={view === 'tables'} className={view === 'tables' ? 'on' : ''} onClick={() => setView('tables')}><TableChartRounded /></button>
         </div></div>
+      </div>
     </section>
     {l.loading && !rep ? <Loading text="Đang lập báo cáo…" /> : l.error && !rep ? <div className="cl-alert error">{l.error}</div> : rep && <div className={l.loading ? 'rp-fade' : ''}>
-      <header className="rp-head"><div><small>BÁO CÁO ĐIỀU HÀNH · AkinaClinic</small><h2>{rep.title}</h2><p>Kỳ báo cáo: {fmtDate(rep.period[0])} – {fmtDate(rep.period[1])}</p></div><div className="rp-fresh"><i />Dữ liệu cập nhật lúc {new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</div></header>
-      <div className="cl-stat-row rp-kpis">{rep.kpis.map((k) => <div key={k.label} className={`cl-stat ${k.tone || ''}`}><span>{k.label}</span><strong>{fmt(k.value, k.type)}</strong>{k.hint && <small className={k.hint.startsWith('+') ? 'positive' : k.hint.startsWith('-') ? 'negative' : ''}>{k.hint}</small>}</div>)}</div>
+      <header className="rp-head"><div><h2>{rep.title}</h2><p>Kỳ báo cáo: {fmtDate(rep.period[0])} – {fmtDate(rep.period[1])}</p></div><div className="rp-fresh"><i />Dữ liệu cập nhật lúc {new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</div></header>
+      <div className="pb-kpis rp-kpis">{rep.kpis.map((k, index) => {
+        const Icon = KPI_ICONS[tab]?.[index] || DashboardRounded;
+        return <div key={k.label} className="pb-kpi"><div className="pb-kpi-top"><span>{k.label}</span><i className={KPI_TONES[index % KPI_TONES.length]} aria-hidden="true"><Icon /></i></div><strong>{fmt(k.value, k.type)}</strong>{k.hint && <small>{k.hint}</small>}</div>;
+      })}</div>
       {view !== 'tables' && rep.charts.length > 0 && <section className="rp-section"><div className="rp-section-head"><div><span>TRỰC QUAN DỮ LIỆU</span><h3>Xu hướng và cơ cấu</h3></div><p>Chọn biểu đồ cột, đường, tròn hoặc cột chồng trên từng khối.</p></div><div className="rp-charts">{rep.charts.map((c) => <Chart key={`${c.id}-${tab}`} c={c} />)}</div></section>}
       {view !== 'charts' && <section className="rp-section"><div className="rp-section-head"><div><span>PHÂN TÍCH CHI TIẾT</span><h3>Bảng dữ liệu theo nghiệp vụ</h3></div><p>Sắp xếp từng cột và xuất toàn bộ dữ liệu sang Excel khi cần đối soát.</p></div><div className="rp-tables">{rep.tables.map((t) => <DataTable key={`${t.id}-${tab}`} t={t} />)}</div></section>}
     </div>}

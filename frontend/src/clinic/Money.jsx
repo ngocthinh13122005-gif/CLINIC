@@ -98,9 +98,9 @@ export function Grid({ id, title, unit, columns, rows, meta, loading, onPage, on
     <footer className="pb-grid-foot"><span>Số dòng mỗi trang</span>
       <select value={size} onChange={(e) => onSize(Number(e.target.value))}>{[25, 50, 100].map((n) => <option key={n}>{n}</option>)}</select>
       <span className="pb-range"><b>{from}–{to}</b> trên {nf(count)}</span><span style={{ flex: 1 }} />
-      <div className="pb-pager"><button disabled={page <= 1} onClick={() => onPage(1)}>«</button><button disabled={page <= 1} onClick={() => onPage(page - 1)}>‹</button>
+      <div className="pb-pager"><button disabled={page <= 1} onClick={() => onPage(1)}>«</button><button disabled={page <= 1} onClick={() => onPage(page - 1)}><span className="ak-icon-glyph">‹</span></button>
         {nums.map((n) => <button key={n} className={n === page ? 'on' : ''} onClick={() => onPage(n)}>{n}</button>)}
-        <button disabled={page >= pages} onClick={() => onPage(page + 1)}>›</button><button disabled={page >= pages} onClick={() => onPage(pages)}>»</button></div></footer>
+        <button disabled={page >= pages} onClick={() => onPage(page + 1)}><span className="ak-icon-glyph">›</span></button><button disabled={page >= pages} onClick={() => onPage(pages)}>»</button></div></footer>
   </section>;
 }
 
@@ -318,9 +318,10 @@ export default function MoneyPage() {
     invoices: <InvoicesTab key={rev} openInv={openInv} onNew={() => nav('/ban-hang')} />, payments: <PaymentsTab key={rev} openInv={openInv} />, lines: <LinesTab key={rev} openInv={openInv} />,
     appointments: <AppointmentsTab />, receivables: <ReceivablesTab key={rev} openInv={openInv} payInv={payInv} toast={toast} /> }[tab];
   return <div className="pb">
-    <div className="pb-head"><p>Hóa đơn, thanh toán, doanh số và lịch hẹn — tất cả ở một nơi.</p>
-      <div><button className="pb-btn" onClick={() => go('receivables')}>Công nợ</button><button className="pb-btn dark" onClick={() => nav('/ban-hang')}><AddRounded />Bán hàng mới</button><button className="pb-btn" onClick={() => nav('/ban-hang')}><AddRounded />Lập hóa đơn</button></div></div>
-    <nav className="pb-tabs" role="tablist">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => go(k)}>{t}</button>)}</nav>
+    <div className="money-toolbar">
+      <nav className="pb-tabs" role="tablist">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => go(k)}>{t}</button>)}</nav>
+      <div className="money-toolbar-actions"><button className="pb-btn" onClick={() => go('receivables')}>Công nợ</button><button className="pb-btn dark" onClick={() => nav('/ban-hang')}><AddRounded />Bán hàng mới</button><button className="pb-btn" onClick={() => nav('/ban-hang')}><AddRounded />Lập hóa đơn</button></div>
+    </div>
     {body}
     {toastNode}
   </div>;

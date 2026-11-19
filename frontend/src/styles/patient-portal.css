@@ -1,11 +1,11 @@
 .patient-portal{max-width:1120px;padding-top:34px}
-.pp-hero{position:relative;display:flex;align-items:center;justify-content:space-between;overflow:hidden;min-height:250px;padding:38px 44px;border-radius:12px;background:#526d80;color:#fff;box-shadow:0 2px 8px rgba(20,40,59,.08)}
+.pp-hero{position:relative;display:flex;align-items:center;justify-content:space-between;overflow:hidden;min-height:250px;padding:38px 44px;border-radius:12px;background:#006b89;color:#fff;box-shadow:0 2px 8px rgba(20,40,59,.08)}
 .pp-hero::after{display:none}
 .pp-hero-content{position:relative;z-index:1;max-width:650px}
 .pp-eyebrow{display:inline-flex;align-items:center;gap:8px;color:#d9d2fa;font-size:11px;font-weight:750;letter-spacing:.13em}
 .pp-eyebrow svg{font-size:17px}
 .pp-hero h1{margin:16px 0 9px;color:#fff;font-size:clamp(28px,4vw,40px);font-weight:720;letter-spacing:-.035em;line-height:1.15}
-.pp-hero p{max-width:600px;margin:0;color:rgba(255,255,255,.78);font-size:14px;line-height:1.75}
+.pp-hero p{max-width:600px;margin:0;color:#fff;font-size:14px;line-height:1.75}
 .pp-hero p strong{color:#fff}
 .pp-book-link{display:inline-flex;align-items:center;gap:10px;margin-top:22px;padding:11px 16px;border:1px solid rgba(255,255,255,.34);border-radius:9px;color:#fff;text-decoration:none;font-size:13px;font-weight:700;transition:background .18s ease,transform .18s ease}
 .pp-book-link:hover{transform:translateY(-1px);background:rgba(255,255,255,.12);color:#fff}
@@ -68,8 +68,8 @@
 .pp-progress{display:grid;gap:7px;margin-top:17px}
 .pp-progress>div{display:flex;justify-content:space-between;color:#726d80;font-size:11px}
 .pp-progress strong{color:#4c4085}
-.pp-progress-track{display:block;overflow:hidden;height:6px;border-radius:8px;background:#eaf0f3}
-.pp-progress-track i{display:block;height:100%;border-radius:inherit;background:#526d80}
+.pp-progress-track{display:block;overflow:hidden;height:6px;border-radius:8px;background:#E6F4F8}
+.pp-progress-track i{display:block;height:100%;border-radius:inherit;background:#007FA3}
 .pp-session-list{display:grid;gap:0;margin:17px 0 0;padding:0;list-style:none}
 .pp-session-list li{position:relative;display:flex;gap:11px;padding:0 0 17px}
 .pp-session-list li:not(:last-child)::after{position:absolute;top:24px;bottom:0;left:11px;width:1px;background:#e8e3f0;content:""}

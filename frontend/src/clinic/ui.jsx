@@ -52,7 +52,7 @@ export function Btn({ kind = 'secondary', size, icon, children, ...rest }) {
   return <button type="button" className={`cl-btn ${kind} ${size || ''}`} {...rest}>{icon}{children}</button>;
 }
 
-export function Modal({ open, title, subtitle, onClose, children, wide, footer, portal = false, className = '' }) {
+export function Modal({ open, title, subtitle, onClose, children, wide, footer, portal = false, className = '', backdropClassName = '' }) {
   useEffect(() => {
     if (!open) return undefined;
     const fn = (e) => e.key === 'Escape' && onClose?.();
@@ -60,7 +60,7 @@ export function Modal({ open, title, subtitle, onClose, children, wide, footer, 
     return () => window.removeEventListener('keydown', fn);
   }, [open, onClose]);
   if (!open) return null;
-  const content = <div className={`cl-backdrop${portal ? ' cl-modal-portal' : ''}`} onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
+  const content = <div className={`cl-backdrop${portal ? ' cl-modal-portal' : ''} ${backdropClassName}`} onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
     <div className={`cl-modal ${wide ? 'wide' : ''} ${className}`} role="dialog" aria-modal="true" aria-label={title}>
       <header><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="cl-icon-btn" onClick={onClose} aria-label="Đóng"><CloseRounded /></button></header>
       <div className="cl-modal-body">{children}</div>

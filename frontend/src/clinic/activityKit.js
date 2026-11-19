@@ -1,14 +1,14 @@
 // Hằng số và hàm thuần cho module Hoạt động (kiểu Pabau Activities). Không phụ thuộc React → dễ kiểm thử.
 export const STATES = [
-  ['todo', 'Cần làm', '#8b929c', '#f0f2f5'],
-  ['pending', 'Đang chờ', '#0f6fd6', '#e6f1fc'],
-  ['awaiting_reply', 'Chờ phản hồi', '#17a2b8', '#e1f5f9'],
-  ['working', 'Đang xử lý', '#d99a00', '#fdf3da'],
-  ['stuck', 'Bị kẹt', '#e0323f', '#fde8ea'],
-  ['done', 'Đã xong', '#1f9d62', '#e2f6ec'],
+  ['todo', 'Cần làm', '#596b7a', '#f0f2f5'],
+  ['pending', 'Đang chờ', '#1559ac', '#e6f1fc'],
+  ['awaiting_reply', 'Chờ phản hồi', '#0b687a', '#e1f5f9'],
+  ['working', 'Đang xử lý', '#805900', '#fdf3da'],
+  ['stuck', 'Bị kẹt', '#bd2435', '#fde8ea'],
+  ['done', 'Đã xong', '#126e43', '#e2f6ec'],
 ];
 export const STATE = Object.fromEntries(STATES.map(([k, label, color, bg]) => [k, { label, color, bg }]));
-STATE.skipped = { label: 'Bỏ qua', color: '#8b929c', bg: '#f0f2f5' };
+STATE.skipped = { label: 'Bỏ qua', color: '#596b7a', bg: '#f0f2f5' };
 
 export const TABS = [['todo', 'Cần làm', true], ['overdue', 'Quá hạn', true], ['today', 'Hôm nay'], ['tomorrow', 'Ngày mai'], ['this_week', 'Tuần này'], ['next_week', 'Tuần sau'], ['completed', 'Đã hoàn thành', true]];
 export const COLUMNS = [['done', 'Xong'], ['due', 'Hạn'], ['activity', 'Hoạt động'], ['linked', 'Khách hàng'], ['assigned', 'Phụ trách'], ['status', 'Trạng thái'], ['created', 'Tạo bởi']];

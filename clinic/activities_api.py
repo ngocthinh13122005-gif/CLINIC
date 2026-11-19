@@ -46,7 +46,7 @@ def resolve_link(kind, pk):
     pk = int(pk)
     if kind == 'invoice':
         o = Invoice.objects.filter(pk=pk).first()
-        return o and {'kind': kind, 'id': pk, 'patient': o.patient_id, 'label': f'Hóa đơn · {o.code} · {timezone.localtime(o.created_at):%d/%m/%Y}', 'url': f'/thu-ngan?hd={pk}'}
+        return o and {'kind': kind, 'id': pk, 'patient': o.patient_id, 'label': f'Hóa đơn · {o.code} · {timezone.localtime(o.created_at):%d/%m/%Y}', 'url': f'/hoa-don/{pk}'}
     if kind == 'plan':
         o = TreatmentPlan.objects.filter(pk=pk).first()
         return o and {'kind': kind, 'id': pk, 'patient': o.patient_id, 'label': f'Liệu trình · {o.title}', 'url': f'/benh-nhan/{o.patient_id}?tab=plans&plan={pk}'}

@@ -61,8 +61,11 @@ export default function CalendarPage() {
   const canBook = ['consultant', 'manager', 'doctor'].includes(user.role);
   const canManageWaitlist = ['consultant', 'manager'].includes(user.role);
   const [date, setDate] = useState(() => searchParams.get('date') || isoDay());
-  const hasExplicitView = searchParams.has('view') || searchParams.has('status');
-  const [viewMode, setViewMode] = useState(() => searchParams.get('view') === 'list' || searchParams.has('status') ? 'list' : 'calendar');
+  const hasExplicitView = searchParams.has('booking') || searchParams.has('view') || searchParams.has('status');
+  const [viewMode, setViewMode] = useState(() => !searchParams.has('booking') && (searchParams.get('view') === 'list' || searchParams.has('status')) ? 'list' : 'calendar');
+  useEffect(() => {
+    if (searchParams.has('booking')) setViewMode('calendar');
+  }, [location.search]);
   const [calendarScale, setCalendarScale] = useState('day');
   const [listStatus, setListStatus] = useState(() => LIST_STATUS_OPTIONS.some((option) => option.value === searchParams.get('status')) ? searchParams.get('status') : 'all');
   const [listDate, setListDate] = useState('');
@@ -380,7 +383,7 @@ export default function CalendarPage() {
           className={listStatus === option.value ? 'on' : ''} onClick={() => { setListStatus(option.value); setListPage(1); }}>{option.label}<b>{statusCount(option.value)}</b></button>)}
         </div>
       </div>
-      {listActionError && <div className="cl-alert error" role="alert">{listActionError}<button type="button" aria-label="Đóng thông báo" onClick={() => setListActionError('')}>×</button></div>}
+      {listActionError && <div className="cl-alert error" role="alert">{listActionError}<button type="button" aria-label="Đóng thông báo" onClick={() => setListActionError('')}><span className="ak-icon-glyph">×</span></button></div>}
       {list.loading ? <Loading text="Đang tải danh sách lịch hẹn…" /> : list.error ? <div className="cl-alert error" role="alert">{list.error}<Btn onClick={() => list.reload()}>Thử lại</Btn></div> :
         listBookings.length ? <>
           <div className="cl-booking-list-summary">
@@ -782,7 +785,7 @@ function BookingDetail({ booking: b, canBook, isManager, onClose, onChanged, onR
       </div>
       <footer className="cl-booking-drawer-footer cl-booking-actions-footer">
         <div className="cl-booking-actions-menu-wrap">
-          <button type="button" className="cl-booking-actions-trigger" aria-expanded={actionsOpen} onClick={() => setActionsOpen((open) => !open)}>Thao tác <span aria-hidden="true">⌄</span></button>
+          <button type="button" className="cl-booking-actions-trigger" aria-expanded={actionsOpen} onClick={() => setActionsOpen((open) => !open)}>Thao tác <span aria-hidden="true"><span className="ak-icon-glyph">⌄</span></span></button>
           {actionsOpen && <div className="cl-booking-actions-menu" role="menu">
             {canAct && <>
               <button type="button" role="menuitem" disabled={busy} onClick={() => { setActionsOpen(false); setResched({ date: isoDay(new Date(b.appointment)), time: fmtTime(b.appointment), staff: assignmentOptions.some((person) => person.id === b.staff) ? b.staff : assignmentOptions[0]?.id || '' }); }}>Đổi lịch hẹn</button>

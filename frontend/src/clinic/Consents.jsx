@@ -124,7 +124,7 @@ function DataConsentPanel({ patient, toast }) {
     action={<div className="cl-actions-row" style={{ margin: 0 }}><Btn size="sm" onClick={() => setM('req')}>Yêu cầu của bệnh nhân</Btn><Btn size="sm" kind="primary" onClick={() => setM('new')}>{hasCare ? 'Cập nhật đồng ý' : 'Ghi nhận đồng ý'}</Btn></div>}>
     {l.loading && !l.data ? <Loading /> : <>
       {!hasCare && <div className="cl-alert warn"><span>Chưa có sự đồng ý xử lý dữ liệu của bệnh nhân này. Hãy thông báo và ghi nhận trước khi khám.</span></div>}
-      <div className="cl-chips">{active.map((c) => <span key={c.id} className="cl-chip">{c.purpose_label}<small>{fmtDate(c.given_at)}</small><button title="Rút lại đồng ý" onClick={() => withdraw(c)}>×</button></span>)}</div>
+      <div className="cl-chips">{active.map((c) => <span key={c.id} className="cl-chip">{c.purpose_label}<small>{fmtDate(c.given_at)}</small><button title="Rút lại đồng ý" onClick={() => withdraw(c)}><span className="ak-icon-glyph">×</span></button></span>)}</div>
       {!!rows.filter((c) => c.status !== 'granted').length && <small className="cl-muted">Đã rút / thay thế: {rows.filter((c) => c.status !== 'granted').length} bản ghi (vẫn được lưu để chứng minh).</small>}
     </>}
     {m === 'new' && <DataConsentModal patient={patient} onClose={() => setM(null)} onSaved={() => { setM(null); l.reload(true); toast('Đã ghi nhận đồng ý.'); }} />}

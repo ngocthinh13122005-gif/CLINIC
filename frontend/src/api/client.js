@@ -18,6 +18,9 @@ api.interceptors.response.use(
     if (method !== 'get' && /^\/?bookings(?:\/|$)/.test(config.url || '')) {
       window.dispatchEvent(new CustomEvent('akina:booking-updated'));
     }
+    if (method !== 'get' && /^\/?conversations(?:\/|$)/.test(config.url || '')) {
+      window.dispatchEvent(new CustomEvent('akina:conversation-updated'));
+    }
     return response;
   },
   (error) => {

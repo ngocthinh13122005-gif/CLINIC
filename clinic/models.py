@@ -349,7 +349,6 @@ class PatientNote(models.Model):
     class Meta:
         ordering = ['-created_at', '-id']
 
-
 class PatientImage(models.Model):
     LESION, BEFORE, AFTER, OTHER = 'lesion', 'before', 'after', 'other'
     KINDS = [(LESION, 'Tổn thương'), (BEFORE, 'Trước điều trị'), (AFTER, 'Sau điều trị'), (OTHER, 'Khác')]
@@ -555,7 +554,7 @@ class Invoice(models.Model):
         refunded = sum(r.amount for r in self.refunds.filter(status='completed'))
         self.paid = max(collected - refunded, 0)
         if self.status != self.VOID:
-            self.status = self.PAID if self.paid >= self.total and self.total > 0 else (
+            self.status = self.PAID if self.paid >= self.total and (self.total > 0 or self.paid > 0) else (
                 self.PARTIAL if self.paid > 0 else self.UNPAID)
         self.save()
 
@@ -569,6 +568,8 @@ class InvoiceItem(models.Model):
     medicine = models.ForeignKey(Medicine, on_delete=models.PROTECT, null=True, blank=True, related_name='+')
     service = models.ForeignKey('core.Service', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     package_template = models.ForeignKey('PackageTemplate', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    treatment_session = models.ForeignKey('TreatmentSession', on_delete=models.SET_NULL, null=True, blank=True,
+                                          related_name='+', verbose_name='Buổi liệu trình')
     quantity = models.PositiveIntegerField(default=1)
     unit_price = models.PositiveIntegerField(default=0)
 
@@ -1104,58 +1105,52 @@ class BackupLog(models.Model):
         ordering = ['-created_at', '-id']
 
 
-# =========================================================================== email marketing
-class MarketingContact(models.Model):
-    """Địa chỉ nhận tin quảng bá. Tách khỏi hồ sơ y tế và chỉ kích hoạt khi có đồng ý rõ ràng."""
-    ACTIVE, UNSUBSCRIBED, BLACKLISTED = 'active', 'unsubscribed', 'blacklisted'
-    STATUSES = [(ACTIVE, 'Đang nhận tin'), (UNSUBSCRIBED, 'Đã hủy đăng ký'), (BLACKLISTED, 'Danh sách chặn')]
-    SOURCES = [('patient', 'Hồ sơ bệnh nhân có đồng ý'), ('website', 'Đăng ký trên website'),
-               ('manual', 'Nhập thủ công có xác nhận'), ('import', 'Nhập từ tệp có xác nhận')]
+class PatientMessage(models.Model):
+    """Nhật ký liên lạc với bệnh nhân qua email / SMS (hiện trên tab Liên lạc của hồ sơ)."""
+    EMAIL, SMS = 'email', 'sms'
+    CHANNELS = [(EMAIL, 'Email'), (SMS, 'SMS')]
+    SENT, FAILED, SIMULATED = 'sent', 'failed', 'simulated'
+    STATUSES = [(SENT, 'Đã gửi'), (FAILED, 'Gửi lỗi'), (SIMULATED, 'Chưa gửi thật (chưa cấu hình nhà cung cấp)')]
 
-    email = models.EmailField(unique=True, db_index=True)
-    full_name = models.CharField(max_length=120, blank=True)
-    patient = models.ForeignKey(Patient, on_delete=models.SET_NULL, null=True, blank=True, related_name='marketing_contacts')
-    source = models.CharField(max_length=12, choices=SOURCES, default='manual')
-    status = models.CharField(max_length=14, choices=STATUSES, default=ACTIVE, db_index=True)
-    consent_at = models.DateTimeField(default=timezone.now)
-    consent_note = models.CharField(max_length=255, blank=True)
-    unsubscribed_at = models.DateTimeField(null=True, blank=True)
-    unsubscribe_token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ['-created_at']
-
-
-class MailingList(models.Model):
-    name = models.CharField(max_length=120, unique=True)
-    description = models.CharField(max_length=255, blank=True)
-    is_active = models.BooleanField(default=True)
-    contacts = models.ManyToManyField(MarketingContact, related_name='mailing_lists', blank=True)
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ['name']
-
-
-class EmailCampaign(models.Model):
-    DRAFT, SCHEDULED, SENT, CANCELLED = 'draft', 'scheduled', 'sent', 'cancelled'
-    STATUSES = [(DRAFT, 'Bản nháp'), (SCHEDULED, 'Đã lên lịch'), (SENT, 'Đã gửi'), (CANCELLED, 'Đã hủy')]
-    name = models.CharField(max_length=160)
-    subject = models.CharField(max_length=180)
-    preview_text = models.CharField(max_length=180, blank=True)
+    patient = models.ForeignKey(Patient, on_delete=models.PROTECT, related_name='messages')
+    channel = models.CharField(max_length=5, choices=CHANNELS, db_index=True)
+    subject = models.CharField(max_length=200, blank=True)
+    body = models.TextField(blank=True)
     body_html = models.TextField(blank=True)
-    mailing_list = models.ForeignKey(MailingList, on_delete=models.PROTECT, related_name='campaigns')
-    status = models.CharField(max_length=12, choices=STATUSES, default=DRAFT, db_index=True)
-    scheduled_at = models.DateTimeField(null=True, blank=True)
-    sent_at = models.DateTimeField(null=True, blank=True)
-    recipient_count = models.PositiveIntegerField(default=0)
-    sent_count = models.PositiveIntegerField(default=0)
-    failed_count = models.PositiveIntegerField(default=0)
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    from_address = models.CharField(max_length=160, blank=True)
+    to_address = models.CharField(max_length=160)
+    cc = models.CharField(max_length=255, blank=True)
+    bcc = models.CharField(max_length=255, blank=True)
+    status = models.CharField(max_length=10, choices=STATUSES, default=SENT)
+    error = models.CharField(max_length=255, blank=True)
+    sent_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    is_deleted = models.BooleanField(default=False)
 
     class Meta:
-        ordering = ['-created_at']
+        ordering = ['-created_at', '-id']
+        verbose_name = 'Tin nhắn / email gửi bệnh nhân'
+        verbose_name_plural = 'Tin nhắn / email gửi bệnh nhân'
+
+
+class MessageTemplate(models.Model):
+    """Mẫu email / SMS dùng khi soạn trong tab Liên lạc. Mẫu hệ thống (key) được tạo tự động."""
+    CATEGORIES = [('confirmation', 'Xác nhận'), ('reminder', 'Nhắc lịch'), ('precare', 'Trước điều trị'),
+                  ('aftercare', 'Sau điều trị'), ('general', 'Chung'), ('marketing', 'Ưu đãi')]
+    key = models.CharField(max_length=40, blank=True, null=True, unique=True)
+    channel = models.CharField(max_length=5, choices=PatientMessage.CHANNELS, db_index=True)
+    category = models.CharField(max_length=14, choices=CATEGORIES, default='general')
+    name = models.CharField(max_length=120)
+    subject = models.CharField(max_length=200, blank=True)
+    body = models.TextField()
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(default=timezone.now)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['category', 'name']
+        verbose_name = 'Mẫu email / SMS'
+        verbose_name_plural = 'Mẫu email / SMS'
+
+    def __str__(self):
+        return f'{self.get_channel_display()} · {self.name}'

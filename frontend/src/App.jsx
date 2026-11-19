@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import AppShell from './components/AppShell';
 import PublicLayout from './components/public/PublicLayout';
 import { useAuth } from './context/AuthContext';
@@ -8,6 +8,8 @@ import PublicBookingPage from './pages/PublicBookingPage';
 import TicketPage from './pages/TicketPage';
 import LoginPage from './pages/LoginPage';
 import ContactPage from './pages/ContactPage';
+import ServiceDetailPage from './pages/ServiceDetailPage';
+import { DoctorsPage, DoctorProfilePage } from './pages/DoctorsPage';
 import DashboardPage from './pages/DashboardPage';
 import BookingsPage from './pages/BookingsPage';
 import ServicesPage from './pages/ServicesPage';
@@ -22,6 +24,7 @@ import { AdminStaffPage, AdminAttendancePage, AdminPayrollPage } from './pages/A
 import ClinicHome from './clinic/Home';
 import ReceptionPage from './clinic/Reception';
 import CalendarPage from './clinic/Calendar';
+import DayBoardPage from './clinic/DayBoard';
 import BookingListView from './clinic/BookingListView';
 import { PatientsPage } from './clinic/Patients';
 import ExamPage from './clinic/Exam';
@@ -35,8 +38,8 @@ import MoneyPage from './clinic/Money';
 import ClientProfilePage from './clinic/ClientProfile';
 import SalePage, { AddPaymentPage } from './clinic/Sale';
 import InvoiceEditPage from './clinic/InvoiceEdit';
+import InvoiceRefundPage from './clinic/InvoiceRefund';
 import { ChangePasswordPage, ForgotPasswordPage } from './pages/AuthSecurityPages';
-import EmailMarketingPage from './pages/EmailMarketingPage';
 import CRMPage from './pages/CRMPage';
 import SettingsCenter from './clinic/SettingsCenter';
 import ActivitiesPage from './clinic/Activities';
@@ -71,10 +74,20 @@ function ManagerOnly({children}){
   return user?.role==='manager' ? children : <Navigate to="/dashboard" replace/>;
 }
 
+function LegacyDoctorProfileRedirect(){
+  const {id}=useParams();
+  return <Navigate to={`/gioi-thieu/${id}`} replace/>;
+}
+
 export default function App(){return <Routes>
   <Route element={<PublicLayout/>}>
     <Route path="/" element={<HomePage/>}/>
     <Route path="/dich-vu" element={<PublicServicesPage/>}/>
+    <Route path="/dich-vu/:id" element={<ServiceDetailPage/>}/>
+    <Route path="/gioi-thieu" element={<DoctorsPage/>}/>
+    <Route path="/gioi-thieu/:id" element={<DoctorProfilePage/>}/>
+    <Route path="/doi-ngu-bac-si" element={<Navigate to="/gioi-thieu" replace/>}/>
+    <Route path="/doi-ngu-bac-si/:id" element={<LegacyDoctorProfileRedirect/>}/>
     <Route path="/book" element={<PublicBookingPage/>}/>
     <Route path="/ticket/:code" element={<TicketPage/>}/>
     <Route path="/contact" element={<ContactPage/>}/>
@@ -86,6 +99,7 @@ export default function App(){return <Routes>
     <Route path="/change-password" element={<ChangePasswordPage/>}/>
     <Route path="/dashboard" element={<DashboardRoute/>}/>
     <Route path="/tiep-don" element={<Roles allow={['manager','doctor','consultant']}><ReceptionPage/></Roles>}/>
+    <Route path="/lich-hom-nay" element={<Roles allow={['manager','doctor','consultant']}><DayBoardPage/></Roles>}/>
     <Route path="/lich-hen" element={<Roles allow={CLINIC_ROLES}><CalendarPage/></Roles>}/>
     <Route path="/lich-hen/danh-sach" element={<Roles allow={CLINIC_ROLES}><BookingListView/></Roles>}/>
     <Route path="/benh-nhan" element={<Roles allow={CLINIC_ROLES}><PatientsPage/></Roles>}/>
@@ -94,6 +108,7 @@ export default function App(){return <Routes>
     <Route path="/thu-ngan" element={<Roles allow={['manager','consultant']}><MoneyPage/></Roles>}/>
     <Route path="/ban-hang" element={<Roles allow={['manager','consultant']}><SalePage/></Roles>}/>
     <Route path="/ban-hang/thu-tien/:id" element={<Roles allow={['manager','consultant']}><AddPaymentPage/></Roles>}/>
+    <Route path="/hoa-don/:id/hoan-tien" element={<Roles allow={['manager','consultant']}><InvoiceRefundPage/></Roles>}/>
     <Route path="/hoa-don/:id" element={<Roles allow={['manager','consultant','doctor']}><InvoiceEditPage/></Roles>}/>
     <Route path="/kho-thuoc" element={<Roles allow={['manager','doctor','consultant']}><PharmacyPage/></Roles>}/>
     <Route path="/bao-cao" element={<Roles allow={['manager']}><ReportsPage/></Roles>}/>
@@ -110,7 +125,6 @@ export default function App(){return <Routes>
     <Route path="/admin/payroll" element={<ManagerOnly><AdminPayrollPage/></ManagerOnly>}/>
     <Route path="/admin/crm" element={<ManagerOnly><CRMPage/></ManagerOnly>}/>
     <Route path="/admin/vouchers" element={<ManagerOnly><AdminVouchersPage/></ManagerOnly>}/>
-    <Route path="/admin/email-marketing" element={<ManagerOnly><EmailMarketingPage/></ManagerOnly>}/>
     <Route path="/manager-dashboard" element={<Navigate to="/admin/dashboard" replace/>}/>
     <Route path="/roster" element={<Navigate to="/admin/calendar" replace/>}/>
     <Route path="/staff-directory" element={<Navigate to="/admin/staff" replace/>}/>

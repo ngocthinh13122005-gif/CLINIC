@@ -56,7 +56,7 @@ function Overview({ go }) {
       <section className="pb-card pb-metric"><div className="pb-metric-h"><span>Nhập – xuất kho theo ngày</span><RangePicker value={range} onChange={setRange} align="right" /></div>
         <div className="pb-metric-c"><ResponsiveContainer width="100%" height={230}><BarChart data={chart} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke="#edf0f5" /><XAxis dataKey="d" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} interval="preserveStartEnd" /><YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-          <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} /><Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+          <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} /><Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} formatter={(value) => <span style={{ color: 'var(--ink2)' }}>{value}</span>} />
           <Bar dataKey="Nhập" fill="#1d6fd6" radius={[3, 3, 0, 0]} /><Bar dataKey="Xuất" fill="#9bc2f0" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></div></section>
       <section className="pb-card pb-act"><header><h3>Tồn theo kho</h3><span>{o.locations.length} kho</span></header>
         <div className="st-list">{o.locations.map((x) => <div key={x.id}><span className="grow"><b>{x.name}</b><small>{x.lots} lô{x.value != null ? ` · ${money(x.value)}` : ''}</small><div className="st-bar"><i style={{ width: `${(x.qty / maxQty) * 100}%` }} /></div></span><b>{nf(x.qty)}</b></div>)}</div></section>
@@ -139,7 +139,7 @@ function BatchesTab({ locs, manager, toast }) {
       : <section className="pb-card pb-grid"><header className="pb-grid-head"><h2>Lô hàng</h2><div className="pb-grid-tools"><span className="pb-count">{nf(g.meta?.count)} lô</span>{toolbar}</div></header>
         <div className="pb-filters">{filters}</div>{rows.length ? body : <p className="pb-none" style={{ padding: 20 }}>Không có lô nào.</p>}
         <footer className="pb-grid-foot"><span className="pb-range">Hiển thị {rows.length} / {nf(g.meta?.count)} lô</span><span style={{ flex: 1 }} />
-          <div className="pb-pager"><button disabled={g.page <= 1} onClick={() => g.setPage(g.page - 1)}>‹</button><button className="on">{g.page}</button><button disabled={g.page * (g.meta?.page_size || 50) >= (g.meta?.count || 0)} onClick={() => g.setPage(g.page + 1)}>›</button></div></footer></section>}
+          <div className="pb-pager"><button disabled={g.page <= 1} onClick={() => g.setPage(g.page - 1)}><span className="ak-icon-glyph">‹</span></button><button className="on">{g.page}</button><button disabled={g.page * (g.meta?.page_size || 50) >= (g.meta?.count || 0)} onClick={() => g.setPage(g.page + 1)}><span className="ak-icon-glyph">›</span></button></div></footer></section>}
     <Modal open={setup} title="Thiết lập nhanh lô hàng" subtitle="Biến phần tồn chưa theo lô thành một lô “Tồn đầu kỳ”" onClose={() => setSetup(false)}
       footer={<><button className="pb-btn" onClick={() => setSetup(false)}>Hủy</button><button className="pb-btn blue" onClick={async () => { try { const { data } = await api.post('/clinic/stock/quick-setup/', { expiry: exp || null }); toast(data.created ? `Đã tạo ${data.created} lô tồn đầu kỳ.` : 'Mọi mặt hàng đã được theo dõi theo lô.'); setSetup(false); g.l.reload(); } catch (e) { toast(errMsg(e), 'err'); } }}>Thiết lập</button></>}>
       <p style={{ fontSize: 'var(--fs)', marginBottom: 10 }}>Hệ thống sẽ tạo lô <b>TON-DAU</b> cho các sản phẩm còn tồn nhưng chưa gắn số lô, đặt ở kho mặc định. Bạn có thể nhập hạn dùng chung (tuỳ chọn) cho các lô này.</p>
@@ -182,9 +182,10 @@ export default function StockPage() {
     products: <StockTab manager={manager} toast={toast} />, suppliers: <SuppliersTab toast={toast} suppliers={sup.data || []} reload={() => sup.reload(true)} />,
   }[tab];
   return <div className="pb">
-    <div className="pb-head"><p>Tồn kho, lô & hạn dùng, nhập hàng, chuyển kho và sản xuất tại phòng khám.</p>
-      <div><button className="pb-btn" onClick={() => setWh(true)}><WarehouseOutlined />Kho / vị trí</button></div></div>
-    <nav className="pb-tabs" role="tablist">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => go(k)}>{t}</button>)}</nav>
+    <div className="stock-tabbar">
+      <nav className="pb-tabs" role="tablist">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => go(k)}>{t}</button>)}</nav>
+      <div className="stock-top-actions"><button className="pb-btn" onClick={() => setWh(true)}><WarehouseOutlined />Kho / vị trí</button></div>
+    </div>
     {body}
     {wh && <WarehouseModal onClose={() => setWh(false)} toast={toast} onChanged={() => locs.reload(true)} />}
     {toastNode}

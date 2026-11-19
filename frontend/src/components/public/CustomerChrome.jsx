@@ -1,116 +1,115 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import AccountCircleOutlined from '@mui/icons-material/AccountCircleOutlined';
+import CallOutlined from '@mui/icons-material/CallOutlined';
+import CloseRounded from '@mui/icons-material/CloseRounded';
+import EventAvailableOutlined from '@mui/icons-material/EventAvailableOutlined';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
-import FavoriteBorderRounded from '@mui/icons-material/FavoriteBorderRounded';
-import HeadsetMicOutlined from '@mui/icons-material/HeadsetMicOutlined';
 import LogoutRounded from '@mui/icons-material/LogoutRounded';
 import MenuRounded from '@mui/icons-material/MenuRounded';
 import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded';
-import SpaOutlined from '@mui/icons-material/SpaOutlined';
+import PlaceOutlined from '@mui/icons-material/PlaceOutlined';
+import MailOutlineRounded from '@mui/icons-material/MailOutlineRounded';
 import NotificationBell from '../NotificationBell';
-import api from '../../api/client';
-
-function useClinicProfile() {
-  const [profile, setProfile] = useState(null);
-  useEffect(() => { let active = true; api.get('/clinic/profile/').then(({ data }) => { if (active) setProfile(data); }).catch(() => {}); return () => { active = false; }; }, []);
-  return profile;
-}
+import { DEFAULT_HOTLINE, telHref, useClinicProfile } from './usePublic';
+import '../../styles/public-theme.css';
+import '../../styles/akina.css';
 
 const ACCOUNT_LINKS = [
   { to: '/ho-so-suc-khoe', label: 'Hồ sơ sức khỏe' },
   { to: '/bookings', label: 'Lịch hẹn của tôi' },
   { to: '/my-vouchers', label: 'Voucher & điểm thưởng' },
+  { to: '/chat', label: 'Trao đổi với phòng khám' },
   { to: '/profile', label: 'Thông tin tài khoản' },
 ];
+const NAV = [
+  { to: '/', label: 'Trang chủ', end: true },
+  { to: '/dich-vu', label: 'Dịch vụ' },
+  { to: '/gioi-thieu', label: 'Giới thiệu' },
+  { to: '/book', label: 'Đặt lịch' },
+  { to: '/contact', label: 'Liên hệ' },
+];
+
+export function BrandMark({ size = 36 }) {
+  return <svg className="pk-mark" width={size} height={size} viewBox="0 0 36 36" aria-hidden="true">
+    <rect width="36" height="36" rx="9" fill="#007FA3"/>
+    <path d="M18 8.5 10.2 27.5M18 8.5l7.8 19M13 21.5h10" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+    <circle cx="26.5" cy="10" r="2.3" fill="#20A8C5"/>
+  </svg>;
+}
 
 export function CustomerHeader({ user, onLogout }) {
   const clinic = useClinicProfile();
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [open, setOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef(null);
   const location = useLocation();
   const customer = user?.role === 'customer';
-  const firstName = (user?.full_name || user?.username || '').trim().split(/\s+/).slice(-1)[0] || 'Tài khoản';
-  const closeMenus = () => { setMobileOpen(false); setAccountOpen(false); };
-  const active = (path) => location.pathname === path ? 'ak-nav-link active' : 'ak-nav-link';
+  const hotline = clinic?.hotline || DEFAULT_HOTLINE;
+  const brand = 'AkinaClinic';
+  const displayName = (user?.full_name || user?.username || '').trim();
+  const closeAll = () => { setOpen(false); setAccountOpen(false); };
 
   useEffect(() => {
     if (!accountOpen) return undefined;
-    const closeOutside = (event) => {
-      if (!accountRef.current?.contains(event.target)) setAccountOpen(false);
-    };
-    const closeEscape = (event) => {
-      if (event.key === 'Escape') setAccountOpen(false);
-    };
-    document.addEventListener('pointerdown', closeOutside);
-    document.addEventListener('keydown', closeEscape);
-    return () => {
-      document.removeEventListener('pointerdown', closeOutside);
-      document.removeEventListener('keydown', closeEscape);
-    };
+    const outside = (e) => { if (!accountRef.current?.contains(e.target)) setAccountOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') setAccountOpen(false); };
+    document.addEventListener('pointerdown', outside); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', esc); };
   }, [accountOpen]);
+  useEffect(() => { closeAll(); }, [location.pathname]);
+  useEffect(() => {
+    document.body.classList.toggle('pk-lock', open);
+    if (!open) return undefined;
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('keydown', esc);
+    return () => { document.body.classList.remove('pk-lock'); document.removeEventListener('keydown', esc); };
+  }, [open]);
 
-  useEffect(() => { closeMenus(); }, [location.pathname]);
+  const navLinks = (cls) => NAV.map((n) => <NavLink key={n.to} to={n.to} end={n.end} onClick={closeAll} className={({ isActive }) => `${cls}${isActive ? ' active' : ''}`}>{n.label}</NavLink>);
 
-  return <header className={`ak-header ${mobileOpen ? 'mobile-open' : ''}`}>
-    <div className="ak-utility">
-      <div className="ak-header-inner">
-        <span><SpaOutlined/> Phòng khám Da liễu &amp; Thẩm mỹ chuẩn y khoa</span>
-        <a href={`tel:${(clinic?.hotline || '0919 005 523').replace(/[^+\d]/g, '')}`}><HeadsetMicOutlined/> Tư vấn: <strong>{clinic?.hotline || '0919 005 523'}</strong></a>
+  return <header className="pk-header">
+    <div className="pk-utility"><div className="pk-wrap">
+      <span>Phòng khám Da liễu &amp; Thẩm mỹ</span>
+      <a href={telHref(hotline)}><CallOutlined/>Hotline tư vấn: <strong>{hotline}</strong></a>
+    </div></div>
+    <div className="pk-bar"><div className="pk-wrap pk-bar-in">
+      <Link to="/" className="pk-brand" onClick={closeAll} aria-label={`${brand} - trang chủ`}>
+        <BrandMark/><span className="pk-brand-t"><strong>{brand}</strong><small>Da liễu &amp; Thẩm mỹ</small></span>
+      </Link>
+      <nav className="pk-nav" aria-label="Điều hướng chính">{navLinks('pk-nav-link')}</nav>
+      <div className="pk-actions">
+        {user ? <>
+          <NotificationBell user={user}/>
+          <div className="pk-account" ref={accountRef}>
+            <button type="button" className={`pk-account-btn${accountOpen ? ' open' : ''}`} aria-expanded={accountOpen} aria-haspopup="menu" onClick={() => setAccountOpen((v) => !v)}>
+              <span className="pk-avatar">{(displayName.slice(0, 1) || 'A').toUpperCase()}</span>
+              <span className="pk-account-name">{displayName.split(/\s+/).slice(-1)[0] || 'Tài khoản'}</span>
+              <ExpandMoreRounded className="pk-chev"/>
+            </button>
+            {accountOpen && <div className="pk-menu" role="menu">
+              <div className="pk-menu-head"><strong>{displayName}</strong><span>{customer ? 'Tài khoản khách hàng' : 'Tài khoản nhân sự'}</span></div>
+              {!customer && <Link to="/dashboard" role="menuitem" className="pk-menu-item" onClick={closeAll}>Khu vực làm việc</Link>}
+              {customer ? ACCOUNT_LINKS.map(({ to, label }) => <NavLink key={to} to={to} role="menuitem" className={({ isActive }) => `pk-menu-item${isActive ? ' active' : ''}`} onClick={closeAll}>{label}</NavLink>)
+                : <Link to="/profile" role="menuitem" className="pk-menu-item" onClick={closeAll}>Thông tin tài khoản</Link>}
+              <button type="button" role="menuitem" className="pk-menu-item out" onClick={() => { closeAll(); onLogout(); }}><LogoutRounded/>Đăng xuất</button>
+            </div>}
+          </div>
+        </> : <Link to="/login" className="pk-login" onClick={closeAll}><PersonOutlineRounded/><span>Đăng nhập</span></Link>}
+        <Link to="/book" className="pk-cta" onClick={closeAll}><EventAvailableOutlined/><span>Đặt lịch ngay</span></Link>
+        <button type="button" className="pk-burger" aria-label={open ? 'Đóng menu' : 'Mở menu'} aria-expanded={open} aria-controls="pk-drawer" onClick={() => setOpen((v) => !v)}>{open ? <CloseRounded/> : <MenuRounded/>}</button>
       </div>
-    </div>
-    <div className="ak-mainbar">
-      <div className="ak-header-inner">
-        <Link to="/" className="ak-brand" onClick={closeMenus} aria-label="AkinaClinic - trang chủ">
-          <span className="ak-brand-mark">A</span>
-          <span className="ak-brand-copy"><strong>{clinic?.brand_name || 'AkinaClinic'}</strong><small>DA LIỄU &amp; THẨM MỸ</small></span>
-        </Link>
-        <button className="ak-mobile-toggle" type="button" onClick={() => setMobileOpen((value) => !value)}
-          aria-label={mobileOpen ? 'Đóng menu' : 'Mở menu'} aria-expanded={mobileOpen}>
-          <MenuRounded/>
-        </button>
-        <nav className="ak-nav" aria-label="Điều hướng chính">
-          <NavLink to="/" end onClick={closeMenus} className={({ isActive }) => `ak-nav-link${isActive ? ' active' : ''}`}>Trang chủ</NavLink>
-          <NavLink to="/dich-vu" onClick={closeMenus} className={({ isActive }) => `ak-nav-link${isActive ? ' active' : ''}`}>Dịch vụ</NavLink>
-          <Link to="/#bac-si" onClick={closeMenus} className="ak-nav-link">Đội ngũ bác sĩ</Link>
-          <NavLink to="/chat" onClick={closeMenus} className={({ isActive }) => `ak-nav-link${isActive ? ' active' : ''}`}>Liên hệ</NavLink>
-        </nav>
-        <div className="ak-actions">
-          {user ? <>
-            <NotificationBell user={user}/>
-            {!customer && <Link to="/dashboard" className="ak-work-link">Khu vực làm việc</Link>}
-            <div className="ak-account" ref={accountRef}>
-              <button type="button" className={`ak-account-trigger${accountOpen ? ' open' : ''}`}
-                onClick={() => setAccountOpen((value) => !value)} aria-expanded={accountOpen} aria-haspopup="menu">
-                <span className="ak-account-avatar">{firstName.slice(0, 1).toUpperCase()}</span>
-                <span className="ak-account-label">{customer ? 'Tài khoản' : firstName}</span>
-                <ExpandMoreRounded className="ak-account-chevron"/>
-              </button>
-              {accountOpen && <div className="ak-account-menu" role="menu">
-                <div className="ak-account-summary"><strong>{user.full_name || user.username}</strong><span>{customer ? 'Cổng khách hàng' : 'Tài khoản nhân sự'}</span></div>
-                {customer ? ACCOUNT_LINKS.map(({ to, label }) => <NavLink key={to} to={to} role="menuitem" className={({ isActive }) => `ak-account-item${isActive ? ' active' : ''}`} onClick={closeMenus}>{label}</NavLink>) : <Link to="/profile" role="menuitem" className="ak-account-item" onClick={closeMenus}>Thông tin tài khoản</Link>}
-                <button type="button" role="menuitem" className="ak-account-item logout" onClick={() => { closeMenus(); onLogout(); }}>Đăng xuất</button>
-              </div>}
-            </div>
-          </> : <>
-            <Link to="/login" className="ak-login-link" onClick={closeMenus}><AccountCircleOutlined/> Đăng nhập</Link>
-            <Link to="/book" className="ak-book-cta" onClick={closeMenus}><FavoriteBorderRounded/> Đặt lịch tư vấn</Link>
-          </>}
-        </div>
-      </div>
-    </div>
-    {mobileOpen && <div className="ak-mobile-panel">
+    </div></div>
+    {open && <div className="pk-drawer" id="pk-drawer">
       <nav aria-label="Điều hướng di động">
-        <NavLink to="/" end onClick={closeMenus} className={active('/')}>Trang chủ</NavLink>
-        <NavLink to="/dich-vu" onClick={closeMenus} className={active('/dich-vu')}>Dịch vụ</NavLink>
-        <Link to="/#bac-si" onClick={closeMenus} className="ak-nav-link">Đội ngũ bác sĩ</Link>
-        <NavLink to="/chat" onClick={closeMenus} className={active('/chat')}>Liên hệ</NavLink>
-        {customer && ACCOUNT_LINKS.map(({ to, label }) => <NavLink key={to} to={to} onClick={closeMenus} className={active(to)}>{label}</NavLink>)}
+        {navLinks('pk-d-link')}
+        {customer && <div className="pk-d-sep">Tài khoản</div>}
+        {customer && ACCOUNT_LINKS.map(({ to, label }) => <NavLink key={to} to={to} onClick={closeAll} className={({ isActive }) => `pk-d-link sub${isActive ? ' active' : ''}`}>{label}</NavLink>)}
+        {user && !customer && <Link to="/dashboard" onClick={closeAll} className="pk-d-link">Khu vực làm việc</Link>}
       </nav>
-      <div className="ak-mobile-actions">
-        {user ? <button type="button" onClick={() => { closeMenus(); onLogout(); }}><LogoutRounded/>Đăng xuất</button> : <Link to="/login" onClick={closeMenus}><AccountCircleOutlined/>Đăng nhập</Link>}
-        {!user && <Link to="/book" className="ak-book-cta" onClick={closeMenus}><FavoriteBorderRounded/>Đặt lịch tư vấn</Link>}
+      <div className="pk-d-foot">
+        <Link to="/book" className="pk-cta block" onClick={closeAll}><EventAvailableOutlined/>Đặt lịch ngay</Link>
+        <a className="pk-btn-line block" href={telHref(hotline)}><CallOutlined/>Gọi {hotline}</a>
+        {user ? <button type="button" className="pk-d-out" onClick={() => { closeAll(); onLogout(); }}><LogoutRounded/>Đăng xuất</button> : <Link to="/login" className="pk-d-out" onClick={closeAll}><PersonOutlineRounded/>Đăng nhập / Đăng ký</Link>}
       </div>
     </div>}
   </header>;
@@ -118,12 +117,28 @@ export function CustomerHeader({ user, onLogout }) {
 
 export function CustomerFooter() {
   const clinic = useClinicProfile();
-  return <footer className="ak-footer">
-    <div className="ak-footer-main">
-      <Link to="/" className="ak-footer-brand"><span className="ak-brand-mark">A</span><strong>{clinic?.brand_name || 'AkinaClinic'}</strong></Link>
-      <p>Chăm sóc da liễu chuẩn y khoa, đồng hành cùng vẻ đẹp khỏe mạnh và bền vững.</p>
-      <a href={`tel:${(clinic?.hotline || '0919 005 523').replace(/[^+\d]/g, '')}`} className="ak-footer-hotline"><HeadsetMicOutlined/>{clinic?.hotline || '0919 005 523'}</a>
+  const hotline = clinic?.hotline || DEFAULT_HOTLINE;
+  const brand = 'AkinaClinic';
+  const real = (v) => (v && !/^\[.*\]$/.test(String(v).trim()) ? String(v).trim() : '');
+  const address = real(clinic?.address); const email = real(clinic?.email);
+  return <footer className="pk-footer">
+    <div className="pk-wrap pk-foot-grid">
+      <div className="pk-foot-brand">
+        <Link to="/" className="pk-brand light"><BrandMark/><span className="pk-brand-t"><strong>{brand}</strong><small>Da liễu &amp; Thẩm mỹ</small></span></Link>
+        <p>Thăm khám, tư vấn và theo dõi điều trị da liễu – thẩm mỹ theo quy trình rõ ràng, lấy người bệnh làm trung tâm.</p>
+      </div>
+      <div><h3>Khám phá</h3><ul>
+        <li><Link to="/dich-vu">Dịch vụ</Link></li><li><Link to="/gioi-thieu">Giới thiệu</Link></li><li><Link to="/book">Đặt lịch</Link></li><li><Link to="/contact">Liên hệ</Link></li>
+      </ul></div>
+      <div><h3>Tài khoản</h3><ul>
+        <li><Link to="/login">Đăng nhập</Link></li><li><Link to="/signup">Đăng ký</Link></li><li><Link to="/bookings">Lịch hẹn của tôi</Link></li><li><Link to="/ho-so-suc-khoe">Hồ sơ sức khỏe</Link></li>
+      </ul></div>
+      <div><h3>Liên hệ</h3><ul className="pk-foot-contact">
+        <li><CallOutlined/><a href={telHref(hotline)}>{hotline}</a></li>
+        {email && <li><MailOutlineRounded/><a href={`mailto:${email}`}>{email}</a></li>}
+        {address && <li><PlaceOutlined/><span>{address}</span></li>}
+      </ul></div>
     </div>
-    <div className="ak-footer-bottom"><span>© {clinic?.brand_name || 'AkinaClinic'} · Phòng khám da liễu &amp; thẩm mỹ</span><span>An toàn · Chất lượng · Tận tâm</span></div>
+    <div className="pk-foot-bottom"><div className="pk-wrap"><span>© {new Date().getFullYear()} {brand}. Mọi quyền được bảo lưu.</span><span>Thông tin trên website mang tính tham khảo, không thay thế chẩn đoán của bác sĩ.</span></div></div>
   </footer>;
 }

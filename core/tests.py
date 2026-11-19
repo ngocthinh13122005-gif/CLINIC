@@ -1,13 +1,15 @@
 import os
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import authenticate
 from django.core.management import call_command, CommandError
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from accounts.models import User
 from clinic.models import (
-    CareTask, CRMLead, EmailCampaign, Invoice, MedicalRecord, Medicine, Patient,
+    CareTask, CRMLead, Invoice, MedicalRecord, Medicine, Patient,
     Prescription, TreatmentPlan, TreatmentSession, Visit,
 )
 from core.models import Booking, Conversation
@@ -40,20 +42,33 @@ class MinimalDemoSeedTests(TestCase):
             self.assertEqual(authenticated.pk, user.pk)
         self.assertEqual(Patient.objects.count(), 5)
         self.assertEqual(Medicine.objects.count(), 5)
-        self.assertEqual(Booking.objects.count(), 5)
-        self.assertEqual(Visit.objects.count(), 5)
+        self.assertEqual(Booking.objects.count(), 14)
+        self.assertEqual(Visit.objects.count(), 4)
         self.assertEqual(MedicalRecord.objects.count(), 4)
         self.assertEqual(Prescription.objects.count(), 3)
         self.assertEqual(CRMLead.objects.count(), 3)
         self.assertEqual(Conversation.objects.count(), 3)
         self.assertEqual(CareTask.objects.count(), 3)
-        self.assertEqual(EmailCampaign.objects.count(), 3)
         self.assertEqual(Invoice.objects.count(), 3)
         self.assertEqual(TreatmentPlan.objects.count(), 3)
         self.assertEqual(TreatmentSession.objects.count(), 10)
         active = TreatmentPlan.objects.get(status=TreatmentPlan.ACTIVE)
         self.assertEqual(active.sessions.filter(status=TreatmentSession.DONE).count(), 2)
         self.assertEqual(active.sessions.filter(status=TreatmentSession.PENDING).count(), 3)
+        today = timezone.localdate()
+        self.assertEqual(Booking.objects.filter(
+            appointment__date__gte=today - timedelta(days=7),
+            appointment__date__lt=today,
+        ).count(), 6)
+        self.assertEqual(Booking.objects.filter(
+            appointment__date__gt=today,
+            appointment__date__lte=today + timedelta(days=7),
+        ).count(), 8)
+        self.assertEqual(
+            set(Booking.objects.values_list('status', flat=True)),
+            {Booking.COMPLETED, Booking.CANCELLED, Booking.NO_SHOW, Booking.PENDING, Booking.CONFIRMED},
+        )
+        self.assertFalse(Visit.objects.exclude(status=Visit.COMPLETED).exists())
         self.assertFalse(Prescription.objects.exclude(visit__record__status=MedicalRecord.SIGNED).exists())
         self.assertEqual(
             set(Invoice.objects.values_list('status', flat=True)),

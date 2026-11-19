@@ -31,7 +31,7 @@ function Ring({ done, total, size = 52, stroke = 4, track = 'rgba(255,255,255,.2
   return <span className="pk-ring" style={{ width: size, height: size }}>
     <svg width={size} height={size}><circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={track} strokeWidth={stroke} />
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={`${c * f} ${c}`} transform={`rotate(-90 ${size / 2} ${size / 2})`} /></svg>
-    {label && <span><b>{done}</b>/{total}<small>ĐÃ DÙNG</small></span>}
+    {label && <span className="pk-ring-label"><span className="pk-ring-value"><b>{done}</b><span>/{total}</span></span><small>ĐÃ DÙNG</small></span>}
   </span>;
 }
 

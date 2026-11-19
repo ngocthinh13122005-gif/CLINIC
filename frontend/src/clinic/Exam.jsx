@@ -177,7 +177,7 @@ export default function ExamPage() {
             {!locked && !rec.diagnosis_name && <Field label="…hoặc nhập chẩn đoán tự do" span="2"><input onBlur={(e) => e.target.value && set('diagnosis_name', e.target.value)} placeholder="Nhập rồi bấm ra ngoài để lưu" /></Field>}
             <Field label="Chẩn đoán kèm theo" span="2">
               <div className="cl-chips">{(rec.secondary_diagnoses || []).map((d, i) => <span key={i} className="cl-chip"><b>{d.code}</b> {d.name}
-                {!locked && <button onClick={() => set('secondary_diagnoses', rec.secondary_diagnoses.filter((_, j) => j !== i))} aria-label="Xóa">×</button>}</span>)}</div>
+                {!locked && <button onClick={() => set('secondary_diagnoses', rec.secondary_diagnoses.filter((_, j) => j !== i))} aria-label="Xóa"><span className="ak-icon-glyph">×</span></button>}</span>)}</div>
               {!locked && <IcdPicker placeholder="Thêm chẩn đoán kèm theo…" onPick={(r) => set('secondary_diagnoses', [...(rec.secondary_diagnoses || []), { code: r.code, name: r.name }])} />}
             </Field>
             <Field label="Chẩn đoán phân biệt" span="2"><textarea rows={2} value={rec.differential || ''} disabled={locked} onChange={(e) => set('differential', e.target.value)} /></Field>

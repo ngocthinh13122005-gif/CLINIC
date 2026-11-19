@@ -41,7 +41,7 @@ function useLoad(loader, deps = []) {
 
 function Toast({ text, onClose }) {
   if (!text) return null;
-  return <div className="hr-toast"><CheckCircleRounded /><span>{text}</span><button onClick={onClose}>×</button></div>;
+  return <div className="hr-toast"><CheckCircleRounded /><span>{text}</span><button onClick={onClose}><span className="ak-icon-glyph">×</span></button></div>;
 }
 
 function Modal({ open, title, subtitle, onClose, children }) {
@@ -57,19 +57,15 @@ function Modal({ open, title, subtitle, onClose, children }) {
   </div>;
 }
 
-function WorkspaceNav() {
+function WorkspaceNav({ action }) {
   const links = [
     ['/admin/staff', <BadgeRounded key="i" />, 'Hồ sơ nhân sự'],
     ['/admin/attendance', <WorkHistoryRounded key="i" />, 'Chấm công & nghỉ phép'],
     ['/admin/payroll', <PaymentsRounded key="i" />, 'Bảng lương'],
   ];
-  return <nav className="hr-workspace-nav" aria-label="Quản trị nguồn nhân lực">
+  return <div className="hr-workspace-bar"><nav className="hr-workspace-nav" aria-label="Quản trị nguồn nhân lực">
     {links.map(([to, icon, label]) => <NavLink key={to} to={to} className={({ isActive }) => isActive ? 'active' : ''}>{icon}<span>{label}</span></NavLink>)}
-  </nav>;
-}
-
-function PageLead({ action }) {
-  return action ? <div className="hr-page-action-only">{action}</div> : null;
+  </nav>{action && <div className="hr-workspace-actions">{action}</div>}</div>;
 }
 
 function Kpis({ items }) {
@@ -148,8 +144,7 @@ export function AdminStaffPage() {
   const dailyLoad = (person) => (request.data?.bookings || []).filter((booking) => Number(booking.staff) === Number(person.id) && (booking.appointment || '').slice(0, 10) === today && booking.status !== 'cancelled').length;
   return <div className="hr-page">
     <Toast text={toast} onClose={() => setToast('')} />
-    <WorkspaceNav />
-    <PageLead title="Hồ sơ nhân sự" subtitle="Quản lý tập trung hồ sơ, vai trò, chuyên môn và trạng thái làm việc của đội ngũ phòng khám."
+    <WorkspaceNav
       action={<button className="hr-btn primary" onClick={() => setModal({ form: { ...blankStaff } })}><AddRounded />Thêm nhân sự</button>} />
     {request.error && <div className="hr-alert">{request.error}</div>}
     <Kpis items={[
@@ -212,8 +207,7 @@ export function AdminAttendancePage() {
   const leaves = (request.data?.leaves || []).filter((leave) => `${leave.staff_name} ${leave.reason}`.toLowerCase().includes(query.toLowerCase()) && (status === 'all' || leave.status === status));
   return <div className="hr-page">
     <Toast text={toast} onClose={() => setToast('')} />
-    <WorkspaceNav />
-    <PageLead title="Chấm công & nghỉ phép" subtitle="Theo dõi hiện diện, giờ làm, sai lệch và phê duyệt nghỉ phép trong một không gian quản trị." action={<label className="hr-month"><CalendarMonthRounded /><input type="month" value={month} onChange={(e) => setMonth(e.target.value)} /></label>} />
+    <WorkspaceNav action={<label className="hr-month"><CalendarMonthRounded /><input type="month" aria-label="Tháng chấm công" value={month} onChange={(e) => setMonth(e.target.value)} /></label>} />
     <Kpis items={[
       { label: 'Đủ công', value: stats.full_day, note: 'Bản ghi đạt lịch làm việc', icon: <CheckCircleRounded /> },
       { label: 'Đi trễ', value: stats.late, note: 'Cần kiểm tra sai lệch', icon: <WorkHistoryRounded /> },
@@ -249,7 +243,6 @@ export function AdminPayrollPage() {
   return <div className="hr-page">
     <Toast text={toast} onClose={() => setToast('')} />
     <WorkspaceNav />
-    <PageLead title="Bảng lương" subtitle="Đối soát ngày công, thu nhập, khấu trừ và phát hành bảng lương theo quy trình kiểm soát." />
     <Kpis items={[
       { label: 'Tổng thực nhận', value: money(request.data?.summary?.payroll || 0), note: `${rows.length} bảng lương`, icon: <PaymentsRounded /> },
       { label: 'Chờ duyệt', value: rows.filter((row) => row.status === 'draft').length, note: 'Cần quản lý kiểm tra', icon: <WorkHistoryRounded /> },

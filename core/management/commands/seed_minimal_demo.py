@@ -10,9 +10,9 @@ from accounts.models import User
 from clinic import inventory
 from clinic.models import (
     CareContactLog, CareTask, CashierShift, ConsentForm, CRMLead, DataConsent, DataRequest,
-    DebtFollowUp, EmailCampaign, Invoice, InvoiceItem, LesionMark, MailingList, MedicalRecord,
-    Medicine, MarketingContact, Patient, PatientImage, Payment, Prescription, PrescriptionItem,
-    PurchaseOrder, PurchaseOrderLine, RecordAddendum, Refund, Room, StockCount, StockCountLine,
+    DebtFollowUp, Invoice, InvoiceItem, LesionMark, MedicalRecord,
+    Medicine, Patient, PatientImage, Payment, Prescription, PrescriptionItem,
+    PurchaseOrder, PurchaseOrderLine, PatientMessage, RecordAddendum, Refund, Room, StockCount, StockCountLine,
     StockLot, StockMovement, Supplier, TreatmentPlan, TreatmentSession, Visit,
 )
 from core.models import (
@@ -89,9 +89,6 @@ class Command(BaseCommand):
 
     @staticmethod
     def _reset_business_data():
-        EmailCampaign.objects.all().delete()
-        MailingList.objects.all().delete()
-        MarketingContact.objects.all().delete()
         CRMLead.objects.all().delete()
 
         Conversation.objects.all().delete()
@@ -102,6 +99,7 @@ class Command(BaseCommand):
 
         CareContactLog.objects.all().delete()
         CareTask.objects.all().delete()
+        PatientMessage.objects.all().delete()
         ConsentForm.objects.all().delete()
         DataConsent.objects.all().delete()
         DataRequest.objects.all().delete()
@@ -121,6 +119,8 @@ class Command(BaseCommand):
 
         PrescriptionItem.objects.all().delete()
         Prescription.objects.all().delete()
+        Visit.objects.filter(treatment_session__isnull=False).update(treatment_session=None)
+        TreatmentSession.objects.filter(record__isnull=False).update(record=None)
         TreatmentSession.objects.all().delete()
         TreatmentPlan.objects.all().delete()
         RecordAddendum.objects.all().delete()
@@ -161,7 +161,7 @@ class Command(BaseCommand):
         self._catalog()
         patients = self._patients()
         visits = self._visits(patients, today)
-        self._appointments(patients, visits, today, now)
+        self._appointments(patients, visits, today)
         plans = self._plans(patients, visits, today)
         self._followup_appointments(patients, visits, plans, today)
         medicines = self._inventory(today, now)
@@ -170,7 +170,6 @@ class Command(BaseCommand):
         self._leads(patients)
         self._inbox(now)
         self._activities(patients, visits, plans, today, now)
-        self._marketing(today, now)
 
     def _catalog(self):
         self.services = []
@@ -325,7 +324,7 @@ class Command(BaseCommand):
         return record
 
     def _visits(self, patients, today):
-        old_p2 = _when(today - timedelta(days=35), 10)
+        old_p2 = _when(today - timedelta(days=6), 10)
         p2_history = self._visit(
             patients['quoc-bao'], self.doctors[0], old_p2, 'Tái khám mụn trứng cá', Visit.COMPLETED,
             called=old_p2 + timedelta(minutes=10), finished=old_p2 + timedelta(minutes=40),
@@ -335,7 +334,7 @@ class Command(BaseCommand):
             ('L70.0', 'Mụn trứng cá thông thường'), signed=True,
         )
 
-        p4_time = _when(today - timedelta(days=28), 14)
+        p4_time = _when(today - timedelta(days=4), 14)
         p4_visit = self._visit(
             patients['ngoc-mai'], self.doctors[0], p4_time, 'Khám mụn viêm trước liệu trình',
             Visit.COMPLETED, called=p4_time + timedelta(minutes=10), finished=p4_time + timedelta(minutes=40),
@@ -345,7 +344,7 @@ class Command(BaseCommand):
             ('L70.0', 'Mụn trứng cá thông thường'), signed=True,
         )
 
-        p5_time = _when(today - timedelta(days=45), 11)
+        p5_time = _when(today - timedelta(days=2), 11)
         p5_visit = self._visit(
             patients['thanh-tam'], self.doctors[min(1, len(self.doctors) - 1)], p5_time,
             'Khám viêm da tiếp xúc', Visit.COMPLETED,
@@ -353,7 +352,17 @@ class Command(BaseCommand):
         )
         p5_record = self._record(
             p5_visit, 'Ngứa và đỏ da vùng cổ', 'Ban đỏ giới hạn rõ, không rỉ dịch; bệnh nhân ngưng mỹ phẩm mới.',
-            ('L23.9', 'Viêm da tiếp xúc dị ứng'), signed=True, follow_up=today + timedelta(days=7),
+            ('L23.9', 'Viêm da tiếp xúc dị ứng'), signed=True, follow_up=today + timedelta(days=4),
+        )
+        p3_time = _when(today - timedelta(days=5), 13)
+        p3_visit = self._visit(
+            patients['thu-ha'], self.doctors[min(1, len(self.doctors) - 1)], p3_time,
+            'Tư vấn nám da vùng gò má', Visit.COMPLETED,
+            called=p3_time + timedelta(minutes=8), finished=p3_time + timedelta(minutes=35),
+        )
+        p3_record = self._record(
+            p3_visit, 'Mảng tăng sắc tố hai gò má', 'Mảng sắc tố nâu nhạt, đối xứng; không đau, không ngứa.',
+            ('L81.1', 'Nám da'), signed=True, follow_up=today + timedelta(days=14),
         )
         return {
             'p2_history': p2_history,
@@ -362,19 +371,21 @@ class Command(BaseCommand):
             'p4_record': p4_record,
             'p5': p5_visit,
             'p5_record': p5_record,
+            'p3': p3_visit,
+            'p3_record': p3_record,
         }
 
     def _plans(self, patients, visits, today):
         definitions = (
-            (patients['thu-ha'], visits['draft'], 'Liệu trình chăm sóc sắc tố - nháp',
-             self.services[2], TreatmentPlan.DRAFT, today, 3, 0),
+            (patients['thu-ha'], visits['p3_record'], 'Liệu trình chăm sóc sắc tố - nháp',
+             self.services[2], TreatmentPlan.DRAFT, today, 3, 0, 14),
             (patients['ngoc-mai'], visits['p4_record'], 'Peel da y khoa - 5 buổi',
-             self.services[1], TreatmentPlan.ACTIVE, today - timedelta(days=28), 5, 2),
+             self.services[1], TreatmentPlan.ACTIVE, today - timedelta(days=12), 5, 2, 7),
             (patients['thanh-tam'], visits['p5_record'], 'Phục hồi da sau viêm',
-             self.services[2], TreatmentPlan.COMPLETED, today - timedelta(days=28), 2, 2),
+             self.services[2], TreatmentPlan.COMPLETED, today - timedelta(days=30), 2, 2, 14),
         )
         plans = {}
-        for patient, record, title, service, status, start, total, completed in definitions:
+        for patient, record, title, service, status, start, total, completed, interval in definitions:
             plan, _ = TreatmentPlan.objects.get_or_create(
                 patient=patient,
                 title=title,
@@ -385,7 +396,7 @@ class Command(BaseCommand):
                     'diagnosis': record.diagnosis_name,
                     'content': 'Thực hiện theo chỉ định và theo dõi đáp ứng da tại từng buổi.',
                     'total_sessions': total,
-                    'interval_days': 14,
+                    'interval_days': interval,
                     'price': service.price * total,
                     'status': status,
                     'start_date': start,
@@ -393,7 +404,7 @@ class Command(BaseCommand):
             )
             plans[patient.pk] = plan
             for number in range(1, total + 1):
-                planned = start + timedelta(days=14 * (number - 1))
+                planned = start + timedelta(days=interval * (number - 1))
                 session, _ = TreatmentSession.objects.get_or_create(
                     plan=plan,
                     number=number,
@@ -432,59 +443,65 @@ class Command(BaseCommand):
             BookingItem.objects.create(booking=booking, service=service, price=service.price)
         return booking
 
-    def _appointments(self, patients, visits, today, now):
+    def _appointments(self, patients, visits, today):
         doctor2_staff = self.doctor_staff[min(1, len(self.doctor_staff) - 1)]
+        past_visits = (
+            ('quoc-bao', visits['p2_history'], self.services[0], self.doctor_staff[0], 'past-follow-up-completed'),
+            ('thu-ha', visits['p3'], self.services[0], doctor2_staff, 'past-consult-completed'),
+            ('ngoc-mai', visits['p4'], self.services[1], self.doctor_staff[0], 'past-treatment-completed'),
+            ('thanh-tam', visits['p5'], self.services[2], doctor2_staff, 'past-care-completed'),
+        )
+        for patient_key, visit, service, staff, key in past_visits:
+            booking = self._booking(
+                patients[patient_key], service, staff, visit.check_in_at, Booking.COMPLETED, key,
+                appointment_type=Booking.APPOINTMENT_TYPE_FOLLOW_UP if patient_key == 'quoc-bao'
+                else Booking.APPOINTMENT_TYPE_CONSULT,
+            )
+            visit.booking = booking
+            visit.source = Visit.APPOINTMENT
+            visit.save(update_fields=['booking', 'source'])
+
+        self._booking(
+            patients['minh-chau'], self.services[0], self.doctor_staff[0], _when(today - timedelta(days=3), 9),
+            Booking.CANCELLED, 'past-cancelled', appointment_type=Booking.APPOINTMENT_TYPE_CONSULT,
+        )
+        self._booking(
+            patients['thu-ha'], self.services[0], doctor2_staff, _when(today - timedelta(days=1), 14),
+            Booking.NO_SHOW, 'past-no-show', appointment_type=Booking.APPOINTMENT_TYPE_FOLLOW_UP,
+            follow_up_visit=visits['p3'],
+        )
+
+        upcoming = (
+            ('quoc-bao', self.services[0], doctor2_staff, 1, 10, Booking.CONFIRMED, 'monday-follow-up-confirmed'),
+            ('thu-ha', self.services[0], doctor2_staff, 3, 9, Booking.PENDING, 'wednesday-consult-pending'),
+            ('minh-chau', self.services[1], self.doctor_staff[0], 4, 14, Booking.CONFIRMED, 'thursday-treatment-confirmed'),
+            ('quoc-bao', self.services[0], doctor2_staff, 5, 10, Booking.PENDING, 'friday-follow-up-pending'),
+            ('ngoc-mai', self.services[2], doctor2_staff, 6, 9, Booking.CONFIRMED, 'saturday-care-confirmed'),
+        )
         self._booking(
             patients['minh-chau'], self.services[0], self.doctor_staff[0], _when(today + timedelta(days=1), 9),
             Booking.CONFIRMED, 'new-patient-confirmed', appointment_type=Booking.APPOINTMENT_TYPE_CONSULT,
         )
-        p2_booking = self._booking(
-            patients['quoc-bao'], self.services[0], self.doctor_staff[0], _when(today, 8),
-            Booking.CHECKED_IN, 'checked-in-waiting', appointment_type=Booking.APPOINTMENT_TYPE_FOLLOW_UP,
-            follow_up_visit=visits['p2_history'],
-        )
-        p2_visit, _ = Visit.objects.get_or_create(
-            booking=p2_booking,
-            defaults={
-                'patient': patients['quoc-bao'], 'doctor': self.doctors[0],
-                'attended_by': self.users[User.Role.STAFF], 'source': Visit.APPOINTMENT,
-                'reason': 'Tái khám theo lịch', 'status': Visit.WAITING,
-                'check_in_at': now - timedelta(minutes=20), 'room': self.rooms[0],
-            },
-        )
-        visits['p2_now'] = p2_visit
-
-        p3_booking = self._booking(
-            patients['thu-ha'], self.services[0], doctor2_staff, _when(today, 9),
-            Booking.IN_PROGRESS, 'examination-in-progress', appointment_type=Booking.APPOINTMENT_TYPE_CONSULT,
-        )
-        p3_visit, _ = Visit.objects.get_or_create(
-            booking=p3_booking,
-            defaults={
-                'patient': patients['thu-ha'], 'doctor': doctor2_staff.user,
-                'attended_by': self.users[User.Role.STAFF], 'source': Visit.APPOINTMENT,
-                'reason': 'Mảng tăng sắc tố hai gò má', 'status': Visit.IN_CONSULT,
-                'check_in_at': now - timedelta(minutes=15), 'called_at': now - timedelta(minutes=5),
-                'room': self.rooms[0],
-            },
-        )
-        visits['p3_now'] = p3_visit
-        visits['draft'] = self._record(
-            p3_visit, 'Da sạm hai bên gò má', 'Mảng sắc tố nâu nhạt, đối xứng; không đau, không ngứa.',
-            ('L81.1', 'Nám da'),
-        )
+        for patient_key, service, staff, offset, hour, status, key in upcoming:
+            self._booking(
+                patients[patient_key], service, staff, _when(today + timedelta(days=offset), hour),
+                status, key,
+                appointment_type=Booking.APPOINTMENT_TYPE_FOLLOW_UP if 'follow-up' in key
+                else Booking.APPOINTMENT_TYPE_CONSULT,
+                follow_up_visit=visits['p2_history'] if 'follow-up' in key else None,
+            )
 
     def _followup_appointments(self, patients, visits, plans, today):
         doctor2_staff = self.doctor_staff[min(1, len(self.doctor_staff) - 1)]
         active = plans[patients['ngoc-mai'].pk]
         session3 = active.sessions.get(number=3)
         self._booking(
-            patients['ngoc-mai'], self.services[1], self.doctor_staff[0], _when(today, 14, 30),
+            patients['ngoc-mai'], self.services[1], self.doctor_staff[0], _when(today + timedelta(days=2), 14, 30),
             Booking.CONFIRMED, 'treatment-session-3', appointment_type=Booking.APPOINTMENT_TYPE_SESSION,
             session=session3,
         )
         self._booking(
-            patients['thanh-tam'], self.services[2], doctor2_staff, _when(today + timedelta(days=7), 11),
+            patients['thanh-tam'], self.services[2], doctor2_staff, _when(today + timedelta(days=4), 11),
             Booking.PENDING, 'follow-up-pending', appointment_type=Booking.APPOINTMENT_TYPE_FOLLOW_UP,
             follow_up_visit=visits['p5'],
         )
@@ -707,35 +724,6 @@ class Command(BaseCommand):
                 },
             )
 
-    def _marketing(self, today, now):
-        mailing_list, _ = MailingList.objects.get_or_create(
-            name='Demo - chưa gửi ra ngoài',
-            defaults={'description': 'Danh sách thử nghiệm rỗng; không có người nhận thật.',
-                      'created_by': self.users[User.Role.MANAGER]},
-        )
-        rows = (
-            ('Nội dung chăm sóc da mùa khô', EmailCampaign.DRAFT, None, None),
-            ('Nhắc lịch tái khám mô phỏng', EmailCampaign.SCHEDULED, _when(today + timedelta(days=2), 9), None),
-            ('Thông tin chăm sóc sau peel - mô phỏng', EmailCampaign.SENT, None, now - timedelta(days=1)),
-        )
-        for name, status, scheduled, sent in rows:
-            EmailCampaign.objects.get_or_create(
-                name=name,
-                defaults={
-                    'subject': name,
-                    'preview_text': 'Dữ liệu mô phỏng nội bộ; không gửi email thật.',
-                    'body_html': '<p>Nội dung mẫu AkinaClinic.</p>',
-                    'mailing_list': mailing_list,
-                    'status': status,
-                    'scheduled_at': scheduled,
-                    'sent_at': sent,
-                    'recipient_count': 0,
-                    'sent_count': 0,
-                    'failed_count': 0,
-                    'created_by': self.users[User.Role.MANAGER],
-                },
-            )
-
     @staticmethod
     def _validate():
         expected_patients = {row[4] for row in PATIENTS}
@@ -744,18 +732,29 @@ class Command(BaseCommand):
             raise CommandError('Bộ demo phải có chính xác 5 bệnh nhân đã định danh.')
         if Medicine.objects.count() != 5 or set(Medicine.objects.values_list('name', flat=True)) != expected_medicines:
             raise CommandError('Bộ demo phải có chính xác 5 thuốc.')
-        if Booking.objects.count() != 5:
-            raise CommandError('Bộ demo phải có đúng 5 lịch liên kết với 5 bệnh nhân.')
-        if {Booking.CONFIRMED, Booking.CHECKED_IN, Booking.IN_PROGRESS, Booking.PENDING} - set(
+        if Booking.objects.count() != 14:
+            raise CommandError('Bộ demo phải có đúng 14 lịch hẹn trong hai tuần minh họa.')
+        if {
+            Booking.CONFIRMED, Booking.PENDING, Booking.COMPLETED, Booking.CANCELLED, Booking.NO_SHOW,
+        } - set(
             Booking.objects.values_list('status', flat=True)
         ):
             raise CommandError('Thiếu trạng thái lịch hẹn demo bắt buộc.')
-        if Visit.objects.count() != 5 or set(Visit.objects.values_list('status', flat=True)) != {
-            Visit.WAITING, Visit.IN_CONSULT, Visit.COMPLETED,
-        }:
-            raise CommandError('Bộ demo phải có lượt chờ, đang khám và đã hoàn tất.')
-        if MedicalRecord.objects.count() != 4 or MedicalRecord.objects.filter(status=MedicalRecord.DRAFT).count() != 1:
-            raise CommandError('Bộ demo phải có một bệnh án nháp và các bệnh án đã ký.')
+        today = timezone.localdate()
+        past_week = Booking.objects.filter(
+            appointment__date__gte=today - timedelta(days=7),
+            appointment__date__lt=today,
+        ).count()
+        next_week = Booking.objects.filter(
+            appointment__date__gt=today,
+            appointment__date__lte=today + timedelta(days=7),
+        ).count()
+        if past_week != 6 or next_week != 8:
+            raise CommandError('Lịch demo cần có 6 lịch tuần qua và 8 lịch tuần tới.')
+        if Visit.objects.count() != 4 or set(Visit.objects.values_list('status', flat=True)) != {Visit.COMPLETED}:
+            raise CommandError('Bộ demo phải có bốn lượt khám hoàn tất trong tuần qua.')
+        if MedicalRecord.objects.count() != 4 or MedicalRecord.objects.exclude(status=MedicalRecord.SIGNED).exists():
+            raise CommandError('Bộ demo phải có bốn bệnh án đã ký.')
         if TreatmentPlan.objects.count() != 3:
             raise CommandError('Bộ demo phải có ba liệu trình.')
         active = TreatmentPlan.objects.get(status=TreatmentPlan.ACTIVE)
@@ -776,12 +775,8 @@ class Command(BaseCommand):
             CRMLead.NEW, CRMLead.CONTACTED, CRMLead.CONVERTED,
         }:
             raise CommandError('Bộ demo phải có ba lead ở đủ trạng thái.')
-        if Conversation.objects.count() != 3 or CareTask.objects.count() != 3 or EmailCampaign.objects.count() != 3:
-            raise CommandError('Số lượng hội thoại, hoạt động hoặc chiến dịch demo không đúng.')
-        if set(EmailCampaign.objects.values_list('status', flat=True)) != {
-            EmailCampaign.DRAFT, EmailCampaign.SCHEDULED, EmailCampaign.SENT,
-        }:
-            raise CommandError('Thiếu trạng thái chiến dịch demo bắt buộc.')
+        if Conversation.objects.count() != 3 or CareTask.objects.count() != 3:
+            raise CommandError('Số lượng hội thoại hoặc hoạt động demo không đúng.')
         if not CRMLead.objects.filter(status=CRMLead.CONVERTED, converted_patient__isnull=False).exists():
             raise CommandError('Lead đã chuyển đổi phải liên kết với hồ sơ bệnh nhân.')
         for medicine in Medicine.objects.all():

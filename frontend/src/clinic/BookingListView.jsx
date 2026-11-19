@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import CalendarMonthRounded from '@mui/icons-material/CalendarMonthRounded';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { Loading, initials, isoDay, money, useLoad } from './ui';
@@ -68,28 +69,28 @@ export default function BookingListView({ date: dateProp, onDateChange, onSwitch
   return <div className="pb pbl">
     <div className="pb-bar">
       <div className="pb-nav">
-        <button onClick={() => setDate(addDays(date, -step))} title={span === 'week' ? 'Tuần trước' : 'Ngày trước'}>‹</button>
+        <button onClick={() => setDate(addDays(date, -step))} title={span === 'week' ? 'Tuần trước' : 'Ngày trước'}><span className="ak-icon-glyph">‹</span></button>
         <button onClick={() => setDate(addDays(date, -7))} title="Tuần trước">«</button>
-        <button className="pb-date" onClick={() => setDateOpen(!dateOpen)} title="Chọn ngày">{label} ▾</button>
+        <button className="pb-date" onClick={() => setDateOpen(!dateOpen)} title="Chọn ngày">{label}<span className="ak-icon-glyph">▾</span></button>
         <button onClick={() => setDate(addDays(date, 7))} title="Tuần sau">»</button>
-        <button onClick={() => setDate(addDays(date, step))} title={span === 'week' ? 'Tuần sau' : 'Ngày sau'}>›</button>
+        <button onClick={() => setDate(addDays(date, step))} title={span === 'week' ? 'Tuần sau' : 'Ngày sau'}><span className="ak-icon-glyph">›</span></button>
       </div>
       {dateOpen && <DatePopover date={date} onPick={(d) => { setDate(d); setDateOpen(false); }} onClose={() => setDateOpen(false)} />}
       {date !== todayIso && <button className="pb-ghost" onClick={() => setDate(todayIso)}>Hôm nay</button>}
       <div className="pbl-seg" role="tablist" aria-label="Phạm vi">
         {[['day', 'Ngày'], ['week', 'Tuần']].map(([k, l]) => <button key={k} role="tab" aria-selected={span === k} className={span === k ? 'on' : ''} onClick={() => setSpan(k)}>{l}</button>)}
       </div>
-      <label className="pbl-search"><span aria-hidden>⌕</span>
+      <label className="pbl-search"><span aria-hidden><span className="ak-icon-glyph">⌕</span></span>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm tên, SĐT, mã hồ sơ, #mã lịch…" />
-        {q && <button onClick={() => setQ('')} aria-label="Xóa tìm kiếm">×</button>}</label>
+        {q && <button onClick={() => setQ('')} aria-label="Xóa tìm kiếm"><span className="ak-icon-glyph">×</span></button>}</label>
       <select className="pb-select" value={staffId} onChange={(e) => setStaffId(e.target.value)} aria-label="Bác sĩ">
         <option value="">Tất cả bác sĩ</option>{doctors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select>
       <span className="pb-spacer" />
-      <button className="pb-ghost" onClick={() => onSwitchCalendar ? onSwitchCalendar() : navigate(`/lich-hen?date=${date}`)}>Lịch</button>
-      <button className="pb-icon" onClick={reload} title="Làm mới">↻</button>
+      <button className="pb-icon pb-view-calendar" type="button" onClick={() => onSwitchCalendar ? onSwitchCalendar() : navigate(`/lich-hen?date=${date}`)} title="Chuyển sang lịch timeline" aria-label="Chuyển sang lịch timeline"><CalendarMonthRounded fontSize="small" /></button>
+      <button className="pb-icon" onClick={reload} title="Làm mới"><span className="ak-icon-glyph">↻</span></button>
       {canBook && <button className="pb-create" onClick={() => openCreate({ staff: staffId ? Number(staffId) : doctors[0]?.id, date: date < todayIso ? todayIso : date, time: '09:00' })}><b>⊕</b> Create</button>}
     </div>
-    {alert && <div className="pb-alert">⚠ {alert}<button onClick={() => setAlert('')}>×</button></div>}
+    {alert && <div className="pb-alert">⚠ {alert}<button onClick={() => setAlert('')}><span className="ak-icon-glyph">×</span></button></div>}
 
     <div className="pbl-chips" role="tablist" aria-label="Lọc theo trạng thái">
       <button role="tab" aria-selected={!phase} className={!phase ? 'on' : ''} onClick={() => setPhase('')}>Tất cả<b>{scoped.length}</b></button>
@@ -157,7 +158,7 @@ function Row({ b, now, doctor, canBook, act }) {
     </div>
     <div className="pbl-act" onClick={(e) => e.stopPropagation()} ref={ref}>
       {primary && <button className={`pbl-btn ${primary[2]}`} onClick={() => go(primary[0])}>{primary[1]}</button>}
-      <button className="pbl-more" aria-label="Thao tác khác" aria-expanded={menu} onClick={() => setMenu(!menu)}>⋯</button>
+      <button className="pbl-more" aria-label="Thao tác khác" aria-expanded={menu} onClick={() => setMenu(!menu)}><span className="ak-icon-glyph">⋯</span></button>
       {menu && <div className="pbl-menu" role="menu">
         <button role="menuitem" onClick={() => go('detail')}>Xem chi tiết</button>
         {b.patient && <Link role="menuitem" to={`/benh-nhan/${b.patient}`}>Hồ sơ {b.patient_code}</Link>}

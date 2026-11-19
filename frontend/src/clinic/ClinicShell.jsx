@@ -21,7 +21,6 @@ import LogoutRounded from '@mui/icons-material/LogoutRounded';
 import MenuRounded from '@mui/icons-material/MenuRounded';
 import KeyboardDoubleArrowLeftRounded from '@mui/icons-material/KeyboardDoubleArrowLeftRounded';
 import AssessmentRounded from '@mui/icons-material/AssessmentRounded';
-import SupportAgentRounded from '@mui/icons-material/SupportAgentRounded';
 import TaskAltRounded from '@mui/icons-material/TaskAltRounded';
 import ShieldRounded from '@mui/icons-material/ShieldRounded';
 import VerifiedUserRounded from '@mui/icons-material/VerifiedUserRounded';
@@ -38,6 +37,7 @@ import api from '../api/client';
 import { Avatar, useDebounce } from './ui';
 import './clinic.css';
 import './unified-tabs.css';
+import './system-consistency.css';
 import './pabau.css';
 
 const MENUS = {
@@ -50,7 +50,6 @@ const MENUS = {
     { section: 'Hồ sơ & điều trị' },
     { label: 'Bệnh nhân', to: '/benh-nhan', icon: PeopleAltRounded },
     { label: 'Liệu trình', to: '/lieu-trinh', icon: VaccinesRounded },
-    { label: 'Chăm sóc sau điều trị', to: '/cham-soc', icon: SupportAgentRounded },
     { label: 'Hoạt động', to: '/hoat-dong', icon: TaskAltRounded },
     { section: 'Tài chính & vật tư' },
     { label: 'Thu ngân & công nợ', to: '/thu-ngan', icon: ReceiptLongRounded },
@@ -76,7 +75,6 @@ const MENUS = {
     { section: 'Chuyên môn & điều trị' },
     { label: 'Bệnh nhân', to: '/benh-nhan', icon: PeopleAltRounded },
     { label: 'Liệu trình', to: '/lieu-trinh', icon: VaccinesRounded },
-    { label: 'Chăm sóc sau điều trị', to: '/cham-soc', icon: SupportAgentRounded },
     { label: 'Hoạt động', to: '/hoat-dong', icon: TaskAltRounded },
     { section: 'Vật tư' },
     { label: 'Kho thuốc', to: '/kho-thuoc', icon: MedicationRounded },
@@ -90,7 +88,6 @@ const MENUS = {
     { section: 'Hồ sơ & chăm sóc' },
     { label: 'Bệnh nhân', to: '/benh-nhan', icon: PeopleAltRounded },
     { label: 'Liệu trình', to: '/lieu-trinh', icon: VaccinesRounded },
-    { label: 'Chăm sóc sau điều trị', to: '/cham-soc', icon: SupportAgentRounded },
     { label: 'Hoạt động', to: '/hoat-dong', icon: TaskAltRounded },
     { section: 'Tài chính & vật tư' },
     { label: 'Thu ngân & công nợ', to: '/thu-ngan', icon: ReceiptLongRounded },
@@ -107,9 +104,9 @@ const MENUS = {
   ],
 };
 
-const TITLES = [['/dashboard', 'Tổng quan'], ['/tiep-don', 'Tiếp đón'], ['/lich-hen', 'Lịch hẹn'], ['/benh-nhan', 'Bệnh nhân'], ['/kham', 'Khám bệnh'], ['/lieu-trinh', 'Liệu trình'], ['/ban-hang', 'Bán hàng'], ['/hoa-don', 'Hóa đơn'],
+const TITLES = [['/dashboard', 'Tổng quan'], ['/tiep-don', 'Tiếp đón'], ['/lich-hen', 'Lịch hẹn'], ['/lich-hom-nay', 'Lịch hôm nay'], ['/benh-nhan', 'Bệnh nhân'], ['/kham', 'Khám bệnh'], ['/lieu-trinh', 'Liệu trình'], ['/ban-hang', 'Bán hàng'], ['/hoa-don', 'Hóa đơn'],
   ['/thu-ngan', 'Thu ngân & công nợ'], ['/kho-thuoc', 'Kho & nhập hàng'], ['/cham-soc', 'Chăm sóc sau điều trị'], ['/hoat-dong', 'Hoạt động'], ['/bao-cao', 'Báo cáo quản trị'], ['/nhat-ky', 'Nhật ký hệ thống'], ['/tuan-thu', 'Tuân thủ & bảo mật'], ['/admin/services', 'Dịch vụ & bảng giá'], ['/admin/staff', 'Nhân sự'], ['/admin/attendance', 'Chấm công'],
-  ['/admin/payroll', 'Bảng lương'], ['/admin/crm', 'Khách hàng thành viên'], ['/admin/vouchers', 'Ưu đãi & voucher'], ['/admin/email-marketing', 'Email Marketing'], ['/admin/conversations', 'Hộp thư tư vấn'], ['/cskh', 'Hộp thư tư vấn'], ['/bac-si/tu-van', 'Tư vấn'], ['/settings', 'Cài đặt'], ['/profile', 'Hồ sơ cá nhân'], ['/change-password', 'Đổi mật khẩu']];
+  ['/admin/payroll', 'Bảng lương'], ['/admin/crm', 'Khách hàng thành viên'], ['/admin/vouchers', 'Ưu đãi & voucher'], ['/admin/conversations', 'Hộp thư tư vấn'], ['/cskh', 'Hộp thư tư vấn'], ['/bac-si/tu-van', 'Tư vấn'], ['/settings', 'Cài đặt'], ['/profile', 'Hồ sơ cá nhân'], ['/change-password', 'Đổi mật khẩu']];
 const titleOf = (path) => (TITLES.find(([p]) => path === p || path.startsWith(p + '/')) || [])[1] || '';
 
 function GlobalSearch() {
@@ -174,6 +171,7 @@ export default function ClinicShell() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [unconfirmedBookings, setUnconfirmedBookings] = useState(0);
+  const [pendingReplies, setPendingReplies] = useState(0);
   const toggleMini = () => setMini((v) => !v);
   const showNavTooltip = (event, label) => {
     if (!mini) return;
@@ -195,6 +193,22 @@ export default function ClinicShell() {
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [createOpen]);
+  useEffect(() => {
+    if (!['manager', 'consultant', 'doctor'].includes(user?.role)) return undefined;
+    const onShortcut = (event) => {
+      if (!event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.repeat || event.isComposing) return;
+      if (/INPUT|TEXTAREA|SELECT/.test(event.target.tagName) || event.target.isContentEditable) return;
+      if (loc.pathname.startsWith('/lich-hen')) return;
+      const key = event.key.toLowerCase();
+      const target = key === 'a' ? '/lich-hen' : key === 'c' ? '/benh-nhan' : null;
+      if (!target) return;
+      event.preventDefault();
+      setCreateOpen(false);
+      nav(target, { state: { openCreate: true } });
+    };
+    window.addEventListener('keydown', onShortcut);
+    return () => window.removeEventListener('keydown', onShortcut);
+  }, [loc.pathname, nav, user?.role]);
   useEffect(() => {
     let live = true;
     if (user?.id) api.get('/settings/user/').then(({ data }) => {
@@ -229,6 +243,53 @@ export default function ClinicShell() {
     };
   }, [user?.id]);
   useEffect(() => {
+    if (!user?.id || !['manager', 'sysadmin', 'consultant', 'doctor'].includes(user.role)) {
+      setPendingReplies(0);
+      return undefined;
+    }
+    let live = true;
+    const refresh = () => api.get('/conversations/pending-replies-count/')
+      .then(({ data }) => { if (live) setPendingReplies(Math.max(0, Number(data?.count) || 0)); })
+      .catch((error) => {
+        if (error.response?.status !== 404) {
+          console.error('Không thể tải số hội thoại đang chờ trả lời.', error);
+          return;
+        }
+        const tabs = user.role === 'consultant'
+          ? ['mine', 'unassigned']
+          : [user.role === 'doctor' ? 'doctor' : 'all'];
+        Promise.all(tabs.map((tab) => api.get('/conversations/', { params: { tab } })))
+          .then((responses) => {
+            if (!live) return;
+            const conversations = responses.flatMap(({ data }) => Array.isArray(data) ? data : []);
+            const count = conversations.filter((conversation) =>
+              conversation.status?.toLowerCase() !== 'closed' && conversation.next_actor === 'staff',
+            ).length;
+            setPendingReplies(count);
+          })
+          .catch((fallbackError) => {
+            if (live) console.error('Không thể tải số hội thoại đang chờ trả lời.', fallbackError);
+          });
+      });
+    refresh();
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') refresh();
+    }, 10000);
+    window.addEventListener('ohio:realtime', refresh);
+    window.addEventListener('akina:conversation-updated', refresh);
+    window.addEventListener('focus', refresh);
+    const onVisibility = () => { if (document.visibilityState === 'visible') refresh(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      live = false;
+      window.clearInterval(interval);
+      window.removeEventListener('ohio:realtime', refresh);
+      window.removeEventListener('akina:conversation-updated', refresh);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [user?.id, user?.role]);
+  useEffect(() => {
     if (loc.pathname.startsWith('/lich-hen') && user?.id) {
       api.get('/bookings/unconfirmed-count/')
         .then(({ data }) => setUnconfirmedBookings(Math.max(0, Number(data?.count) || 0)))
@@ -262,10 +323,13 @@ export default function ClinicShell() {
               </div>
             </div>;
           }
+          const isConversationMenu = ['/cskh', '/admin/conversations', '/bac-si/tu-van']
+            .includes((it.to || '').replace(/\/+$/, ''));
+          const hasPendingReplies = isConversationMenu && pendingReplies > 0;
           return <NavLink key={it.to || `${it.label}-${i}`} to={it.to} end={it.to === '/dashboard'}
             onMouseEnter={(event) => showNavTooltip(event, it.label)} onMouseLeave={() => setNavTooltip(null)}
             onFocus={(event) => showNavTooltip(event, it.label)} onBlur={() => setNavTooltip(null)}
-            className={({ isActive }) => `cl-nav ${isActive ? 'active' : ''}${it.to === '/lich-hen' && unconfirmedBookings > 0 ? ' has-badge' : ''}`}><it.icon /><span>{it.label}</span>{it.to === '/lich-hen' && unconfirmedBookings > 0 && <span className="cl-nav-badge" aria-label={`${unconfirmedBookings} lịch hẹn chưa xác nhận`}>{unconfirmedBookings > 99 ? '99+' : unconfirmedBookings}</span>}</NavLink>;
+            className={({ isActive }) => `cl-nav ${isActive ? 'active' : ''}${(it.to === '/lich-hen' && unconfirmedBookings > 0) || hasPendingReplies ? ' has-badge' : ''}`}><it.icon /><span>{it.label}</span>{it.to === '/lich-hen' && unconfirmedBookings > 0 && <span className="cl-nav-badge" aria-label={`${unconfirmedBookings} lịch hẹn chưa xác nhận`}>{unconfirmedBookings > 99 ? '99+' : unconfirmedBookings}</span>}{hasPendingReplies && <span className="cl-nav-badge" aria-label={`${pendingReplies} hội thoại khách hàng đang chờ trả lời`}>{pendingReplies > 99 ? '99+' : pendingReplies}</span>}</NavLink>;
         })}
       </nav>
       <div className="cl-side-foot">
@@ -285,12 +349,12 @@ export default function ClinicShell() {
         <GlobalSearch />
         <div id="cl-top-actions" className="cl-top-actions" />
         <div className="cl-top-right">
-          {['manager', 'consultant', 'doctor', 'staff'].includes(user?.role) && <button type="button" className="cl-icon-btn cl-top-quick" aria-label="Mở lịch hẹn" title="Lịch hẹn" onClick={() => nav('/lich-hen')}><CalendarMonthRounded /></button>}
+          {['manager', 'consultant', 'doctor', 'staff'].includes(user?.role) && <button type="button" className="cl-icon-btn cl-top-quick" aria-label="Lịch hôm nay" title="Lịch hôm nay" onClick={() => nav(['manager', 'consultant', 'doctor'].includes(user?.role) ? '/lich-hom-nay' : '/lich-hen')}><CalendarMonthRounded /></button>}
           {['manager', 'consultant', 'doctor'].includes(user?.role) && <div className="cl-create-wrap">
             <button type="button" className="cl-create-trigger" aria-expanded={createOpen} aria-controls="cl-create-menu" onClick={() => setCreateOpen((value) => !value)}><AddRounded/><span>Tạo mới</span><ExpandMoreRounded/></button>
             {createOpen && <><button type="button" className="cl-create-dismiss" aria-label="Đóng menu tạo mới" onClick={() => setCreateOpen(false)} /><div id="cl-create-menu" className="cl-create-menu" role="menu" aria-label="Tạo mới">
-              <button type="button" role="menuitem" onClick={() => { setCreateOpen(false); nav('/lich-hen', { state: { openCreate: true } }); }}><CalendarMonthRounded/><span><strong>Lịch hẹn</strong><small>Chọn bệnh nhân, dịch vụ và giờ</small></span></button>
-              <button type="button" role="menuitem" onClick={() => { setCreateOpen(false); nav('/benh-nhan', { state: { openCreate: true } }); }}><PeopleAltRounded/><span><strong>Hồ sơ bệnh nhân</strong><small>Tạo hồ sơ hành chính mới</small></span></button>
+              <button type="button" role="menuitem" aria-keyshortcuts="Shift+A" onClick={() => { setCreateOpen(false); nav('/lich-hen', { state: { openCreate: true } }); }}><CalendarMonthRounded/><span><strong>Lịch hẹn</strong><small>Chọn bệnh nhân, dịch vụ và giờ</small></span><kbd>Shift + A</kbd></button>
+              <button type="button" role="menuitem" aria-keyshortcuts="Shift+C" onClick={() => { setCreateOpen(false); nav('/benh-nhan', { state: { openCreate: true } }); }}><PeopleAltRounded/><span><strong>Hồ sơ bệnh nhân</strong><small>Tạo hồ sơ hành chính mới</small></span><kbd>Shift + C</kbd></button>
               <button type="button" role="menuitem" onClick={() => { setCreateOpen(false); nav('/ban-hang'); }}><PointOfSaleRounded/><span><strong>Bán hàng mới</strong><small>Lập hóa đơn bán hàng mới</small></span></button>
               {['manager', 'consultant'].includes(user?.role) && <button type="button" role="menuitem" onClick={() => { setCreateOpen(false); nav('/tiep-don', { state: { openCreate: true } }); }}><MeetingRoomRounded/><span><strong>Tiếp đón khách</strong><small>Ghi nhận khách đang chờ</small></span></button>}
             </div></>}

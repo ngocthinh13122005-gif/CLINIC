@@ -2,12 +2,12 @@
 .pbl{min-height:420px}
 .pbl .pb-bar{gap:10px}
 .pbl-seg{display:flex;border:1px solid var(--line);border-radius:4px;overflow:hidden;height:36px}
-.pbl-seg button{border:0;background:#fff;padding:0 16px;color:#6b7280;font-size:13px}
+.pbl-seg button{border:0;background:#fff;padding:0 16px;color:#596b7a;font-size:13px}
 .pbl-seg button.on{background:#e8f6fb;color:var(--blue-d);font-weight:600}
-.pbl-search{display:flex;align-items:center;gap:6px;height:36px;border:1px solid var(--line);border-radius:4px;padding:0 10px;min-width:260px;flex:0 1 320px;color:#8b929c}
+.pbl-search{display:flex;align-items:center;gap:6px;height:36px;border:1px solid var(--line);border-radius:4px;padding:0 10px;min-width:260px;flex:0 1 320px;color:#596b7a}
 .pbl-search:focus-within{border-color:var(--blue)}
 .pbl-search input{border:0;outline:0;flex:1;font-size:13px;font-family:inherit;color:var(--txt);background:transparent;min-width:0}
-.pbl-search button{border:0;background:none;color:#8b929c;font-size:16px;padding:0}
+.pbl-search button{border:0;background:none;color:#596b7a;font-size:16px;padding:0}
 
 /* Hàng lọc trạng thái (gộp thẻ tổng + tab thành một hàng duy nhất) */
 .pbl-chips{display:flex;gap:8px;padding:12px 20px;border-bottom:1px solid var(--line);flex-wrap:wrap}
@@ -49,7 +49,7 @@
 .pbl-btn.blue{background:var(--blue);border-color:var(--blue);color:#fff}.pbl-btn.blue:hover{background:var(--blue-d)}
 .pbl-btn.green{border-color:#35c27f;color:#1f9d62;background:#f1fbf6}.pbl-btn.green:hover{background:#e0f6ea}
 .pbl-btn.ghost:hover{border-color:var(--blue);color:var(--blue-d)}
-.pbl-more{width:32px;height:32px;border:1px solid var(--line);background:#fff;border-radius:4px;font-size:18px;line-height:1;color:#6b7280}.pbl-more:hover{border-color:var(--blue);color:var(--blue-d)}
+.pbl-more{width:32px;height:32px;border:1px solid var(--line);background:#fff;border-radius:4px;font-size:18px;line-height:1;color:#596b7a}.pbl-more:hover{border-color:var(--blue);color:var(--blue-d)}
 .pbl-menu{position:absolute;right:0;top:36px;z-index:20;min-width:210px;background:#fff;border:1px solid var(--line);box-shadow:0 10px 30px rgba(0,0,0,.2);border-radius:6px;padding:5px}
 .pbl-menu button,.pbl-menu a{display:block;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:4px;color:#333;font-size:13px;text-decoration:none;font-family:inherit;cursor:pointer}
 .pbl-menu button:hover:not(:disabled),.pbl-menu a:hover{background:#eef8fc}.pbl-menu button:disabled{opacity:.4;cursor:not-allowed}.pbl-menu .danger{color:#d32f3a}

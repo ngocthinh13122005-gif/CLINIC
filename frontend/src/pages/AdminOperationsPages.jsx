@@ -31,7 +31,7 @@ const tierClass = (tier='') => `tier-${tier.toLowerCase()}`;
 
 function Toast({ text, kind='ok', onClose }) {
   if (!text) return null;
-  return <div className={`adm-toast ${kind}`}><CheckCircleRounded sx={{fontSize:18}}/><span>{text}</span><button onClick={onClose}>×</button></div>;
+  return <div className={`adm-toast ${kind}`}><CheckCircleRounded sx={{fontSize:18}}/><span>{text}</span><button onClick={onClose}><span className="ak-icon-glyph">×</span></button></div>;
 }
 
 function Modal({ open, title, eyebrow, onClose, children, wide=false }) {

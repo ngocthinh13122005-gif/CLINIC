@@ -8,12 +8,11 @@ from __future__ import annotations
 import io
 import logging
 import threading
-from html import escape
 from email.mime.image import MIMEImage
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
-from django.db import close_old_connections
+from django.db import close_old_connections, connection
 from django.utils import timezone
 
 from .models import Booking
@@ -61,7 +60,12 @@ def _event_heading(event: str) -> str:
 
 def send_booking_email(booking_id: int, *, confirmation_url: str | None = None, event: str = 'created') -> bool:
     """Send one branded HTML booking email. Returns False when there is no recipient/config."""
-    close_old_connections()
+    # A synchronous caller may own an atomic transaction. Closing its connection
+    # would invalidate that transaction; background threads/tasks still clean up
+    # their own connections before and after sending.
+    manage_connections = not connection.in_atomic_block
+    if manage_connections:
+        close_old_connections()
     try:
         booking = (
             Booking.objects.select_related('user', 'staff')
@@ -102,53 +106,26 @@ def send_booking_email(booking_id: int, *, confirmation_url: str | None = None, 
             f'Vé điện tử: {url}\n\n'
             'Vui lòng xuất trình mã hoặc QR khi đến AkinaClinic.'
         )
-        customer_name = escape(booking.customer_name)
-        safe_services = escape(services)
-        safe_staff_name = escape(staff_name)
-        safe_status = escape(status)
-        safe_amount = escape(amount)
-        safe_confirm_code = escape(booking.confirm_code)
-        safe_url = escape(url, quote=True)
         appointment_text = appointment.strftime('%d/%m/%Y %H:%M')
-        html_body = f'''<!doctype html>
-<html><body style="margin:0;padding:0;background-color:#f1f5f7;font-family:Arial,Helvetica,sans-serif;color:#243746">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f1f5f7">
-  <tr><td align="center" style="padding:24px 12px">
-    <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border:1px solid #d9e3e8">
-      <tr><td bgcolor="#0a5964" style="padding:24px 28px;background-color:#0a5964;color:#ffffff">
-        <div style="font-size:12px;line-height:18px;font-weight:bold;letter-spacing:1px;color:#d9f0f1">AKINACLINIC</div>
-        <h1 style="margin:8px 0 0;font-size:21px;line-height:29px;font-weight:700;color:#ffffff">{escape(heading)}</h1>
-      </td></tr>
-      <tr><td style="padding:24px 28px">
-        <p style="margin:0 0 12px;font-size:15px;line-height:23px;color:#243746">Xin chào <strong>{customer_name}</strong>,</p>
-        <p style="margin:0 0 16px;font-size:14px;line-height:22px;color:#435767">Thông tin lịch hẹn của bạn tại AkinaClinic:</p>
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;font-size:14px;line-height:21px">
-          <tr><td style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#526777">Dịch vụ</td><td align="right" style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#243746;font-weight:bold">{safe_services}</td></tr>
-          <tr><td style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#526777">Ngày giờ</td><td align="right" style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#243746;font-weight:bold">{appointment_text}</td></tr>
-          <tr><td style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#526777">Chuyên viên</td><td align="right" style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#243746">{safe_staff_name}</td></tr>
-          <tr><td style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#526777">Trạng thái</td><td align="right" style="padding:9px 0;border-bottom:1px solid #e6ecef;color:#243746">{safe_status}</td></tr>
-          <tr><td style="padding:9px 0;color:#526777">Chi phí</td><td align="right" style="padding:9px 0;color:#243746;font-weight:bold">{safe_amount}</td></tr>
-        </table>
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin-top:20px;background-color:#eaf4f5;border:1px solid #b8d7db">
-          <tr><td align="center" style="padding:16px">
-            <div style="font-size:12px;line-height:18px;font-weight:bold;color:#385866">MÃ VÉ / MÃ XÁC NHẬN</div>
-            <div style="margin-top:5px;font-size:25px;line-height:32px;font-weight:800;color:#123d47;letter-spacing:3px;word-break:break-all">{safe_confirm_code}</div>
-          </td></tr>
-        </table>
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin-top:18px">
-          <tr><td align="center">
-            <img src="cid:ohio-booking-qr" width="180" height="180" alt="QR check-in AkinaClinic" style="display:block;width:180px;height:180px;max-width:100%;border:0" />
-            <p style="margin:8px 0 0;font-size:12px;line-height:18px;color:#526777">Quét QR hoặc mở vé điện tử để check-in.</p>
-          </td></tr>
-          <tr><td align="center" style="padding-top:18px">
-            <a href="{safe_url}" style="display:inline-block;padding:12px 22px;background-color:#0f7280;color:#ffffff;text-decoration:none;font-size:14px;line-height:20px;font-weight:bold">Mở vé điện tử</a>
-          </td></tr>
-        </table>
-      </td></tr>
-      <tr><td align="center" style="padding:14px 20px;background-color:#f7f9fa;border-top:1px solid #e6ecef;font-size:12px;line-height:18px;color:#526777">Email tự động từ AkinaClinic. Vui lòng không chia sẻ mã vé công khai.</td></tr>
-    </table>
-  </td></tr>
-</table></body></html>'''
+        from clinic import emailkit
+        safe_confirm_code = emailkit.esc(booking.confirm_code)
+        rows = [('Dịch vụ', emailkit.esc(services)), ('Ngày giờ', appointment_text),
+                ('Chuyên viên', emailkit.esc(staff_name)), ('Trạng thái', emailkit.esc(status)),
+                ('Chi phí', emailkit.esc(amount))]
+        inner = (
+            f'<p style="margin:0 0 14px;font-family:{emailkit.FONT};font-size:14px;line-height:23px;color:{emailkit.INK}">Xin chào <strong>{emailkit.esc(booking.customer_name)}</strong>,</p>'
+            f'<p style="margin:0 0 6px;font-family:{emailkit.FONT};font-size:14px;line-height:23px;color:{emailkit.INK}">Dưới đây là thông tin lịch hẹn của bạn tại AkinaClinic:</p>'
+            + emailkit.details_table(rows)
+            + emailkit.callout(
+                f'<div style="font-family:{emailkit.FONT};font-size:11px;letter-spacing:.6px;font-weight:700;color:{emailkit.BRAND}">MÃ VÉ / MÃ XÁC NHẬN</div>'
+                f'<div style="margin-top:4px;font-family:{emailkit.FONT};font-size:22px;line-height:30px;font-weight:700;letter-spacing:2px;color:{emailkit.BRAND_DARK};word-break:break-all">{safe_confirm_code}</div>')
+            + '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td align="center" style="padding-top:6px">'
+            '<img src="cid:ohio-booking-qr" width="170" height="170" alt="QR check-in AkinaClinic" style="display:block;width:170px;height:170px;max-width:100%;border:0" />'
+            f'<p style="margin:8px 0 0;font-family:{emailkit.FONT};font-size:12px;line-height:18px;color:{emailkit.MUTED}">Quét QR hoặc mở vé điện tử để check-in.</p></td></tr>'
+            f'<tr><td align="center">{emailkit.button(url, "Mở vé điện tử")}</td></tr></table>'
+            f'<p style="margin:0 0 14px;font-family:{emailkit.FONT};font-size:13px;line-height:21px;color:{emailkit.MUTED}">Vui lòng xuất trình mã hoặc QR khi đến phòng khám. Nếu cần đổi lịch, hãy phản hồi email này hoặc liên hệ hotline.</p>')
+        html_body = emailkit.layout(heading, inner, eyebrow='Lịch hẹn',
+                                    preheader=f'Mã xác nhận {booking.confirm_code} · {appointment_text}')
 
         email = EmailMultiAlternatives(
             subject=_subject(event, booking),
@@ -162,12 +139,18 @@ def send_booking_email(booking_id: int, *, confirmation_url: str | None = None, 
         qr_part.add_header('Content-Disposition', 'inline', filename=f'AkinaClinic-{booking.confirm_code}-QR.png')
         email.attach(qr_part)
         email.send(fail_silently=False)
+        try:
+            from clinic.comms import log_booking_email
+            log_booking_email(booking, email.subject, text_body, html_body, recipient)
+        except Exception:
+            logger.exception('Could not log booking email for booking_id=%s', booking_id)
         return True
     except Exception:
         logger.exception('AkinaClinic booking email failed for booking_id=%s', booking_id)
         return False
     finally:
-        close_old_connections()
+        if manage_connections:
+            close_old_connections()
 
 
 def queue_booking_email(booking_id: int, *, confirmation_url: str | None = None, event: str = 'created') -> None:

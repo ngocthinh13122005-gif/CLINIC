@@ -26,7 +26,7 @@ function useLoad(loader, deps = []) {
 }
 
 function Toast({ text, onClose }) {
-  return text ? <div className="cm-toast"><CheckCircleRounded /><span>{text}</span><button onClick={onClose}>×</button></div> : null;
+  return text ? <div className="cm-toast"><CheckCircleRounded /><span>{text}</span><button onClick={onClose}><span className="ak-icon-glyph">×</span></button></div> : null;
 }
 
 function Modal({ title, onClose, children }) {
@@ -77,11 +77,10 @@ function ServiceForm({ service, categories, onClose, onSaved }) {
   </Modal>;
 }
 
-function Catalog({ services, categories, reload, notify }) {
+function Catalog({ services, categories, reload, notify, edit, setEdit }) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('all');
   const [status, setStatus] = useState('active');
-  const [edit, setEdit] = useState(null);
   const rows = services.filter((item) => `${item.name} ${item.category_name}`.toLowerCase().includes(query.toLowerCase())
     && (category === 'all' || String(item.category) === category)
     && (status === 'all' || item.is_active === (status === 'active')));
@@ -91,7 +90,6 @@ function Catalog({ services, categories, reload, notify }) {
       <label className="cm-search"><SearchRounded /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên hoặc nhóm dịch vụ…" /></label>
       <select value={category} onChange={(event) => setCategory(event.target.value)}><option value="all">Tất cả nhóm</option>{categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
       <select value={status} onChange={(event) => setStatus(event.target.value)}><option value="active">Đang cung cấp</option><option value="inactive">Tạm ngưng</option><option value="all">Tất cả trạng thái</option></select>
-      <button className="cm-btn primary" onClick={() => setEdit({})}><AddRounded />Thêm dịch vụ</button>
     </div>
     <div className="cm-table-wrap"><table className="cm-table"><thead><tr><th>Dịch vụ</th><th>Nhóm</th><th>Chính sách đặt lịch</th><th>Thời lượng</th><th>Giá niêm yết</th><th>Trạng thái</th><th /></tr></thead>
       <tbody>{rows.map((item) => <tr key={item.id}><td><strong>{item.name}</strong><small>{item.description || 'Chưa có mô tả'}</small></td><td>{item.category_name}</td><td>{({direct:'Đặt trực tiếp',assessment:'Cần tư vấn',indicated:'Cần chỉ định',plan_only:'Theo liệu trình'})[item.booking_policy]||'Cần tư vấn'}</td><td>{item.duration} phút</td><td><b>{money(item.price)}</b></td><td><span className={`cm-status ${item.is_active ? 'active' : ''}`}>{item.is_active ? 'Đang cung cấp' : 'Tạm ngưng'}</span></td><td><div className="cm-actions"><button onClick={() => setEdit(item)}><EditRounded />Sửa</button><button type="button" role="switch" aria-checked={item.is_active} aria-label={`${item.is_active ? 'Tạm ngưng' : 'Mở lại'} dịch vụ ${item.name}`} title={item.is_active ? 'Tạm ngưng dịch vụ' : 'Mở lại dịch vụ'} className={`cm-service-switch ${item.is_active ? 'is-active' : 'is-inactive'}`} onClick={() => toggle(item)}><span className="cm-service-switch-thumb"/></button></div></td></tr>)}</tbody></table>{!rows.length && <div className="cm-empty">Không có dịch vụ phù hợp bộ lọc.</div>}</div>
@@ -125,6 +123,7 @@ function Commissions({ payroll, reload, notify }) {
 
 export function AdminServicesPage() {
   const [tab, setTab] = useState('catalog');
+  const [edit, setEdit] = useState(null);
   const [toast, setToast] = useState('');
   const request = useLoad(async () => {
     const [services, categories, payroll] = await Promise.all([api.get('/services/'), api.get('/categories/'), api.get('/dashboard/payroll/')]);
@@ -133,11 +132,12 @@ export function AdminServicesPage() {
   const data = request.data || { services: [], categories: [], payroll: { rows: [] } };
   return <div className="cm-page">
     <Toast text={toast} onClose={() => setToast('')} />
-    <nav className="cm-nav" aria-label="Quản trị dịch vụ và doanh thu">{[['catalog', 'Danh mục dịch vụ'], ['prices', 'Bảng giá'], ['commission', 'Hoa hồng']].map(([key, label]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}>{label}</button>)}</nav>
+    <div className="cm-workspace-bar"><nav className="cm-nav" aria-label="Quản trị dịch vụ và doanh thu">{[['catalog', 'Danh mục dịch vụ'], ['prices', 'Bảng giá'], ['commission', 'Hoa hồng']].map(([key, label]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => { setTab(key); setEdit(null); }}>{label}</button>)}</nav>
+      {tab === 'catalog' && <button className="cm-btn primary" onClick={() => setEdit({})}><AddRounded />Thêm dịch vụ</button>}</div>
     {request.error && <div className="cm-alert">{request.error}</div>}
     <Kpis services={data.services} payroll={data.payroll} />
     <section className="cm-panel">
-      {request.loading && !request.data ? <div className="cm-empty">Đang tải dữ liệu…</div> : tab === 'catalog' ? <Catalog services={data.services} categories={data.categories} reload={request.reload} notify={setToast} /> : tab === 'prices' ? <PriceList services={data.services} /> : <Commissions payroll={data.payroll} reload={request.reload} notify={setToast} />}
+      {request.loading && !request.data ? <div className="cm-empty">Đang tải dữ liệu…</div> : tab === 'catalog' ? <Catalog services={data.services} categories={data.categories} reload={request.reload} notify={setToast} edit={edit} setEdit={setEdit} /> : tab === 'prices' ? <PriceList services={data.services} /> : <Commissions payroll={data.payroll} reload={request.reload} notify={setToast} />}
     </section>
   </div>;
 }

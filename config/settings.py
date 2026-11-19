@@ -133,6 +133,14 @@ EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', f'AkinaClinic <{EMAIL_HOST_USER or "no-reply@akinaclinic.local"}>')
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend' if EMAIL_HOST_PASSWORD else 'django.core.mail.backends.console.EmailBackend'
 EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '12'))
+# Liên lạc với bệnh nhân (tab Liên lạc). SMS_BACKEND để trống = chỉ ghi nhật ký; hoặc đường dẫn hàm gửi.
+CLINIC_NAME = os.environ.get('CLINIC_NAME', 'AkinaClinic')
+CLINIC_TAGLINE = os.environ.get('CLINIC_TAGLINE', 'Phòng khám da liễu')
+CLINIC_ADDRESS = os.environ.get('CLINIC_ADDRESS', '')
+CLINIC_PHONE = os.environ.get('CLINIC_PHONE', '')
+CLINIC_EMAIL = os.environ.get('CLINIC_EMAIL', '')
+CLINIC_WEBSITE = os.environ.get('CLINIC_WEBSITE', '')
+SMS_BACKEND = os.environ.get('SMS_BACKEND', '')
 
 CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://127.0.0.1:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://127.0.0.1:6379/1')

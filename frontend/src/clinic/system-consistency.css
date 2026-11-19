@@ -1,0 +1,169 @@
+#root .cl-app :where(*:not(svg):not(path)) {
+  font-family: var(--font) !important;
+  font-size: 11px !important;
+}
+
+#root .cl-app :where(h1) {
+  font-size: 20px !important;
+  line-height: 1.3 !important;
+}
+
+#root .cl-app :where(h2) {
+  font-size: 15px !important;
+  line-height: 1.35 !important;
+}
+
+#root .cl-app :where(h3) {
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+}
+
+#root .cl-app :where(h4, h5, h6) {
+  font-size: 11px !important;
+  line-height: 1.45 !important;
+}
+
+#root .cl-app :where(small, .cl-hint, .cl-muted, .cl-pill, [class*="badge"], [class*="tag"]) {
+  font-size: 10px !important;
+}
+
+#root .cl-app :where(button, input, select, textarea) {
+  font-family: var(--font) !important;
+  font-size: 10px !important;
+}
+
+#root .cl-app button {
+  border-radius: 8px !important;
+  line-height: 1.35 !important;
+}
+
+#root .cl-app :where(.cl-btn.primary, .pb-create, .pb-btn.blue, .pbl-btn.blue, button.primary, button[class*="-primary"]) {
+  color: #fff !important;
+}
+
+#root .cl-app button:is(.primary, .blue, .sx-hbtn.pri, .iv-btn.pri, [class*="primary"], [class*="-blue"]) {
+  background-color: var(--ak-button-primary) !important;
+  border-color: var(--ak-button-primary) !important;
+  color: #fff !important;
+}
+
+#root .cl-app .sx-edit-tabs button.on {
+  background-color: var(--sx-pri) !important;
+  color: #fff !important;
+}
+
+#root .cl-app .pb-notesbtn,
+#root .cl-app .pb-fold {
+  color: #fff !important;
+  cursor: pointer !important;
+}
+
+#root .cl-app .pb-fold {
+  border-radius: 50% !important;
+  color: var(--ink2) !important;
+}
+
+#root .cl-app .sx-actions .go {
+  background-color: var(--ak-button-primary) !important;
+  border-color: var(--ak-button-primary) !important;
+  color: #fff !important;
+}
+
+#root .cl-app button:is(.primary, .blue, .sx-hbtn.pri, .iv-btn.pri, [class*="primary"], [class*="-blue"]):not(:disabled):hover {
+  background-color: var(--ak-button-primary-hover) !important;
+  border-color: var(--ak-button-primary-hover) !important;
+  color: #fff !important;
+}
+
+#root .cl-app .sx-actions .go:not(:disabled):hover {
+  background-color: var(--ak-button-primary-hover) !important;
+  border-color: var(--ak-button-primary-hover) !important;
+  color: #fff !important;
+}
+
+#root .cl-app .pb-create {
+  border-color: var(--ak-button-primary) !important;
+  background: var(--ak-button-primary) !important;
+}
+
+#root .cl-app :where(button.danger, button.red, button[class*="danger"]) {
+  color: var(--red) !important;
+}
+
+#root .cl-app :where([role="tab"], .cl-tabs > button, .cl-tabs-pill > button, .pb-tabs > button) {
+  font-size: 10px !important;
+  font-weight: 600 !important;
+}
+
+#root .cl-app button[role="tab"] {
+  min-height: 34px !important;
+  padding: 7px 12px !important;
+  border: 0 !important;
+  border-radius: 7px !important;
+  background: transparent !important;
+}
+
+#root .cl-app button[role="tab"][aria-selected="true"] {
+  background: #fff !important;
+  box-shadow: 0 1px 3px rgba(21, 48, 64, .1) !important;
+}
+
+#root .cl-app :where([role="tab"][aria-selected="true"], .cl-tabs > button.active, .cl-tabs > button.on, .cl-tabs-pill > button.active, .cl-tabs-pill > button.on, .pb-tabs > button.on) {
+  color: var(--pri-ink) !important;
+}
+
+#root .cl-app :where(.cl-btn, .pb-btn, .pbl-btn, .pb-ghost, .pb-create) {
+  height: 36px !important;
+  min-height: 36px !important;
+  padding: 0 12px !important;
+  border-radius: 8px !important;
+  font-size: 10px !important;
+}
+
+#root .cl-app :where(.pb-calendar) {
+  font-size: 11px !important;
+}
+
+#root .cl-app :where(.pb-ev, .pb-ev b, .pb-ev span, .pb-ev strong, .pb-ev em, .pb-block, .pb-block b, .pbl-time b, .pbl-patient b, .pbl-svc b, .pbl-doc, .pbl-pill) {
+  font-size: 10px !important;
+}
+
+#root .cl-app :where(.pb-times span, .pb-dayh, .pb-calendar .pb-head b, .pb-calendar .pb-head em, .pbl-time small, .pbl-flags em) {
+  font-size: 10px !important;
+}
+
+#root .cl-app :where(.pb-nav, .pb-tabs, .pbl-seg) > button {
+  border-radius: 0 !important;
+}
+
+#root .cl-app :is(.pb-dlg-h > button, .pb-modal-h > button, .pb-cm-h > button, .pb-x, .ac-x, button[aria-label="Đóng"], button[aria-label="Đóng thông báo"]) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 22px !important;
+  line-height: 1 !important;
+}
+
+#root .cl-app :is(.pb-dlg-h > button, .pb-modal-h > button, .pb-cm-h > button, .pb-x, .ac-x, button[aria-label="Đóng"], button[aria-label="Đóng thông báo"]) > svg {
+  width: 20px;
+  height: 20px;
+  font-size: 20px;
+}
+
+@media (max-width:620px) {
+  #root .cl-app .cl-create-trigger,
+  #root .cl-app .cl-top-actions .cl-pagehead-actions .cl-btn {
+    font-size: 0 !important;
+    gap: 0;
+  }
+  #root .cl-app .cl-create-trigger > span,
+  #root .cl-app .cl-top-actions .cl-pagehead-actions .cl-btn > span,
+  #root .cl-app .cl-account-chevron {
+    display: none;
+  }
+}

@@ -101,7 +101,7 @@ export default function ActivitiesPage() {
           {typeList.map((t) => <button key={t.id} className={`ac-fchip ${String(type) === String(t.id) ? 'on' : ''}`} onClick={() => setType(String(type) === String(t.id) ? '' : t.id)}>
             <TypeIcon icon={t.icon} size={16} color={t.color} />{t.name}</button>)}
         </div>
-        <label className="ac-searchbox"><span aria-hidden>⌕</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm theo tên hoạt động, bệnh nhân, SĐT…" />{q && <button onClick={() => setQ('')} aria-label="Xóa">×</button>}</label>
+        <label className="ac-searchbox"><span aria-hidden><span className="ak-icon-glyph">⌕</span></span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm theo tên hoạt động, bệnh nhân, SĐT…" />{q && <button onClick={() => setQ('')} aria-label="Xóa"><span className="ak-icon-glyph">×</span></button>}</label>
         <div className="ac-relative"><button className="ac-btn pillbtn" onClick={() => setColMenu(!colMenu)}>Cột hiển thị</button>
           {colMenu && <div className="ac-colmenu" onMouseLeave={() => setColMenu(false)}>{COLUMNS.map(([k, l]) => <label key={k}><input type="checkbox" checked={show(k)} disabled={k === 'activity'}
             onChange={() => saveCols(show(k) ? cols.filter((c) => c !== k) : COLUMNS.map(([c]) => c).filter((c) => c === k || cols.includes(c)))} />{l}</label>)}
@@ -142,7 +142,7 @@ export default function ActivitiesPage() {
           {show('assigned') && <td className="c-owner">{a.assigned_to ? <span className="ac-person"><span className="ac-av sm">{initials(a.assigned_name)}</span><b>{a.assigned_name}</b></span> : <span className="ac-muted">Chưa giao</span>}</td>}
           {show('status') && <td className="c-status" onClick={(e) => e.stopPropagation()}><StatusPill state={a.state} onChange={(k) => setState(a, k)} /></td>}
           {show('created') && <td className="c-created ac-muted">{a.created_by_name || '—'}</td>}
-          <td className="c-act" onClick={(e) => e.stopPropagation()}><button className="ac-more" aria-label="Thao tác" onClick={(e) => rowMenu(e, a)}>⋯</button></td>
+          <td className="c-act" onClick={(e) => e.stopPropagation()}><button className="ac-more" aria-label="Thao tác" onClick={(e) => rowMenu(e, a)}><span className="ak-icon-glyph">⋯</span></button></td>
         </tr>)}
           {!rows.length && <tr className="ac-empty"><td colSpan={12}><div><TypeIcon icon="task" size={34} color="#9db4c8" /><b>{q || type ? 'Không có hoạt động khớp bộ lọc' : emptyText}</b>
             {(q || type) ? <button className="ac-btn" onClick={() => { setQ(''); setType(''); }}>Xóa bộ lọc</button> : tab === 'todo' && <button className="ac-btn primary" onClick={() => setForm({})}>＋ Thêm hoạt động</button>}</div></td></tr>}</tbody>
@@ -152,8 +152,8 @@ export default function ActivitiesPage() {
         <span>Hiển thị {rows.length} / {total} hoạt động</span>
         <span className="ac-foot-r">Số dòng mỗi trang
           <select className="ac-select sm" value={size} onChange={(e) => setSize(Number(e.target.value))}>{[25, 50, 100].map((n) => <option key={n}>{n}</option>)}</select>
-          <button className="ac-pg" disabled={page <= 1} onClick={() => setPage(page - 1)} aria-label="Trang trước">‹</button><span>{page}/{pages}</span>
-          <button className="ac-pg" disabled={page >= pages} onClick={() => setPage(page + 1)} aria-label="Trang sau">›</button></span>
+          <button className="ac-pg" disabled={page <= 1} onClick={() => setPage(page - 1)} aria-label="Trang trước"><span className="ak-icon-glyph">‹</span></button><span>{page}/{pages}</span>
+          <button className="ac-pg" disabled={page >= pages} onClick={() => setPage(page + 1)} aria-label="Trang sau"><span className="ak-icon-glyph">›</span></button></span>
       </footer>
     </section>
 

@@ -3,7 +3,7 @@
    Nạp trong Sale.jsx. Màu chính: --sx-pri. Đổi cỡ chữ ở --sx-fs.
    ====================================================================== */
 .sx{--sx-fs:13px;--sx-pri:#0b66c3;--sx-pri-d:#084f9a;--sx-pri-soft:#e8f2fc;--sx-teal:#0b7a96;--sx-teal-soft:#d9f1f6;--sx-ink:#14213d;--sx-ink2:#3d4a63;--sx-muted:#6b778c;
-  --sx-line:#e3e8ef;--sx-line2:#eef1f6;--sx-red:#c62828;--sx-red-soft:#fde8e8;--sx-green:#12803b;--sx-green-d:#16a34a;--sx-purple:#c6b5f0;
+  --sx-line:#e3e8ef;--sx-line2:#eef1f6;--sx-red:#c62828;--sx-red-soft:#fde8e8;--sx-green:#0f7134;--sx-green-d:#16a34a;--sx-purple:#c6b5f0;
   position:fixed;inset:0;z-index:150;background:#fff;color:var(--sx-ink);font-size:var(--sx-fs);display:flex;flex-direction:column;font-family:"Be Vietnam Pro","Inter","Segoe UI",Roboto,Arial,sans-serif}
 .sx *{box-sizing:border-box}
 .sx button{font-family:inherit}
@@ -15,7 +15,7 @@
 
 /* thanh công cụ bên trái */
 .sx-rail{width:90px;flex:none;border-right:1px solid var(--sx-line);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px;background:#fff}
-.sx-rail button{width:70px;border:0;background:none;border-radius:12px;padding:8px 0 6px;display:flex;flex-direction:column;align-items:center;gap:4px;color:#7b8798;font-size:11px;font-weight:600;cursor:pointer}
+.sx-rail button{width:70px;border:0;background:none;border-radius:12px;padding:8px 0 6px;display:flex;flex-direction:column;align-items:center;gap:4px;color:#5f6f82;font-size:11px;font-weight:600;cursor:pointer}
 .sx-rail button svg{font-size:24px}
 .sx-rail button:hover{background:#f3f6fa}
 .sx-rail button.on{background:#e6f1fb;color:var(--sx-pri)}
@@ -38,7 +38,7 @@
 .sx-search:focus-within{border-color:var(--sx-pri);box-shadow:0 0 0 3px rgba(11,102,195,.12)}
 .sx-search input{flex:1;border:0;outline:0;font-size:16px;background:transparent;color:var(--sx-ink);min-width:0}
 .sx-search input::placeholder{color:#9aa5b5}
-.sx-search svg{color:#7b8798}
+.sx-search svg{color:#5f6f82}
 .sx-btn-blue{display:inline-flex;align-items:center;gap:6px;height:50px;padding:0 24px;border:0;border-radius:999px;background:var(--sx-pri);color:#fff;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(11,102,195,.25)}
 .sx-btn-blue:hover{background:var(--sx-pri-d)}
 .sx-grid{flex:1;min-height:0;overflow:auto;padding:4px 20px 130px;display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));grid-auto-rows:min-content;gap:14px;align-content:start}
@@ -92,7 +92,7 @@
 .sx-loc dl svg{font-size:19px;color:#6b778c}
 .sx-cart{flex:1;min-height:0;overflow:auto;padding:8px 24px}
 .sx-cart-empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;color:var(--sx-muted);padding:30px 0}
-.sx-cart-empty .ic{width:120px;height:120px;border-radius:50%;background:#eef1f6;display:grid;place-items:center;color:#7b8798;margin-bottom:12px}
+.sx-cart-empty .ic{width:120px;height:120px;border-radius:50%;background:#eef1f6;display:grid;place-items:center;color:#5f6f82;margin-bottom:12px}
 .sx-cart-empty .ic svg{font-size:54px}
 .sx-cart-empty b{color:var(--sx-ink);font-size:18px;font-weight:600}
 .sx-cart-empty span{font-size:15px}
@@ -130,12 +130,12 @@
 .sx-total em{font-style:normal;color:var(--sx-pri);font-size:26px;letter-spacing:-.01em}
 .sx-total.paid{color:var(--sx-green)}.sx-total.paid em{color:var(--sx-green)}
 .sx-paylist{display:flex;flex-direction:column;gap:6px;margin-top:10px;font-size:14.5px}
-.sx-paylist>div{display:flex;align-items:center;gap:8px;color:var(--sx-ink2)}
-.sx-paylist .nm{flex:1;min-width:0}
+.sx-paylist>div{display:grid;grid-template-columns:minmax(0,1fr) minmax(90px,140px) 34px;align-items:center;gap:8px;color:var(--sx-ink2)}
+.sx-paylist .nm{min-width:0;overflow-wrap:anywhere}
 .sx-paylist .nm small{display:block;color:var(--sx-muted);font-size:11.5px}
-.sx-paylist input{width:120px;height:30px;border:1px solid transparent;border-radius:7px;text-align:right;font-weight:700;color:var(--sx-pri);font-size:14.5px;background:transparent;font-family:inherit}
+.sx-paylist input,.cl-app .sx-paylist input[type=number]{width:100%;min-width:0;height:38px;padding:6px 8px;border:1px solid var(--sx-line);border-radius:7px;text-align:right;font-weight:700;color:var(--sx-pri);font-size:14.5px;background:#fff;font-family:inherit}
 .sx-paylist input:hover{border-color:var(--sx-line)}.sx-paylist input:focus{outline:0;border-color:var(--sx-pri);background:#fff}
-.sx-paylist button{border:0;background:none;cursor:pointer;color:#7b8798;display:grid;place-items:center;width:26px;height:26px;border-radius:7px}.sx-paylist button:hover{background:#f1f4f9;color:var(--sx-red)}
+.sx-paylist button{border:0;background:none;cursor:pointer;color:#5f6f82;display:grid;place-items:center;width:34px;height:34px;border-radius:7px}.sx-paylist button:hover{background:#f1f4f9;color:var(--sx-red)}
 .sx-due{display:flex;justify-content:space-between;font-size:14.5px;margin-top:6px;font-weight:600}
 .sx-due.ok{color:var(--sx-green)}.sx-due.bad{color:var(--sx-red)}
 .sx-actions{display:flex;gap:10px;margin-top:14px;align-items:center;position:relative}
@@ -240,7 +240,7 @@
 .sx-edit-head h1{margin:0;font-size:17px;font-weight:600;line-height:1.2}
 .sx-edit-head .pills{display:flex;gap:6px;margin-top:4px}
 .sx-edit-head .sp{flex:1}
-.sx-pillx{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 12px;font-size:12.5px;font-weight:600;background:#e8f7ee;color:#12803b}
+.sx-pillx{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 12px;font-size:12.5px;font-weight:600;background:#e8f7ee;color:#0f7134}
 .sx-pillx i{width:7px;height:7px;border-radius:50%;background:currentColor}
 .sx-pillx.red{background:var(--sx-red-soft);color:var(--sx-red)}.sx-pillx.amber{background:#fff3d6;color:#a15c07}.sx-pillx.gray{background:#eef1f6;color:var(--sx-ink2)}.sx-pillx.blue{background:#e6f1fb;color:var(--sx-pri)}
 .sx-hbtn{display:inline-flex;align-items:center;gap:8px;height:44px;padding:0 20px;border-radius:999px;border:1px solid var(--sx-line);background:#fff;font-size:14.5px;font-weight:600;color:var(--sx-ink);cursor:pointer;position:relative}

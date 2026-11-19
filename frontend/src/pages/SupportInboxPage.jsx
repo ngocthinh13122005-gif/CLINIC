@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import SearchRounded from '@mui/icons-material/SearchRounded';
 import RefreshRounded from '@mui/icons-material/RefreshRounded';
 import ChevronLeftRounded from '@mui/icons-material/ChevronLeftRounded';
@@ -243,6 +244,8 @@ function SearchPanel({ query, data, onClose, onSelect }) {
 /* ---------- Trang chính ---------- */
 export default function SupportInboxPage() {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const requestedConversationId = searchParams.get('c');
   const role = user?.role;
   const staff = ['consultant', 'doctor', 'manager'].includes(role);
   const [meta, setMeta] = useState({ tabs: [], quick_replies: [], tags: [], doctors: [], consultants: [], presence: '', sla_minutes: 15 });
@@ -371,11 +374,16 @@ export default function SupportInboxPage() {
     loadList().then((rows) => {
       if (!alive || !rows) return;
       setLoading(false);
+      const linkedId = Number(requestedConversationId);
+      if (requestedConversationId && Number.isInteger(linkedId) && linkedId > 0) {
+        if (activeId.current !== linkedId) openConversation(linkedId);
+        return;
+      }
       if (!activeId.current && rows[0] && window.matchMedia('(min-width: 721px)').matches) openConversation(rows[0].id, { showThread: false });
     });
     return () => { alive = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, tagKey, unreadOnly]);
+  }, [tab, tagKey, unreadOnly, requestedConversationId]);
 
   useEffect(() => { if (meta.tags?.length || tagFilter.length) setTagFilter((cur) => { const next = cur.filter((id) => (meta.tags || []).some((t) => t.id === id)); return next.length === cur.length ? cur : next; }); }, [meta.tags]); // eslint-disable-line react-hooks/exhaustive-deps
 

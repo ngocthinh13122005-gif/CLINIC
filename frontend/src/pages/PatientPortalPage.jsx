@@ -56,7 +56,7 @@ export default function PatientPortalPage() {
         <span className="pp-eyebrow"><MedicalInformationRounded/> CỔNG HỒ SƠ BỆNH NHÂN</span>
         <h1>Hồ sơ sức khỏe của bạn</h1>
         <p>Xin chào <strong>{portal?.patient_name || user?.full_name || user?.username}</strong>. Theo dõi lịch sử khám, hướng dẫn chăm sóc và kế hoạch điều trị tại AkinaClinic.</p>
-        <Link to="/book" className="pp-book-link">Đặt lịch khám mới <span aria-hidden="true">→</span></Link>
+        <Link to="/book" className="pp-book-link">Đặt lịch khám mới <span aria-hidden="true"><span className="ak-icon-glyph">→</span></span></Link>
       </div>
       <div className="pp-hero-mark" aria-hidden="true"><MedicalInformationRounded/></div>
     </section>
@@ -66,7 +66,7 @@ export default function PatientPortalPage() {
     {!loading && !error && !portal?.patient_linked && <section className="pp-link-notice">
       <span className="pp-notice-icon"><InfoOutlined/></span>
       <div><h2>Hồ sơ chưa được liên kết</h2><p>Tài khoản này chưa được phòng khám liên kết với hồ sơ bệnh nhân, nên lịch sử khám và thông tin điều trị chưa thể hiển thị. Vui lòng liên hệ AkinaClinic để xác minh và liên kết hồ sơ an toàn.</p>
-        <Link to="/chat" className="pp-contact-link">Liên hệ phòng khám <span aria-hidden="true">→</span></Link>
+        <Link to="/chat" className="pp-contact-link">Liên hệ phòng khám <span aria-hidden="true"><span className="ak-icon-glyph">→</span></span></Link>
       </div>
     </section>}
 
@@ -109,7 +109,7 @@ function VisitList({ rows }) {
         <div className="pp-card-top"><div><span className="pp-date">{dateTimeText(visit.date)}</span><h3>{visit.diagnosis || visit.reason || visit.visit_type}</h3></div><span className="pp-status"><CheckCircleRounded/>Hoàn thành</span></div>
         <div className="pp-meta"><span>{visit.visit_type}</span>{visit.doctor_name && <span>Bác sĩ {visit.doctor_name}</span>}{visit.diagnosis_code && <span>Mã ICD-10: {visit.diagnosis_code}</span>}</div>
         {visit.reason && visit.diagnosis && <p className="pp-detail"><strong>Lý do khám:</strong> {visit.reason}</p>}
-        <Link className="pp-book-link" to={`/book?appointment_type=follow_up&follow_up_visit_id=${visit.id}`}>Đặt lịch tái khám lượt này <span aria-hidden="true">→</span></Link>
+        <Link className="pp-book-link" to={`/book?appointment_type=follow_up&follow_up_visit_id=${visit.id}`}>Đặt lịch tái khám lượt này <span aria-hidden="true"><span className="ak-icon-glyph">→</span></span></Link>
       </div>
     </article>
   ))}</div>;
@@ -139,7 +139,7 @@ function PlanList({ rows }) {
       {plan.total_sessions > 0 && <div className="pp-progress"><div><span>Tiến độ liệu trình</span><strong>{progress}%</strong></div><span className="pp-progress-track"><i style={{ width: `${progress}%` }}/></span></div>}
       {plan.sessions.length > 0 && <ol className="pp-session-list">{plan.sessions.map((session) => <li key={session.id || session.number} className={session.status === 'done' ? 'done' : ''}>
         <span className="pp-session-dot">{session.status === 'done' ? <CheckCircleRounded/> : session.number}</span>
-        <div><strong>Buổi {session.number}</strong><span>{session.status === 'done' ? `Đã thực hiện${session.performed_at ? ` · ${dateTimeText(session.performed_at)}` : ''}` : session.status === 'skipped' ? 'Đã bỏ qua' : session.booking ? `${session.booking.status_label} · ${dateTimeText(session.booking.appointment)}${session.booking.staff_name ? ` · ${session.booking.staff_name}` : ''}` : `Dự kiến ${dateText(session.planned_date)}`}</span>{session.status === 'pending' && <small>{session.allow_staff_delegation ? 'Bác sĩ phụ trách cho phép bố trí nhân sự đủ điều kiện.' : `Bác sĩ phụ trách${plan.doctor_name ? ` ${plan.doctor_name}` : ''} trực tiếp thực hiện.`}</small>}{session.content && <p>{session.content}</p>}{session.bookable && <Link className="pp-book-link" to={`/book?appointment_type=session&treatment_session_id=${session.id}`}>Đặt buổi này <span aria-hidden="true">→</span></Link>}</div>
+        <div><strong>Buổi {session.number}</strong><span>{session.status === 'done' ? `Đã thực hiện${session.performed_at ? ` · ${dateTimeText(session.performed_at)}` : ''}` : session.status === 'skipped' ? 'Đã bỏ qua' : session.booking ? `${session.booking.status_label} · ${dateTimeText(session.booking.appointment)}${session.booking.staff_name ? ` · ${session.booking.staff_name}` : ''}` : `Dự kiến ${dateText(session.planned_date)}`}</span>{session.status === 'pending' && <small>{session.allow_staff_delegation ? 'Bác sĩ phụ trách cho phép bố trí nhân sự đủ điều kiện.' : `Bác sĩ phụ trách${plan.doctor_name ? ` ${plan.doctor_name}` : ''} trực tiếp thực hiện.`}</small>}{session.content && <p>{session.content}</p>}{session.bookable && <Link className="pp-book-link" to={`/book?appointment_type=session&treatment_session_id=${session.id}`}>Đặt buổi này <span aria-hidden="true"><span className="ak-icon-glyph">→</span></span></Link>}</div>
       </li>)}</ol>}
     </article>;
   })}</div>;

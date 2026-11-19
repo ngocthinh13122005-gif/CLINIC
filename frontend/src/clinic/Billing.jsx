@@ -6,24 +6,16 @@ import PrintRounded from '@mui/icons-material/PrintRounded';
 import SearchRounded from '@mui/icons-material/SearchRounded';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { MedPicker, printHtml, useMedicines } from './Prescription';
+import { MedPicker, useMedicines } from './Prescription';
+import { loadClinicInfo, printInvoiceDoc } from './InvoiceDoc';
 import { Avatar, Btn, Card, Empty, Field, Loading, Modal, PageHead, Pill, errMsg, fmtDate, fmtDateTime, fmtTime, isoDay, money, useDebounce, useLoad, useToast } from './ui';
+import { PlanCollectModal, payTone } from './PlanPayment';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 export const invTone = { unpaid: 'red', partial: 'amber', paid: 'green', void: 'gray' };
 const METHODS = [['cash', 'Tiền mặt'], ['transfer', 'Chuyển khoản'], ['card', 'Quẹt thẻ'], ['ewallet', 'Ví điện tử']];
 
-export function printInvoice(inv) {
-  printHtml(`Hóa đơn ${inv.code}`, `<h1>HÓA ĐƠN THANH TOÁN</h1><div class="sub">Số: ${inv.code} · ${fmtDateTime(inv.created_at)}</div>
-  <div class="meta"><div><b>Khách hàng:</b> ${esc(inv.patient_name)}</div><div><b>Mã BN:</b> ${esc(inv.patient_code)}</div><div><b>SĐT:</b> ${esc(inv.patient_phone)}</div><div><b>Thu ngân:</b> ${esc(inv.created_by_name)}</div><div><b>Điều khoản:</b> ${esc(inv.payment_term_label)}</div><div><b>Ngày đến hạn:</b> ${fmtDate(inv.due_date)}</div></div>
-  <table><tr><th>#</th><th>Nội dung</th><th class="r">SL</th><th class="r">Đơn giá</th><th class="r">Thành tiền</th></tr>
-  ${inv.items.map((i, n) => `<tr><td>${n + 1}</td><td>${esc(i.name)}</td><td class="r">${i.quantity}</td><td class="r">${money(i.unit_price)}</td><td class="r">${money(i.amount)}</td></tr>`).join('')}
-  <tr><td colspan="4" class="r">Tạm tính</td><td class="r">${money(inv.subtotal)}</td></tr>${inv.discount ? `<tr><td colspan="4" class="r">Giảm giá</td><td class="r">-${money(inv.discount)}</td></tr>` : ''}
-  <tr class="tot"><td colspan="4" class="r">Tổng cộng</td><td class="r">${money(inv.total)}</td></tr><tr><td colspan="4" class="r">Đã thanh toán ròng</td><td class="r">${money(inv.paid)}</td></tr>${inv.refunded_total ? `<tr><td colspan="4" class="r">Đã hoàn tiền</td><td class="r">${money(inv.refunded_total)}</td></tr>` : ''}
-  <tr class="tot"><td colspan="4" class="r">Còn lại</td><td class="r">${money(inv.balance)}</td></tr></table>
-  ${inv.payments.length ? `<h3>Lịch sử thanh toán</h3><table>${inv.payments.map((p) => `<tr><td>${fmtDateTime(p.paid_at)}</td><td>${p.method_label}${p.reference ? ' · ' + esc(p.reference) : ''}</td><td class="r">${money(p.amount)}</td></tr>`).join('')}</table>` : ''}
-  <div class="sign"><b>Người lập</b><div style="height:46px"></div></div>`);
-}
+export async function printInvoice(inv) { printInvoiceDoc(inv, await loadClinicInfo()); }
 
 export function InvoiceForm({ patient, visitId, invoice, onClose, onSaved }) {
   const meds = useMedicines();
@@ -144,11 +136,13 @@ export function InvoiceModal({ id, onClose, onChanged }) {
   if (edit && inv) return <InvoiceForm invoice={inv} onClose={() => setEdit(false)} onSaved={() => { setEdit(false); l.reload(true); onChanged?.(); }} />;
   return <Modal open wide title={inv ? `Hóa đơn ${inv.code}` : 'Hóa đơn'} subtitle={inv && `${inv.patient_name} · ${inv.patient_code} · ${fmtDateTime(inv.created_at)}`} onClose={onClose}
     footer={inv && <><Btn icon={<PrintRounded />} onClick={() => printInvoice(inv)}>In hóa đơn</Btn>
-      {canBill && inv.status !== 'void' && !inv.payments.length && <Btn onClick={() => setEdit(true)}>Sửa</Btn>}
-      {user.role === 'manager' && inv.status !== 'void' && !inv.payments.length && <Btn onClick={voidIt}>Hủy hóa đơn</Btn>}</>}>
+      {canBill && inv.status !== 'void' && !inv.payments.length && !inv.treatment_plan && <Btn onClick={() => setEdit(true)}>Sửa</Btn>}
+      {user.role === 'manager' && inv.status !== 'void' && !inv.payments.length && !inv.treatment_plan && <Btn onClick={voidIt}>Hủy hóa đơn</Btn>}</>}>
     {!inv ? <Loading /> : <>
       {err && <div className="cl-alert error">{err}</div>}
-      <div className="cl-inv-head"><Pill tone={invTone[inv.status]} dot>{inv.status_label}</Pill>{inv.void_reason && <small className="cl-muted">Lý do hủy: {inv.void_reason}</small>}</div>
+      <div className="cl-inv-head"><Pill tone={invTone[inv.status]} dot>{inv.status_label}</Pill>
+        {inv.treatment_plan && <Pill tone="blue">Liệu trình: {inv.treatment_plan_title}</Pill>}
+        {inv.void_reason && <small className="cl-muted">Lý do hủy: {inv.void_reason}</small>}</div>
       {inv.status !== 'void' && <div className={`cl-due-strip ${inv.due_status}`}><span><b>Điều khoản:</b> {inv.payment_term_label}</span><span><b>Đến hạn:</b> {fmtDate(inv.due_date)}</span>{inv.due_status === 'overdue' && <Pill tone="red">Quá hạn {inv.overdue_days} ngày</Pill>}</div>}
       <div className="cl-einv">
         <div><b>Hóa đơn điện tử:</b> {inv.einvoice_status === 'issued' ? <Pill tone="green" dot>Đã xuất · {inv.einvoice_symbol}-{inv.einvoice_no}</Pill> : inv.einvoice_status === 'requested' ? <Pill tone="amber" dot>Khách yêu cầu xuất</Pill> : <Pill tone="gray">Không xuất</Pill>}
@@ -161,7 +155,9 @@ export function InvoiceModal({ id, onClose, onChanged }) {
         <div className="big"><dt>Tổng cộng</dt><dd>{money(inv.total)}</dd></div><div><dt>Đã thu ròng</dt><dd>{money(inv.paid)}</dd></div>{inv.refunded > 0 && <div><dt>Đã hoàn</dt><dd>-{money(inv.refunded)}</dd></div>}<div className={`big ${inv.balance ? 'debt' : ''}`}><dt>Còn lại</dt><dd>{money(inv.balance)}</dd></div></dl>
       {!!inv.payments.length && <><h3 className="cl-h3">Lịch sử thanh toán</h3><ul className="cl-pay-list">{inv.payments.map((p) => <li key={p.id}><span>{fmtDateTime(p.paid_at)} · {p.method_label}{p.reference ? ` · ${p.reference}` : ''}<small>{p.received_by_name} · {p.reconciliation_status === 'reconciled' ? 'Đã đối soát' : 'Chờ đối soát'}</small></span><b>{money(p.amount)}</b></li>)}</ul></>}
       {!!inv.refunds.length && <><h3 className="cl-h3">Hoàn tiền / điều chỉnh</h3><div className="cl-refund-list">{inv.refunds.map((item) => <article key={item.id}><div><strong>{money(item.amount)} · {item.method_label}</strong><small>{item.reason} · {item.status_label}</small></div><div>{user.role === 'manager' && item.status === 'pending' && <><Btn size="sm" onClick={() => refundAction(item, 'reject')}>Từ chối</Btn><Btn size="sm" kind="primary" onClick={() => refundAction(item, 'approve')}>Duyệt</Btn></>}{canBill && item.status === 'approved' && <Btn size="sm" kind="primary" onClick={() => refundAction(item, 'complete')}>Xác nhận đã hoàn</Btn>}</div></article>)}</div></>}
-      {canBill && inv.status !== 'void' && inv.paid > 0 && <div className="cl-actions-row"><Btn onClick={() => setRefund(true)}>Yêu cầu hoàn tiền</Btn></div>}
+      {canBill && inv.status !== 'void' && inv.paid > 0
+        && (!inv.treatment_plan || inv.treatment_plan_status === 'cancelled')
+        && <div className="cl-actions-row"><Btn onClick={() => setRefund(true)}>Yêu cầu hoàn tiền</Btn></div>}
       {canBill && inv.status !== 'void' && inv.balance > 0 && <div className="cl-pay-box"><h3 className="cl-h3">Thu tiền</h3>
         <div className="cl-form-grid">
           <Field label="Số tiền (VNĐ)"><input type="number" min={1} max={inv.balance} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
@@ -238,7 +234,7 @@ export function InvoiceTable({ rows, onOpen, showPatient = true }) {
     <tbody>{visibleRows.map((i) => <tr key={i.id} className="click" onClick={() => onOpen(i.id)}><td><b>{i.code}</b></td>
       {showPatient && <td>{i.patient_name}<small className="cl-sub">{i.patient_code}</small></td>}<td>{fmtDate(i.created_at)}</td><td>{fmtDate(i.due_date)}{i.due_status === 'overdue' && <small className="cl-sub cl-danger-text">Quá {i.overdue_days} ngày</small>}</td><td>{money(i.total)}</td><td>{money(i.paid)}</td>
       <td style={{ color: i.balance && i.status !== 'void' ? '#c2410c' : undefined, fontWeight: i.balance ? 700 : 400 }}>{i.status === 'void' ? '—' : money(i.balance)}</td><td><Pill tone={invTone[i.status]} dot>{i.status_label}</Pill></td></tr>)}</tbody></table>
-    {pages > 1 && <nav className="cl-pagination cl-billing-pagination" aria-label="Phân trang hóa đơn"><button disabled={page === 1} onClick={() => setPage((p) => p - 1)}>‹</button><div>{Array.from({ length: pages }, (_, i) => i + 1).map((p) => <button key={p} className={page === p ? 'on' : ''} onClick={() => setPage(p)}>{p}</button>)}</div><button disabled={page === pages} onClick={() => setPage((p) => p + 1)}>›</button></nav>}</div>;
+    {pages > 1 && <nav className="cl-pagination cl-billing-pagination" aria-label="Phân trang hóa đơn"><button disabled={page === 1} onClick={() => setPage((p) => p - 1)}><span className="ak-icon-glyph">‹</span></button><div>{Array.from({ length: pages }, (_, i) => i + 1).map((p) => <button key={p} className={page === p ? 'on' : ''} onClick={() => setPage(p)}>{p}</button>)}</div><button disabled={page === pages} onClick={() => setPage((p) => p + 1)}><span className="ak-icon-glyph">›</span></button></nav>}</div>;
 }
 
 /** Tab "Hóa đơn" trong hồ sơ bệnh nhân. */
@@ -251,6 +247,79 @@ export function InvoicesTab({ patient, canBill }) {
   </Card>;
 }
 
+const PLAN_SEGMENTS = [
+  ['todo', 'Cần thu'],
+  ['unpaid', 'Chưa thanh toán'],
+  ['partial', 'Thanh toán một phần'],
+  ['paid', 'Đã thanh toán'],
+  ['refund', 'Cần hoàn tiền'],
+  ['all', 'Tất cả'],
+];
+
+const planSegmentMatch = {
+  todo: (plan) => plan.payment.balance > 0,
+  unpaid: (plan) => plan.payment.state === 'unpaid',
+  partial: (plan) => plan.payment.state === 'partial',
+  paid: (plan) => plan.payment.state === 'paid',
+  refund: (plan) => plan.payment.refundable > 0,
+  all: () => true,
+};
+
+function PlansFinanceTab({ canBill, onChanged, onOpenInvoice, refreshKey, notify }) {
+  const [segment, setSegment] = useState('todo');
+  const [query, setQuery] = useState('');
+  const debouncedQuery = useDebounce(query, 250);
+  const [collecting, setCollecting] = useState(null);
+  const plans = useLoad(async () => {
+    const { data } = await api.get('/clinic/plans/', { params: { status: 'draft,active,completed,cancelled,expired' } });
+    return data.results || data;
+  }, [refreshKey]);
+  const needle = debouncedQuery.trim().toLowerCase();
+  const rows = (plans.data || []).filter((plan) => plan.payment
+    && (plan.payment.state !== 'free' || plan.payment.refundable > 0)
+    && planSegmentMatch[segment](plan)
+    && (!needle || `${plan.patient_name} ${plan.title}`.toLowerCase().includes(needle)));
+
+  return <Card pad={false}>
+    <div className="cl-toolbar cl-toolbar-row">
+      <div className="cl-input-icon"><SearchRounded /><input value={query} onChange={(e) => setQuery(e.target.value)}
+        placeholder="Tìm theo tên bệnh nhân hoặc liệu trình…" /></div>
+      <div className="cl-seg">{PLAN_SEGMENTS.map(([key, title]) => <button key={key}
+        className={segment === key ? 'on' : ''} onClick={() => setSegment(key)}>{title}</button>)}</div>
+    </div>
+    <div className="cl-table-note"><strong>Thu tiền theo liệu trình</strong>
+      <span>Thu ngân có thể thu cả gói, đặt cọc hoặc theo buổi. Các lần thu được ghi nhận trên cùng hóa đơn gắn với liệu trình.</span></div>
+    {plans.error && <div className="cl-alert error">{plans.error}</div>}
+    {plans.loading && !plans.data ? <Loading /> : rows.length ? <div className="cl-table-wrap">
+      <table className="cl-table cl-plan-fin"><thead><tr><th>Bệnh nhân</th><th>Liệu trình</th><th>Tổng</th>
+        <th>Đã thu</th><th>Còn nợ</th><th>Đến hạn</th><th>Trạng thái</th><th /></tr></thead>
+        <tbody>{rows.map((plan) => <tr key={plan.id}>
+          <td><b>{plan.patient_name}</b></td>
+          <td>{plan.title}<small className="cl-sub">{plan.done_sessions}/{plan.total_sessions} buổi · {plan.status_label}</small></td>
+          <td>{money(plan.payment.total)}</td><td>{money(plan.payment.paid)}</td>
+          <td className={plan.payment.balance ? 'cl-danger-text' : ''}>{money(plan.payment.balance)}
+            {plan.payment.refundable > 0 && <small className="cl-sub">Có thể hoàn {money(plan.payment.refundable)}</small>}</td>
+          <td>{plan.payment.due_now > 0 ? money(plan.payment.due_now) : '—'}</td>
+          <td><Pill tone={payTone[plan.payment.state]} dot>{plan.payment.label}</Pill></td>
+          <td className="cl-row-actions">
+            {canBill && plan.status !== 'cancelled' && plan.payment.balance > 0
+              && <Btn size="sm" kind="primary" onClick={() => setCollecting(plan)}>Thu tiền</Btn>}
+            {plan.payment.invoice && <Btn size="sm" onClick={() => onOpenInvoice(plan.payment.invoice)}>Hóa đơn</Btn>}
+          </td>
+        </tr>)}</tbody>
+      </table>
+    </div> : <Empty title="Không có liệu trình nào trong nhóm này"
+      hint="Liệu trình có giá sẽ xuất hiện tại đây để thu ngân theo dõi và thu tiền." />}
+    {collecting && <PlanCollectModal plan={collecting} onClose={() => setCollecting(null)}
+      onDone={(data) => {
+        setCollecting(null);
+        onChanged();
+        notify('Đã ghi nhận thu tiền liệu trình.');
+        if (data.payment?.invoice) onOpenInvoice(data.payment.invoice);
+      }} />}
+  </Card>;
+}
+
 export default function BillingPage() {
   const { user } = useAuth();
   const nav = useNavigate();
@@ -259,6 +328,7 @@ export default function BillingPage() {
   const [q, setQ] = useState('');
   const dq = useDebounce(q, 250);
   const [toast, toastNode] = useToast();
+  const [plansRefresh, setPlansRefresh] = useState(0);
   const sum = useLoad(async () => (await api.get('/clinic/invoices/summary/')).data, []);
   const list = useLoad(async () => { const { data } = await api.get('/clinic/invoices/', { params: { status: view === 'receivables' ? 'unpaid,partial' : status || undefined, q: dq.trim() || undefined } }); return data.results || data; }, [status, dq, view]);
   const today = isoDay();
@@ -266,7 +336,7 @@ export default function BillingPage() {
   const todayInv = useLoad(async () => { const { data } = await api.get('/clinic/invoices/', { params: { date: today } }); return data.results || data; }, []);
   const billed = new Set((todayInv.data || []).filter((i) => i.status !== 'void').map((i) => i.visit));
   const pending = (todayVisits.data || []).filter((v) => !billed.has(v.id));
-  const refresh = () => { sum.reload(true); list.reload(true); todayInv.reload(true); todayVisits.reload(true); };
+  const refresh = () => { sum.reload(true); list.reload(true); todayInv.reload(true); todayVisits.reload(true); setPlansRefresh((tick) => tick + 1); };
   const s = sum.data;
   const isMgr = user.role === 'manager';
   const debtRows = (list.data || []).filter((invoice) => invoice.status !== 'void' && Number(invoice.balance) > 0);
@@ -284,7 +354,7 @@ export default function BillingPage() {
       {isMgr ? <div className="cl-stat green"><span>Doanh thu tháng này</span><strong>{money(s.month_revenue)}</strong><small>{s.low_stock ? `${s.low_stock} thuốc sắp hết` : 'Kho ổn định'}</small></div>
         : <div className="cl-stat green"><span>Chờ lập hóa đơn</span><strong>{pending.length}</strong><small>Lượt khám hôm nay</small></div>}
     </div>}
-    <nav className="cl-tabs" aria-label="Thu ngân và công nợ"><button className={view === 'invoices' ? 'on' : ''} onClick={() => setView('invoices')}>Hóa đơn & thu tiền</button><button className={view === 'receivables' ? 'on' : ''} onClick={() => setView('receivables')}>Công nợ phải thu</button><button className={view === 'shifts' ? 'on' : ''} onClick={() => setView('shifts')}>Ca thu ngân & đối soát</button></nav>
+    <nav className="cl-tabs" aria-label="Thu ngân và công nợ"><button className={view === 'invoices' ? 'on' : ''} onClick={() => setView('invoices')}>Hóa đơn & thu tiền</button><button className={view === 'plans' ? 'on' : ''} onClick={() => setView('plans')}>Liệu trình</button><button className={view === 'receivables' ? 'on' : ''} onClick={() => setView('receivables')}>Công nợ phải thu</button><button className={view === 'shifts' ? 'on' : ''} onClick={() => setView('shifts')}>Ca thu ngân & đối soát</button></nav>
     {view === 'invoices' && !!pending.length && <Card title="Khách chờ thanh toán hôm nay" subtitle="Lượt khám chưa có hóa đơn — bấm để lập hóa đơn tự động từ dịch vụ và đơn thuốc.">
       <div className="cl-pending">{pending.map((v) => <button key={v.id} onClick={() => nav(`/ban-hang?patient=${v.patient}&visit=${v.id}`)}>
         <Avatar name={v.patient_detail.full_name} size={34} /><span><strong>{v.patient_detail.full_name}</strong><small>#{v.ticket_no} · {fmtTime(v.check_in_at)} · {v.status === 'completed' ? 'Đã khám xong' : 'Đang khám'}</small></span></button>)}</div>
@@ -295,7 +365,9 @@ export default function BillingPage() {
       <article className={aging.old.count ? 'attention' : ''}><span>Trên 30 ngày</span><strong>{money(aging.old.amount)}</strong><small>{aging.old.count} hóa đơn cần ưu tiên thu hồi</small></article>
     </div>}
     {view === 'shifts' && <ShiftPanel user={user} notify={toast} />}
-    {view !== 'shifts' && <Card pad={false}>
+    {view === 'plans' && <PlansFinanceTab canBill={['consultant', 'manager'].includes(user.role)}
+      onChanged={refresh} notify={toast} refreshKey={plansRefresh} onOpenInvoice={(id) => nav(`/hoa-don/${id}`)} />}
+    {view !== 'shifts' && view !== 'plans' && <Card pad={false}>
       <div className="cl-toolbar cl-toolbar-row"><div className="cl-input-icon"><SearchRounded /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm theo số hóa đơn, tên, số điện thoại…" /></div>
         {view === 'invoices' && <div className="cl-seg">{[['', 'Tất cả'], ['unpaid,partial', 'Còn nợ'], ['paid', 'Đã thu'], ['void', 'Đã hủy']].map(([k, t]) => <button key={k} className={status === k ? 'on' : ''} onClick={() => setStatus(k)}>{t}</button>)}</div>}</div>
       {view === 'receivables' && <div className="cl-table-note"><strong>Danh sách đối soát công nợ</strong><span>Tuổi công nợ được tính từ ngày đến hạn; bấm vào hóa đơn để ghi nhận thanh toán hoặc lịch sử nhắc nợ.</span></div>}

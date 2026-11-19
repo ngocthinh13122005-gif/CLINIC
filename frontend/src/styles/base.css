@@ -1,13 +1,13 @@
 /* Thang chữ và font dùng chung toàn hệ thống: mọi nơi dùng các biến này, không đặt cỡ chữ tùy ý. */
 :root{
-  --ak-primary:#24bee1;
-  --ak-primary-hover:#159bc1;
+  --ak-primary:#0879b8;
+  --ak-primary-hover:#06689f;
   --ak-primary-active:#117e9d;
   --ak-primary-soft:#eaf8fc;
   --ak-navy:#121d36;
   --ak-text:#121d36;
   --ak-text-secondary:#52627a;
-  --ak-text-muted:#79869a;
+  --ak-text-muted:#5f6f82;
   --ak-bg:#f7f9fc;
   --ak-surface:#fff;
   --ak-surface-secondary:#f3f6fa;
@@ -17,16 +17,115 @@
   --ak-warning:#526d80;
   --ak-danger:#c64c55;
   --ak-info:#356fb6;
+  --ak-button-primary:#0879b8;
+  --ak-button-primary-hover:#06689f;
+  --ak-icon-size:22px;
+  --ak-icon-inline:20px;
+  --ak-icon-compact:16px;
+  --ak-icon-hit:34px;
   --font:"Be Vietnam Pro","Inter","Segoe UI",Roboto,Arial,sans-serif;
-  --fs-xs:12px;   /* nhãn phụ, thời gian, badge */
-  --fs-sm:13px;   /* mô tả, bảng, nút nhỏ */
-  --fs-base:14px; /* nội dung chính */
-  --fs-md:16px;   /* tiêu đề khối */
-  --fs-lg:20px;   /* tiêu đề trang */
-  --fs-xl:28px;   /* số liệu / hero nhỏ */
-  --fs-2xl:40px;  /* hero */
+  --fs-xs:10px;   /* nhãn phụ, thời gian, badge */
+  --fs-sm:10px;   /* mô tả, bảng, nút nhỏ */
+  --fs-base:11px; /* nội dung chính */
+  --fs-md:13px;   /* tiêu đề khối */
+  --fs-lg:16px;   /* tiêu đề trang */
+  --fs-xl:23px;   /* số liệu / hero nhỏ */
+  --fs-2xl:34px;  /* hero */
 }
 html,body{font-family:var(--font);font-size:var(--fs-base);line-height:1.5}
 button,input,select,textarea,optgroup{font-family:inherit;font-size:inherit;color:inherit}
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not([type="reset"]):focus,
+textarea:focus{outline:none!important;outline-offset:0!important}
 h1,h2,h3,h4{font-family:var(--font)}
+#root :is(button,a):focus-visible{outline:2px solid var(--ak-button-primary-hover)!important;outline-offset:2px!important}
 .brand-text-mark,.public-brand,.public-hero h1,.public-page-title{font-family:var(--font)!important}
+
+#root button:is(.primary, .blue, [class*="primary"], [class*="-blue"], .MuiButton-contained) {
+  background-color:var(--ak-button-primary)!important;
+  border-color:var(--ak-button-primary)!important;
+  color:#fff!important;
+}
+#root button:is(.primary, .blue, [class*="primary"], [class*="-blue"], .MuiButton-contained):not(:disabled):hover {
+  background-color:var(--ak-button-primary-hover)!important;
+  border-color:var(--ak-button-primary-hover)!important;
+  color:#fff!important;
+}
+#root button:is(.primary, .blue, [class*="primary"], [class*="-blue"], .MuiButton-contained):disabled {
+  background-color:#e4e9f0!important;
+  border-color:#cbd4e0!important;
+  color:#52627a!important;
+  opacity:1;
+  cursor:not-allowed;
+}
+
+/* Keep icons independent of the compact text scale, without shrinking artwork. */
+.ak-icon-glyph,
+#root :is(.cl-app,.public-shell,.ap-shell) .ak-icon-glyph {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  flex:0 0 auto;
+  min-width:1em;
+  font-size:var(--ak-icon-size,22px)!important;
+  line-height:1!important;
+  font-style:normal;
+  vertical-align:middle;
+}
+#root .MuiSvgIcon-root {
+  min-width:var(--ak-icon-inline);
+  min-height:var(--ak-icon-inline);
+  flex-shrink:0;
+}
+#root :is(button,a,[role="button"],label) > svg,
+#root :is(button,a,[role="button"]) .MuiSvgIcon-root {
+  min-width:var(--ak-icon-size);
+  min-height:var(--ak-icon-size);
+  flex-shrink:0;
+}
+#root :is(.cl-nav,.cl-nav-group-toggle) > svg:first-child {
+  width:28px;
+  height:28px;
+  min-width:28px;
+  min-height:28px;
+}
+#root :is(.cl-icon-btn,.pb-icon,.cs-icon,.chat-tool,.ac-more,.ac-pg,.pbl-more,.MuiIconButton-root),
+#root button:has(> .ak-icon-glyph) {
+  min-width:var(--ak-icon-hit);
+  min-height:var(--ak-icon-hit);
+}
+/* Status flags and removable chips stay compact instead of stretching rows. */
+#root :is(.cl-pill,.cs-pill,.cs-badge,.cs-status,.ac-tag,.pbl-pill,.pbl-flags,.cs-case-badges,.pb-ev-meta,.chat-meta) svg {
+  min-width:var(--ak-icon-compact);
+  min-height:var(--ak-icon-compact);
+}
+#root :is(.cl-chip,.ac-chip,.cm-chip-mail) button {
+  min-width:24px;
+  min-height:24px;
+}
+#root :is(.cl-chip,.ac-chip,.cm-chip-mail) .ak-icon-glyph {
+  font-size:18px!important;
+}
+
+/* Give the account chevron room instead of letting a larger icon overflow. */
+#root .cl-app .cl-account-trigger {
+  width:70px;
+  min-width:70px;
+}
+@media (max-width:620px) {
+  #root .cl-app .cl-account-trigger {
+    width:44px;
+    min-width:44px;
+  }
+}
+@media (max-width:640px) {
+  #root .public-shell .pk-account-btn .pk-chev {
+    display:none;
+  }
+  #root .public-shell .pk-account-btn {
+    gap:0;
+    padding:3px 4px;
+  }
+  #root .public-shell .pk-actions {
+    gap:6px;
+  }
+}

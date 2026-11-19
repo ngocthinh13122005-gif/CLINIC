@@ -8,7 +8,7 @@ from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.hashers import make_password, check_password
 from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
-from django.db.models import Case, Count, IntegerField, OuterRef, Q, Subquery, Sum, When
+from django.db.models import Case, Count, F, IntegerField, OuterRef, Q, Subquery, Sum, When
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import permissions, status, viewsets
@@ -1419,6 +1419,18 @@ class ConversationViewSet(viewsets.ModelViewSet):
             rows = [c for c in rows if extra['unread_map'].get(c.pk)]
         ctx = {**self.get_serializer_context(), **extra}
         return Response(ConversationListSerializer(rows, many=True, context=ctx).data)
+
+    @action(detail=False, methods=['get'], url_path='pending-replies-count')
+    def pending_replies_count(self, request):
+        if request.user.role not in {'manager', 'sysadmin', 'consultant', 'doctor'}:
+            return Response({'detail': 'Bạn không có quyền xem hộp thư tư vấn.'}, status=status.HTTP_403_FORBIDDEN)
+        latest_sender = Message.objects.filter(
+            conversation_id=OuterRef('pk'),
+        ).order_by('-created_at', '-id').values('sender_id')[:1]
+        count = self.get_queryset().exclude(status=Conversation.CLOSED).annotate(
+            latest_sender_id=Subquery(latest_sender),
+        ).filter(latest_sender_id=F('customer_id')).count()
+        return Response({'count': count})
 
     def perform_create(self, serializer):
         conversation = serializer.save(customer=self.request.user)

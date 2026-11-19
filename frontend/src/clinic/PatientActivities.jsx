@@ -44,7 +44,7 @@ export default function PatientActivities({ patient, onChanged }) {
         <p className={a.overdue ? 'ac-red' : ''}>Hạn: {fmtDay(a.end_at)} • {a.assigned_name || 'Chưa giao'}</p>
         {(a.note || a.links.length > 0) && <div className="ac-cl-note"><NoteView note={a.note} links={a.links} empty="" /><ImplicitLinks links={a.links} /></div>}
       </div>
-      <button className="ac-more" aria-label="Thao tác" onClick={(e) => menu(e, a)}>⋮</button>
+      <button className="ac-more" aria-label="Thao tác" onClick={(e) => menu(e, a)}><span className="ak-icon-glyph">⋮</span></button>
     </article>)}
   </div>;
   return <div className="ac-cl">

@@ -48,8 +48,24 @@ class AkinaClinicApiIntegrationTests(APITestCase):
         sent_email = mail.outbox[-1]
         html_body = sent_email.alternatives[0][0]
 
-        self.assertIn('bgcolor="#0a5964"', html_body)
-        self.assertIn('color:#ffffff', html_body)
+        # Verify readability instead of coupling the test to an old brand color.
+        import re
+        button_colors = re.search(
+            r'<td\b[^>]*\bbgcolor="(#[0-9a-fA-F]{6})"[^>]*>\s*'
+            r'<a\b[^>]*style="[^"]*\bcolor:(#[0-9a-fA-F]{6})',
+            html_body,
+        )
+        self.assertIsNotNone(button_colors, 'Email must contain a styled action button')
+
+        def luminance(color):
+            channels = [int(color[index:index + 2], 16) / 255 for index in (1, 3, 5)]
+            linear = [value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+                      for value in channels]
+            return sum(value * weight for value, weight in zip(linear, (0.2126, 0.7152, 0.0722)))
+
+        background, foreground = map(luminance, button_colors.groups())
+        contrast = (max(background, foreground) + 0.05) / (min(background, foreground) + 0.05)
+        self.assertGreaterEqual(contrast, 4.5, 'Email button text must meet minimum contrast')
         self.assertIn('Phí khám được thông báo sau khi bác sĩ tư vấn', html_body)
         self.assertNotIn('0đ', html_body)
         self.assertIn('&lt;Khách Test&gt;', html_body)
@@ -1294,6 +1310,36 @@ class AkinaClinicApiIntegrationTests(APITestCase):
         detail = self.client.get(f'/api/conversations/{conv.id}/')
         self.assertEqual(len(detail.data['messages']), 2)
         self.assertEqual(self.client.get('/api/conversations/', {'tab': 'waiting'}).data[0]['unread_count'], 0)
+
+    def test_pending_replies_count_is_scoped_and_ignores_replied_or_closed_cases(self):
+        consultant = User.objects.create_user(username='reply-agent1', password='pass12345', role='consultant')
+        other_consultant = User.objects.create_user(username='reply-agent2', password='pass12345', role='consultant')
+        doctor = User.objects.create_user(username='reply-doctor', password='pass12345', role='doctor')
+        unassigned = Conversation.objects.create(customer=self.customer, subject='Chưa gán')
+        assigned = Conversation.objects.create(customer=self.customer, subject='Của tôi', assigned_to=consultant)
+        other_assigned = Conversation.objects.create(customer=self.customer, subject='Của người khác', assigned_to=other_consultant)
+        escalated = Conversation.objects.create(customer=self.customer, subject='Bác sĩ', escalated_to=doctor)
+        closed = Conversation.objects.create(customer=self.customer, subject='Đã đóng', status=Conversation.CLOSED)
+        replied = Conversation.objects.create(customer=self.customer, subject='Đã phản hồi', assigned_to=consultant)
+
+        for conversation in (unassigned, assigned, other_assigned, escalated, closed, replied):
+            Message.objects.create(conversation=conversation, sender=self.customer, text='Tôi cần tư vấn')
+        Message.objects.create(conversation=replied, sender=consultant, text='Tôi hỗ trợ bạn nhé')
+
+        self.auth(consultant)
+        response = self.client.get('/api/conversations/pending-replies-count/')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['count'], 3)
+
+        self.auth(doctor)
+        response = self.client.get('/api/conversations/pending-replies-count/')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['count'], 1)
+
+        self.auth(self.manager)
+        response = self.client.get('/api/conversations/pending-replies-count/')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['count'], 4)
 
     # ---------------- Trợ lý AkinaClinic ----------------
     KEY = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6'
