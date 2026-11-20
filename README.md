@@ -3,12 +3,12 @@
 Website demo: https://akina.ecoroute.id.vn
 Mật khẩu chung cho toàn bộ 6 tài khoản: **Demo@123**
 
-Quản lý: demoQuanLy
-Bác sĩ: demoBacSi
-CSKH / Lễ tân: demoCSKH
-Điều dưỡng / Kỹ thuật viên: demoNhanVien
-Khách hàng: demoKhachHang
-Quản trị hệ thống: demoAdmin
+- **Quản lý:** demoQuanLy
+- **Bác sĩ:** demoBacSi
+- **CSKH / Lễ tân:** demoCSKH
+- **Điều dưỡng / Kỹ thuật viên:** demoNhanVien
+- **Khách hàng:** demoKhachHang
+
 
 Các tài khoản trên là tài khoản ứng dụng demo trên VPS.
 Hệ thống quản lý phòng khám da liễu / spa y tế: đặt lịch online, tiếp đón, khám bệnh, kê đơn, liệu trình, thu ngân, kho thuốc, chăm sóc khách hàng và tuân thủ dữ liệu. Giao diện tiếng Việt.
