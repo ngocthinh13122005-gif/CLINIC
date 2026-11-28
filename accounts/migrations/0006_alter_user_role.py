@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("accounts", "0005_user_membership_tier_override"),
+        ("accounts", "0004_user_date_of_birth_passwordresetcode"),
     ]
 
     operations = [

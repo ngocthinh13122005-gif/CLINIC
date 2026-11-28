@@ -7,9 +7,9 @@ import { Loading, errMsg, initials, isoDay, useLoad, useToast } from './ui';
 import { PatientFormModal } from './PatientForm';
 import {
   BLOCK_KINDS, END_H, GRID_H, PPM, START_H, STEP, TYPES, addDays, atMinute, clock12, clockShort, dayKey, durationOf, findConflict,
-  hhmm, indexHours, isMovable, label12, layoutLanes, mondayOf, minutesOf, parseDay, snap, svcNames,
+  hhmm, indexHours, isMovable, label12, layoutLanes, lifecycle, matchesCalendarFilters, mondayOf, minutesOf, parseDay, snap, svcNames,
 } from './calendarKit';
-import { BookingPanel, ConfirmDrawer, CreateMenu, DatePopover, DetailDrawer, DetailPopover, FilterPopover, MoveDialog, ReasonDialog, SlotDialog } from './CalendarPanels';
+import { BookingPanel, ConfirmDrawer, CreateMenu, DatePopover, DetailDrawer, DetailPopover, EMPTY_FILTERS, FilterPopover, countFilters, MoveDialog, ReasonDialog, SlotDialog } from './CalendarPanels';
 import './pabau-calendar.css';
 
 const SLOTS = Array.from({ length: (END_H - START_H) * 6 }, (_, i) => START_H * 60 + i * STEP);
@@ -29,6 +29,9 @@ export default function PabauCalendar({ initialDate, onDateChange, onSwitchList 
     onDateChange?.(nextDate);
   };
   const [hidden, setHidden] = useState([]);
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [drawerTab, setDrawerTab] = useState('detail');
+  const [version, setVersion] = useState(0);
   const [pop, setPop] = useState({ date: false, filter: false, create: false, confirm: false });
   const [sel, setSel] = useState(null);             // popover chi tiết {b,x,y}
   const [drawerId, setDrawerId] = useState(null);
@@ -55,6 +58,7 @@ export default function PabauCalendar({ initialDate, onDateChange, onSwitchList 
   const services = useLoad(async () => (await api.get('/services/')).data, []);
   const hoursQ = useLoad(async () => (await api.get('/working-hours/')).data, []);
   const bookQ = useLoad(async () => { const { data } = await api.get('/bookings/', { params: { from: range[0], to: range[1] } }); return data.results || data; }, [range[0], range[1]]);
+  const pendingQ = useLoad(async () => { const { data } = await api.get('/bookings/', { params: { status: 'pending' } }); return data.results || data; }, []);
   const [focused, setFocused] = useState({ data: null, error: '' });
   const [focusRevision, setFocusRevision] = useState(0);
   useEffect(() => {
@@ -90,7 +94,9 @@ export default function PabauCalendar({ initialDate, onDateChange, onSwitchList 
   const doctors = allDoctors.filter((d) => !hidden.includes(d.id));
   const svcList = (services.data?.results || services.data || []).filter((s) => s.is_active);
   const hours = useMemo(() => indexHours(hoursQ.data?.results || hoursQ.data || []), [hoursQ.data]);
-  const bookings = useMemo(() => (bookQ.data || []).filter((b) => b.status !== 'cancelled'), [bookQ.data]);
+  const allBookings = bookQ.data || [];
+  const bookings = useMemo(() => (bookQ.data || []).filter((b) => matchesCalendarFilters(b, filters)), [bookQ.data, filters]);
+  const pendingCount = (pendingQ.data || []).filter((b) => !b.visit_id).length;
   const blocks = blockQ.data?.results || blockQ.data || [];
   const reload = () => {
     staff.reload(true);
@@ -99,14 +105,14 @@ export default function PabauCalendar({ initialDate, onDateChange, onSwitchList 
     bookQ.reload(true);
     if (bookingId) setFocusRevision((value) => value + 1);
     blockQ.reload(true);
+    pendingQ.reload(true);
+    setVersion((value) => value + 1);
   };
-  const loadError = focused.error || staff.error || services.error || hoursQ.error || bookQ.error || blockQ.error;
+  const loadError = focused.error || staff.error || services.error || hoursQ.error || bookQ.error || blockQ.error || pendingQ.error;
   const days = view === 'week' ? Array.from({ length: 7 }, (_, i) => addDays(mondayOf(date), i)) : [date];
   const cols = days.flatMap((d, di) => doctors.map((s, si) => ({ key: `${d}|${s.id}`, day: d, staff: s, first: si === 0 && di > 0 })));
   const gridCols = `66px repeat(${Math.max(1, cols.length)}, minmax(${view === 'week' ? 84 : 170}px, 1fr))`;
   const nowTop = (minutesOf(now) - START_H * 60) * PPM;
-  const dayBookings = bookings.filter((b) => dayKey(new Date(b.appointment)) === date);
-  const unconfirmed = dayBookings.filter((b) => b.confirm_state === 'unconfirmed' && ['pending', 'confirmed', 'checked_in', 'in_progress'].includes(b.status)).length;
 
   // cuộn tới giờ hiện tại
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = days.includes(todayIso) ? Math.max(0, nowTop - 220) : 0; }, [date, view, staff.loading]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -126,6 +132,13 @@ export default function PabauCalendar({ initialDate, onDateChange, onSwitchList 
   const togglePop = (k) => setPop((p) => ({ date: false, filter: false, create: false, confirm: false, [k]: !p[k] }));
   const go = (n) => setDate(addDays(date, n));
   const run = async (fn, msg) => { setAlert(''); try { await fn(); if (msg) toast(msg); setSel(null); reload(); return true; } catch (e) { setAlert(errMsg(e)); return false; } };
+  const openDrawer = (b, tab = 'detail') => {
+    setSel(null);
+    setDrawerTab(tab);
+    setSearchParams((params) => { params.set('booking', String(b.id)); return params; }, { replace: true });
+    setDate(isoDay(new Date(b.appointment)));
+    setDrawerId(b.id);
+  };
 
   /* ---- hành động trên lịch hẹn ---- */
   const act = (kind, b) => {
@@ -139,7 +152,7 @@ export default function PabauCalendar({ initialDate, onDateChange, onSwitchList 
     if (kind === 'undo_no_show') return run(() => api.post(`/bookings/${b.id}/no-show/`, { undo: true }), 'Đã bỏ đánh dấu vắng mặt.');
     if (kind.startsWith('state:')) return run(() => api.post(`/bookings/${b.id}/confirm-state/`, { state: kind.slice(6) }), 'Đã cập nhật tình trạng liên hệ.');
     if (kind === 'checkout') return nav('/thu-ngan');
-    if (kind === 'expand') { setSel(null); return setDrawerId(b.id); }
+    if (kind === 'expand' || kind === 'requests') return openDrawer(b, kind === 'requests' ? 'requests' : 'detail');
     return null;
   };
   const openDetail = (e, b) => {
@@ -148,7 +161,7 @@ export default function PabauCalendar({ initialDate, onDateChange, onSwitchList 
   };
 
   /* ---- kéo-thả / kéo đổi thời lượng ---- */
-  const ctx = useRef(); ctx.current = { cols, bookings, blocks, hours, canBook, user };
+  const ctx = useRef(); ctx.current = { cols, bookings: allBookings, blocks, hours, canBook, user };
   const startDrag = (e, b, mode, col) => {
     if (e.button !== 0) return;
     e.stopPropagation();
@@ -226,9 +239,9 @@ export default function PabauCalendar({ initialDate, onDateChange, onSwitchList 
       {date !== todayIso && <button className="pb-ghost" onClick={() => setDate(todayIso)}>Hôm nay</button>}
       <div className="pb-legend">{Object.entries(TYPES).map(([k, v]) => <span key={k}><i className={`t-${k}`} />{v}</span>)}</div>
       <span className="pb-spacer" />
-      <div className="pb-relative"><button className="pb-icon" onClick={() => togglePop('filter')} title="Lọc bác sĩ">⚲ Lọc{hidden.length > 0 && <sup>{allDoctors.length - hidden.length}</sup>}</button>
-        {pop.filter && <FilterPopover doctors={allDoctors} hidden={hidden} setHidden={setHidden} onClose={() => setPop((p) => ({ ...p, filter: false }))} />}</div>
-      <button className="pb-icon" onClick={() => togglePop('confirm')} title="Tổng quan xác nhận">✉{unconfirmed > 0 && <sup>{unconfirmed}</sup>}</button>
+      <div className="pb-relative"><button className="pb-icon" onClick={() => togglePop('filter')} title="Bộ lọc" aria-expanded={pop.filter}>⚲ Lọc{countFilters(filters, hidden) > 0 && <sup>{countFilters(filters, hidden)}</sup>}</button>
+        {pop.filter && <FilterPopover doctors={allDoctors} services={svcList} hidden={hidden} filters={filters} onApply={(h, f) => { setHidden(h); setFilters(f); }} onClose={() => setPop((p) => ({ ...p, filter: false }))} />}</div>
+      <button className={`pb-icon pb-pend ${pendingCount ? 'has' : ''}`} onClick={() => togglePop('confirm')} title="Quản lý xác nhận lịch hẹn" aria-expanded={pop.confirm}>Chờ xác nhận ({pendingCount})</button>
       <button className="pb-icon" onClick={toggleFull} title="Toàn màn hình">⤢</button>
       <button className="pb-icon" onClick={reload} title="Làm mới"><span className="ak-icon-glyph">↻</span></button>
       <button className="pb-icon" onClick={onSwitchList} title="Xem danh sách lịch hẹn" aria-label="Xem danh sách lịch hẹn"><EventNoteRounded fontSize="small" /></button>
@@ -241,8 +254,9 @@ export default function PabauCalendar({ initialDate, onDateChange, onSwitchList 
     </div>
     {(alert || loadError) && <div className="pb-alert" role="alert">⚠ {alert || loadError}<button onClick={() => { setAlert(''); reload(); }}>Thử lại</button></div>}
 
-    {pop.confirm && <ConfirmDrawer date={date} bookings={dayBookings} doctors={allDoctors} canBook={canBook} onClose={() => setPop((p) => ({ ...p, confirm: false }))}
-      onOpen={(b) => { setPop((p) => ({ ...p, confirm: false })); setDrawerId(b.id); }} onState={(b, s) => act(`state:${s}`, b)} />}
+    {pop.confirm && <ConfirmDrawer version={version} doctors={allDoctors} canBook={canBook} onClose={() => setPop((p) => ({ ...p, confirm: false }))}
+      onOpen={(b) => { setPop((p) => ({ ...p, confirm: false })); openDrawer(b); }}
+      onConfirm={(b) => act('confirm', b)} onState={(b, s) => act(`state:${s}`, b)} />}
 
     {(staff.loading || bookQ.loading) && !bookQ.data ? <Loading /> :
       <div className="pb-scroll" ref={scrollRef} onMouseDown={() => { setSel(null); }} onMouseLeave={() => setHover(null)}>
@@ -268,14 +282,14 @@ export default function PabauCalendar({ initialDate, onDateChange, onSwitchList 
     {ghost && ghost.error && <div className="pb-tip err" style={{ right: 24, bottom: 24 }}>{ghost.error}</div>}
 
     {sel && <DetailPopover sel={sel} canBook={canBook} onClose={() => setSel(null)} act={act} />}
-    {drawerB && <DetailDrawer b={drawerB} canBook={canBook} onClose={closeDrawer} act={act} />}
+    {drawerB && <DetailDrawer key={`${drawerB.id}-${drawerTab}`} initialTab={drawerTab} version={version} b={drawerB} canBook={canBook} onClose={closeDrawer} act={act} />}
     {panelOpen && <BookingPanel key={panel.booking?.id || panel.block?.id || `${panel.staff}${panel.date}${panel.time}${panel.tab}`} init={panel} doctors={allDoctors} services={svcList}
-      bookings={bookings} blocks={blocks} hours={hours} onClose={() => setPanel(null)} onSaved={(m) => { setPanel(null); toast(m); reload(); }} />}
+      bookings={allBookings} blocks={blocks} hours={hours} onClose={() => setPanel(null)} onSaved={(m) => { setPanel(null); toast(m); reload(); }} />}
 
     {dlg?.type === 'move' && <MoveDialog info={dlg.info} onCancel={() => setDlg(null)} onConfirm={(notify) => confirmMove(dlg.info, notify)} />}
     {dlg?.type === 'cancel' && <ReasonDialog b={dlg.b} onCancel={() => setDlg(null)}
       onConfirm={async (reason) => { const b = dlg.b; setDlg(null); await run(() => api.post(`/bookings/${b.id}/cancel/`, { reason }), 'Đã hủy lịch hẹn.'); }} />}
-    {dlg?.type === 'slot' && <SlotDialog kind={dlg.kind} b={dlg.b} doctors={allDoctors} bookings={bookings} blocks={blocks} hours={hours} onCancel={() => setDlg(null)}
+    {dlg?.type === 'slot' && <SlotDialog kind={dlg.kind} b={dlg.b} doctors={allDoctors} bookings={allBookings} blocks={blocks} hours={hours} onCancel={() => setDlg(null)}
       onConfirm={async (p) => { const { kind, b } = dlg; setDlg(null);
         await run(() => (kind === 'rebook' ? api.post(`/bookings/${b.id}/rebook/`, p) : api.post(`/bookings/${b.id}/edit/`, p)), kind === 'rebook' ? 'Đã đặt lại lịch hẹn.' : 'Đã đổi giờ lịch hẹn.'); }} />}
     <PatientFormModal open={newPatient} onClose={() => setNewPatient(false)} onSaved={() => { setNewPatient(false); toast('Đã tạo hồ sơ bệnh nhân.'); }} />
@@ -299,11 +313,11 @@ function Column({ onOpen, c, bookings, blocks, hours, sel, ghost, draft, setRef,
     {lay.map(({ b, lane, lanes }) => {
       const movable = isMovable(b, canBook);
       const h = Math.max(30, durationOf(b) * PPM - 2);
-      const cls = `t-${b.appointment_type} ${b.status === 'completed' ? 'done' : ''} ${b.status === 'no_show' ? 'noshow' : ''} ${b.visit_id && b.status !== 'completed' ? 'arrived' : ''} ${sel?.b.id === b.id ? 'sel' : ''}`;
+      const cls = `t-${b.appointment_type} st-${lifecycle(b)[0]} ${b.status === 'completed' ? 'done' : ''} ${b.status === 'no_show' ? 'noshow' : ''} ${b.visit_id && b.status !== 'completed' ? 'arrived' : ''} ${sel?.b.id === b.id ? 'sel' : ''}`;
       return <div key={b.id} className={`pb-ev ${cls}`} style={{ top: (minutesOf(new Date(b.appointment)) - START_H * 60) * PPM, height: h, left: `calc(${(lane / lanes) * 100}% + 2px)`, width: `calc(${100 / lanes}% - 4px)`, cursor: movable ? 'grab' : 'pointer' }}
         onPointerDown={(e) => (movable ? onStart(e, b, 'move') : null)} onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => { if (!movable) { e.stopPropagation(); onOpen(e, b); } }}>
-        <b>{b.running_late && <u title="Đến trễ">⏱ </u>}{b.customer_name}</b><span>{clockShort(b.appointment)}</span><strong>{svcNames(b)}</strong>{view === 'day' && <em>{svcNames(b)}</em>}
+        <b>{b.running_late && <u title="Đến trễ">⏱ </u>}{b.customer_name}</b><span className="pb-evst">{lifecycle(b)[1]}</span><span>{clockShort(b.appointment)}</span><strong>{svcNames(b)}</strong>{view === 'day' && <em>{svcNames(b)}</em>}
         {movable && <i className="pb-grip" onPointerDown={(e) => onStart(e, b, 'resize')} title="Kéo để đổi thời lượng" />}
       </div>;
     })}

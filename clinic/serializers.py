@@ -11,6 +11,28 @@ def uname(u):
     return (u.get_full_name() or u.username) if u else ''
 
 
+class SessionCompletionSerializer(serializers.Serializer):
+    session_id = serializers.IntegerField(min_value=1)
+    booking = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+    status = serializers.ChoiceField(choices=[TreatmentSession.DONE, TreatmentSession.SKIPPED], default=TreatmentSession.DONE)
+    content = serializers.CharField(max_length=2000, allow_blank=True, default='')
+    procedures = serializers.CharField(max_length=2000, allow_blank=True, default='')
+    parameters = serializers.CharField(max_length=2000, allow_blank=True, default='')
+    patient_response = serializers.CharField(max_length=2000, allow_blank=True, default='')
+    adverse_reactions = serializers.CharField(max_length=2000, allow_blank=True, default='')
+    outcome = serializers.CharField(max_length=120, allow_blank=True, default='')
+
+    def validate(self, attrs):
+        errors = {}
+        if not attrs['content']:
+            errors['content'] = 'Nhập nội dung thực hiện hoặc lý do bỏ qua buổi.'
+        if attrs['status'] == TreatmentSession.DONE and not attrs['outcome']:
+            errors['outcome'] = 'Nhập kết quả buổi điều trị trước khi hoàn tất.'
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+
 # Vai trò chỉ cần biết để phục vụ khách, không cần số điện thoại đầy đủ / CCCD của bệnh nhân.
 MASKED_ROLES = {'staff'}
 

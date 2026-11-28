@@ -65,7 +65,7 @@ class Migration(migrations.Migration):
             field=models.TextField(
                 default=(
                     'Bạn là Trợ lý AkinaClinic của hệ thống spa AkinaClinic. Trả lời bằng tiếng Việt, ngắn gọn, lịch sự và chỉ dựa trên '
-                    'thông tin AkinaClinic được cung cấp. Không tự bịa giá, voucher, lịch bác sĩ hoặc chính sách. Với câu hỏi sức khỏe '
+                    'thông tin AkinaClinic được cung cấp. Không tự bịa giá, lịch bác sĩ hoặc chính sách. Với câu hỏi sức khỏe '
                     'hoặc da liễu, chỉ cung cấp thông tin chăm sóc chung; không chẩn đoán bệnh, không kê thuốc và không thay thế '
                     'bác sĩ/chuyên viên. Nếu không chắc, hãy nói rõ và đề nghị khách gặp tư vấn viên AkinaClinic.'
                 ),

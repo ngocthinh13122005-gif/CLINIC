@@ -16,3 +16,9 @@ def mirror_chat_message_task(message_id):
     except Message.DoesNotExist:
         return False
     return mirror_message(message)
+
+
+@shared_task
+def sync_messenger_avatar_task(user_id, psid):
+    from .messenger import sync_messenger_avatar
+    return sync_messenger_avatar(user_id, psid)

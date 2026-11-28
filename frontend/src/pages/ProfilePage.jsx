@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import PersonRounded from '@mui/icons-material/PersonRounded';
 import PhotoCameraRounded from '@mui/icons-material/PhotoCameraRounded';
 import PageHeader from '../components/PageHeader';
@@ -47,7 +48,7 @@ export default function ProfilePage() {
   };
 
   return <div className={`pf-page ${customer ? 'customer' : 'staff'}`}>
-    {customer ? <div className="pf-heading"><span> TÀI KHOẢN KHÁCH HÀNG</span><h1>Hồ sơ cá nhân</h1><p>Quản lý thông tin liên hệ và quyền lợi thành viên.</p></div>
+    {customer ? <div className="cp-title"><div><h1>Thông tin cá nhân</h1><p>Quản lý ảnh đại diện, thông tin liên hệ và bảo mật tài khoản.</p></div></div>
       : <PageHeader title="Hồ sơ cá nhân" subtitle="Cập nhật thông tin liên hệ và ảnh đại diện trong hệ thống."/>}
     <form onSubmit={save} className="pf-card">
       <aside className="pf-identity">
@@ -55,7 +56,6 @@ export default function ProfilePage() {
         <label className="pf-upload"><PhotoCameraRounded/><span>Chọn ảnh</span><input type="file" accept="image/*" onChange={chooseAvatar}/></label>
         <strong className="pf-name">{user?.full_name || user?.username}</strong>
         <span className="pf-role">{roleLabel(user?.role)}</span>
-        {customer && <div className="pf-membership"><span>Hạng thành viên</span><strong>{user?.loyalty_tier || 'Bronze'}</strong><span>Điểm tích lũy</span><strong>{user?.loyalty_points || 0} điểm</strong></div>}
       </aside>
       <section className="pf-details">
         <div className="pf-section-title"><h2>Thông tin tài khoản</h2><p>{customer ? 'Thông tin dùng để liên hệ và hỗ trợ đặt lịch.' : 'Thông tin cá nhân dùng trong hồ sơ nhân sự và liên hệ nội bộ.'}</p></div>
@@ -68,6 +68,7 @@ export default function ProfilePage() {
           <Field label="Ngày sinh" type="date" value={form.date_of_birth} onChange={value => setForm({ ...form, date_of_birth: value })}/>
           {!customer && <Field label="Vai trò trong hệ thống" value={roleLabel(user?.role)} readOnly/>}
         </div>
+        {customer && <div className="pf-security"><div><h3>Bảo mật</h3><p>Thay đổi mật khẩu đăng nhập cổng bệnh nhân.</p></div><Link to="/change-password" className="cp-btn">Đổi mật khẩu</Link></div>}
         <footer className="pf-actions"><span>Ảnh đại diện và thông tin được cập nhật cho tài khoản này.</span><button type="submit" disabled={busy}>{busy ? 'Đang lưu…' : 'Lưu thay đổi'}</button></footer>
       </section>
     </form>

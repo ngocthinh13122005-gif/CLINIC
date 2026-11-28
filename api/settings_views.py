@@ -25,7 +25,7 @@ class SettingsScopeView(APIView):
         'care.post_care_enabled', 'care.post_care_delay_days', 'care.revisit_enabled', 'care.revisit_lead_days',
         'care.session_enabled', 'care.session_lead_days', 'care.debt_enabled', 'care.debt_after_days',
         'billing.default_due_days', 'inventory.expiry_warning_days',
-        'inventory.require_lot_number', 'inventory.require_expiry_date', 'crm.loyalty_enabled', 'crm.vnd_per_point',
+        'inventory.require_lot_number', 'inventory.require_expiry_date',
         'billing.cash_close_variance_manager_threshold',
     }
 

@@ -17,7 +17,7 @@ from datetime import date, datetime, time, timedelta
 from django.utils import timezone
 
 from core.availability import available_slots, has_conflict, qualified_staff
-from core.models import Booking, ChatbotToolCall, Service, Staff, VoucherRedemption
+from core.models import Booking, ChatbotToolCall, Service, Staff
 
 logger = logging.getLogger(__name__)
 
@@ -452,25 +452,8 @@ def reply_my_bookings(request):
     return '\n'.join(lines) + '\n\n' + link('/bookings', 'Xem tất cả lịch hẹn')
 
 
-def reply_points(request):
-    user = _customer(request)
-    if not user:
-        return _need_login('điểm thành viên')
-    return f'Bạn đang có {user.loyalty_points:,} điểm thành viên.'.replace(',', '.') + '\n\n' + link('/vouchers', 'Đổi điểm lấy voucher')
 
 
-def reply_my_vouchers(request):
-    user = _customer(request)
-    if not user:
-        return _need_login('voucher của bạn')
-    rows = list(VoucherRedemption.objects.filter(user=user, status=VoucherRedemption.AVAILABLE).select_related('voucher')[:8])
-    if not rows:
-        return 'Bạn chưa có voucher nào chưa dùng. Bạn có thể dùng điểm để đổi voucher.\n\n' + link('/vouchers', 'Đổi điểm lấy voucher')
-    lines = ['Voucher của bạn (chưa sử dụng):']
-    for r in rows:
-        v = r.voucher
-        lines.append(f'• {v.title} ({v.code}): giảm {money(v.discount_value)}, đơn tối thiểu {money(v.min_spend)}')
-    return '\n'.join(lines)
 
 
 def reply_price(text):

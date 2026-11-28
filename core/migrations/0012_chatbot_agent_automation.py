@@ -2,6 +2,7 @@
 
 import django.db.models.deletion
 from django.db import migrations, models
+from django.conf import settings
 
 
 def upgrade_chatbot_defaults(apps, schema_editor):
@@ -21,6 +22,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('core', '0011_seed_chatbot_defaults'),
+        ('accounts', '0004_user_date_of_birth_passwordresetcode'),
     ]
 
     operations = [
@@ -67,4 +69,19 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.RunPython(upgrade_chatbot_defaults, noop_reverse),
+        migrations.AddField(model_name='booking', name='discount_total', field=models.PositiveIntegerField(default=0, verbose_name='Giảm giá')),
+        migrations.CreateModel(
+            name='Notification',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('event_type', models.CharField(db_index=True, max_length=80)),
+                ('title', models.CharField(max_length=160)),
+                ('message', models.CharField(blank=True, max_length=500)),
+                ('data', models.JSONField(blank=True, default=dict)),
+                ('is_read', models.BooleanField(default=False)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='notifications', to=settings.AUTH_USER_MODEL)),
+            ],
+            options={'ordering': ['-created_at']},
+        ),
     ]

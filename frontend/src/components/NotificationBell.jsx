@@ -3,7 +3,6 @@ import NotificationsNoneRounded from '@mui/icons-material/NotificationsNoneRound
 import DoneAllRounded from '@mui/icons-material/DoneAllRounded';
 import api from '../api/client';
 import { useNavigate } from 'react-router-dom';
-import { ensureFirebaseAuth, firebaseEnabled, subscribeNotifications } from '../services/firebase';
 
 export default function NotificationBell({ user }) {
   const navigate = useNavigate();
@@ -11,7 +10,26 @@ export default function NotificationBell({ user }) {
   const [open, setOpen] = useState(false);
   const timer = useRef(null);
   const load = () => api.get('/notifications/').then(({data}) => setItems(data.results || data || [])).catch(()=>{});
-  useEffect(()=>{ load(); let unsub=()=>{}; let alive=true; (async()=>{ if(firebaseEnabled && await ensureFirebaseAuth()) { unsub=subscribeNotifications(user?.id, rows=>{ if(alive){ setItems(rows); window.dispatchEvent(new CustomEvent('ohio:realtime',{detail:rows?.[0]||null})); } }, ()=>{timer.current=setInterval(load,8000)}); } else timer.current=setInterval(load,8000); })(); return()=>{alive=false;unsub();if(timer.current)clearInterval(timer.current)}; },[user?.id]);
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    load();
+    let alive = true;
+    let unsub = () => {};
+    const poll = () => { if (alive && !timer.current) timer.current = setInterval(load, 8000); };
+    const configured = Boolean(import.meta.env.VITE_FIREBASE_API_KEY && import.meta.env.VITE_FIREBASE_PROJECT_ID && import.meta.env.VITE_FIREBASE_APP_ID);
+    if (configured) {
+      import('../services/firebase').then(async ({ ensureFirebaseAuth, subscribeNotifications }) => {
+        if (!alive) return;
+        if (await ensureFirebaseAuth()) {
+          if (!alive) return;
+          unsub = subscribeNotifications(user.id, rows => {
+            if (alive) { setItems(rows); window.dispatchEvent(new CustomEvent('ohio:realtime', { detail: rows?.[0] || null })); }
+          }, poll);
+        } else poll();
+      }).catch(poll);
+    } else poll();
+    return () => { alive = false; unsub(); if (timer.current) clearInterval(timer.current); timer.current = null; };
+  }, [user?.id]);
   const unread = useMemo(()=>items.filter(i=>!i.is_read && !i.isRead).length,[items]);
   const readOne = async(item)=>{
     setOpen(false);

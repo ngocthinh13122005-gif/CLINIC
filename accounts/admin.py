@@ -4,7 +4,7 @@ from .models import User, ActivityLog, PasswordResetCode
 
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):
-    fieldsets = UserAdmin.fieldsets + (('Thông tin thêm', {'fields': ('phone', 'date_of_birth', 'avatar', 'role', 'loyalty_points', 'must_change_password', 'created_by')}),)
+    fieldsets = UserAdmin.fieldsets + (('Thông tin thêm', {'fields': ('phone', 'date_of_birth', 'avatar', 'role', 'must_change_password', 'created_by')}),)
     list_display = ('username', 'first_name', 'role', 'phone', 'email', 'is_active', 'is_staff')
     list_filter = UserAdmin.list_filter + ('role',)
 

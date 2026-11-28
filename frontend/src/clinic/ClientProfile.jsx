@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import ChevronLeftRounded from '@mui/icons-material/ChevronLeftRounded';
@@ -12,7 +12,6 @@ import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import GridViewRounded from '@mui/icons-material/GridViewRounded';
 import HealthAndSafetyOutlined from '@mui/icons-material/HealthAndSafetyOutlined';
 import Inventory2Outlined from '@mui/icons-material/Inventory2Outlined';
-import LoyaltyOutlined from '@mui/icons-material/LoyaltyOutlined';
 import PlayArrowRounded from '@mui/icons-material/PlayArrowRounded';
 import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined';
 import SearchRounded from '@mui/icons-material/SearchRounded';
@@ -22,19 +21,17 @@ import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { invTone } from './Billing';
 import { ConsentsTab } from './Consents';
-import { HistoryTab, ImagesTab, PlansTab, VisitsTab } from './Patients';
+import { HistoryTab, ImagesTab, VisitsTab } from "./Patients";
 import { PatientFormModal } from './PatientForm';
 import { PrescriptionsTab } from './Prescription';
 import { NotesModal, PackagesTab } from './Packages';
 import PatientActivities from './PatientActivities';
 import Communications from './Communications';
-import { Avatar, Btn, Empty, Loading, Pill, errMsg, fmtDate, fmtDateTime, fmtTime, genderText, money, useLoad, useToast, visitTone } from './ui';
+import { Avatar, Empty, Loading, Pill, errMsg, fmtDate, fmtTime, genderText, money, useLoad, useToast } from "./ui";
 
 const arr = (d) => d?.results || d || [];
 const MON = ['Th1', 'Th2', 'Th3', 'Th4', 'Th5', 'Th6', 'Th7', 'Th8', 'Th9', 'Th10', 'Th11', 'Th12'];
 const apTone = { pending: 'amber', confirmed: 'blue', completed: 'green', cancelled: 'gray' };
-const TIERS = [['Bronze', 0], ['Silver', 500000], ['Gold', 2000000], ['Platinum', 5000000]];
-const TIER_BG = { Bronze: 'linear-gradient(135deg,#c58a5a,#9a6238)', Silver: 'linear-gradient(135deg,#aab4c0,#7f8b99)', Gold: 'linear-gradient(135deg,#e6b83c,#caa02a)', Platinum: 'linear-gradient(135deg,#5b7fb3,#35527f)' };
 
 function Sub({ items, value, onChange }) {
   return <nav className="pb-sub">{items.map(([k, t, n]) => <button key={k} className={value === k ? 'on' : ''} onClick={() => onChange(k)}>{t}{n != null && <i>{n}</i>}</button>)}</nav>;
@@ -128,26 +125,11 @@ function Finance({ patient, invoices, openInv, canSell }) {
   </>;
 }
 
-/* ------------------------------------------------------------------ thành viên */
-function Membership({ patient, s }) {
-  const l = s?.loyalty; const tier = l?.tier || 'Bronze'; const spend = l?.spend || 0;
-  const next = TIERS.find(([, v]) => v > spend);
-  return <div className="pb-mem">
-    <div className="pb-memcard" style={{ background: TIER_BG[tier] }}><span className="pb-memtag">Hạng thành viên</span><span className="pb-memst">ĐANG HOẠT ĐỘNG</span>
-      <h2>{tier.toUpperCase()}</h2><small>MÃ KHÁCH {patient.code}</small><div className="pb-memfoot"><div><span>THAM GIA TỪ</span><b>{fmtDate(patient.created_at)}</b></div><div><span>ĐIỂM THƯỞNG</span><b>{l?.linked ? l.points : '—'}</b></div></div></div>
-    <div className="pb-card pb-plan"><h3>Chi tiết hạng</h3>
-      <dl><Plain k="Hạng" v={tier} /><Plain k="Tổng đã thanh toán" v={money(spend)} /><Plain k="Điểm thưởng" v={l?.linked ? `${l.points} điểm` : 'Chưa liên kết tài khoản'} />
-        <Plain k="Lên hạng tiếp theo" v={next ? `${next[0]} khi đạt ${money(next[1])} (còn ${money(next[1] - spend)})` : 'Đã đạt hạng cao nhất'} /></dl>
-      {!l?.linked && <p className="pb-note">Khách chưa có tài khoản trên cổng khách hàng nên chưa tích điểm. Điểm sẽ được cộng khi khách đăng ký và đặt lịch bằng tài khoản.</p>}</div>
-    <div className="pb-card pb-benefits"><h3>Mốc hạng thành viên</h3><ul>{TIERS.map(([n, v]) => <li key={n} className={n === tier ? 'on' : ''}><b>{n}</b><span>{v ? `từ ${money(v)}` : 'mặc định'}</span></li>)}</ul></div>
-  </div>;
-}
-
 /* ------------------------------------------------------------------ trang */
 export default function ClientProfilePage() {
   const { id } = useParams(); const { user } = useAuth(); const nav = useNavigate(); const [searchParams, setSearchParams] = useSearchParams(); const role = user.role;
   const clinical = ['doctor', 'manager'].includes(role); const canFinance = ['doctor', 'manager', 'consultant'].includes(role); const canReception = canFinance;
-  const validTabs = ['sum', 'appts', 'emr', 'fin', 'mem', 'pkg', 'act', 'comm'];
+  const validTabs = ['sum', 'appts', 'emr', 'fin', 'pkg', 'act', 'comm'];
   const [tab, setTabState] = useState(() => validTabs.includes(searchParams.get('tab')) ? searchParams.get('tab') : 'sum'); const setTab = (value) => { setTabState(value); const next = new URLSearchParams(searchParams); if (value === 'sum') next.delete('tab'); else next.set('tab', value); setSearchParams(next, { replace: true }); };
   const [emr, setEmr] = useState('visits');
   const [railOpen, setRailOpen] = useState(() => {
@@ -177,12 +159,11 @@ export default function ClientProfilePage() {
   const age = patient.age != null ? `${patient.age} tuổi` : '';
   const tabs = [['sum', 'Tổng quan', GridViewRounded], ['appts', 'Lịch hẹn', EventNoteOutlined, s?.stats?.bookings],
     ['emr', 'Bệnh án', HealthAndSafetyOutlined, s?.visit_count],
-    ...(canFinance ? [['fin', 'Tài chính', ReceiptLongOutlined, invs.data?.length, s?.finance?.outstanding > 0 ? money(s.finance.outstanding) : null], ['mem', 'Thành viên', LoyaltyOutlined, 1]] : []),
+    ...(canFinance ? [['fin', 'Tài chính', ReceiptLongOutlined, invs.data?.length, s?.finance?.outstanding > 0 ? money(s.finance.outstanding) : null]] : []),
     ['pkg', 'Liệu trình', Inventory2Outlined, (plans.data || []).filter((x) => ['active', 'draft'].includes(x.display_status || x.status)).length],
     ...(canFinance ? [['act', 'Hoạt động', TaskAltOutlined, (activitySummary.data?.counts?.todo || 0) + (activitySummary.data?.counts?.completed || 0)],
       ['comm', 'Liên lạc', ChatBubbleOutlineRounded, comms.data?.counts?.all]] : [])];
   const emrTabs = [['visits', 'Lượt khám'], ...(clinical ? [['history', 'Tiền sử'], ['rx', 'Đơn thuốc'], ['images', 'Hình ảnh']] : []), ['consent', 'Cam kết']];
-  const tier = s?.loyalty?.tier || 'Bronze';
   return <div className={`pb pb-clientpage${railOpen ? ' rail-open' : ''}`}>
     <div className="pb-rail">
       <button type="button" className="pb-rail-toggle" aria-expanded={railOpen}
@@ -192,7 +173,6 @@ export default function ClientProfilePage() {
       </button>
       <div className="pb-rail-av">
         <Avatar name={patient.full_name} size={36} />
-        <i className="pb-rail-tier">{tier.charAt(0)}</i>
       </div>
       <span className="pb-rail-name" title={patient.full_name}>{patient.full_name}</span>
       <div className="pb-note-hover">
@@ -216,7 +196,7 @@ export default function ClientProfilePage() {
         <p>{[patient.date_of_birth && fmtDate(patient.date_of_birth), age, genderText(patient.gender)].filter(Boolean).join(' · ')}</p>
         <p className="pb-idline">Mã {patient.code}</p>
         <span className="pb-status"><i />Đang quản lý</span>
-        <div className="pb-labels">{patient.allergies && <span className="pb-label red"><WarningAmberRounded />Dị ứng</span>}{tier && <span className="pb-label blue">{tier}</span>}{s?.active_visit && <span className="pb-label amber">{s.active_visit.status_label}</span>}</div>
+        <div className="pb-labels">{patient.allergies && <span className="pb-label red"><WarningAmberRounded />Dị ứng</span>}{s?.active_visit && <span className="pb-label amber">{s.active_visit.status_label}</span>}</div>
       </div>
       <div className="pb-details"><header><b>Thông tin</b><span className="pb-detail-actions">{canReception && <button className="pb-ico" onClick={() => setEditing(true)} aria-label="Sửa"><EditOutlined /></button>}</span></header>
         <dl><div className="pb-det"><dt>Mã khách hàng</dt><dd>{patient.code}<button className="pb-copy" onClick={() => navigator.clipboard?.writeText(patient.code).then(() => toast('Đã sao chép mã.'))}><ContentCopyRounded />Sao chép</button></dd></div>
@@ -236,7 +216,6 @@ export default function ClientProfilePage() {
           {emr === 'images' && clinical && <ImagesTab patient={patient} regions={meta.data?.regions || []} canUpload={role === 'doctor'} />}
           {emr === 'consent' && <ConsentsTab patient={patient} canSign={canFinance} />}</>}
         {tab === 'fin' && canFinance && <Finance patient={patient} invoices={invs.data} openInv={(invoiceId) => nav(`/hoa-don/${invoiceId}`)} canSell={['manager', 'consultant'].includes(role)} />}
-        {tab === 'mem' && canFinance && <Membership patient={patient} s={s} />}
         {tab === 'pkg' && <PackagesTab patient={patient} role={role} rows={plans.data || []} loading={plans.loading} reload={plans.reload} onChanged={() => { sum.reload(true); plans.reload(true); }} />}
         {tab === 'act' && canFinance && <PatientActivities patient={patient} onChanged={() => activitySummary.reload(true)} />}
         {tab === 'comm' && canFinance && <Communications patient={patient} role={role} toast={toast} onChanged={() => comms.reload(true)} />}

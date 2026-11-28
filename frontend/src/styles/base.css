@@ -1,7 +1,7 @@
 /* Thang chữ và font dùng chung toàn hệ thống: mọi nơi dùng các biến này, không đặt cỡ chữ tùy ý. */
 :root{
-  --ak-primary:#0879b8;
-  --ak-primary-hover:#06689f;
+  --ak-primary:#1558c0;
+  --ak-primary-hover:#0f47a0;
   --ak-primary-active:#117e9d;
   --ak-primary-soft:#eaf8fc;
   --ak-navy:#121d36;
@@ -17,8 +17,8 @@
   --ak-warning:#526d80;
   --ak-danger:#c64c55;
   --ak-info:#356fb6;
-  --ak-button-primary:#0879b8;
-  --ak-button-primary-hover:#06689f;
+  --ak-button-primary:#1558c0;
+  --ak-button-primary-hover:#0f47a0;
   --ak-icon-size:22px;
   --ak-icon-inline:20px;
   --ak-icon-compact:16px;

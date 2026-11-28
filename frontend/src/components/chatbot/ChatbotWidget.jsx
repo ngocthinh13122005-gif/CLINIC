@@ -7,7 +7,6 @@ import SendRounded from '@mui/icons-material/SendRounded';
 import SmartToyRounded from '@mui/icons-material/SmartToyRounded';
 import SpaRounded from '@mui/icons-material/SpaRounded';
 import EventAvailableRounded from '@mui/icons-material/EventAvailableRounded';
-import LocalOfferRounded from '@mui/icons-material/LocalOfferRounded';
 import SupportAgentRounded from '@mui/icons-material/SupportAgentRounded';
 import AutoAwesomeRounded from '@mui/icons-material/AutoAwesomeRounded';
 import OpenInNewRounded from '@mui/icons-material/OpenInNewRounded';
@@ -15,10 +14,10 @@ import api from '../../api/client';
 import '../../styles/chatbot.css';
 
 const KEY = 'ohio_visitor_key';
-const ICONS = { services: SpaRounded, booking: EventAvailableRounded, promotions: LocalOfferRounded, human: SupportAgentRounded };
+const ICONS = { services: SpaRounded, booking: EventAvailableRounded, human: SupportAgentRounded };
 const FALLBACK_ACTIONS = [
   { key: 'services', label: 'Dịch vụ' }, { key: 'booking', label: 'Đặt lịch' },
-  { key: 'promotions', label: 'Khuyến mãi' }, { key: 'human', label: 'Gặp tư vấn viên' },
+  { key: 'human', label: 'Gặp tư vấn viên' },
 ];
 
 const newKey = () => {

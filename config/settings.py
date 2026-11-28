@@ -73,6 +73,8 @@ if os.environ.get('DB_ENGINE', '').lower() in {'mysql', 'django.db.backends.mysq
             'PASSWORD': os.environ.get('DB_PASSWORD', 'ohio_dev_password'),
             'HOST': os.environ.get('DB_HOST', 'mysql'),
             'PORT': os.environ.get('DB_PORT', '3306'),
+            'CONN_MAX_AGE': int(os.environ.get('DB_CONN_MAX_AGE', '60')),
+            'CONN_HEALTH_CHECKS': True,
             'OPTIONS': {'charset': 'utf8mb4'},
         }
     }
@@ -163,5 +165,4 @@ META_PAGE_ACCESS_TOKEN = os.environ.get('META_PAGE_ACCESS_TOKEN', '')
 META_WEBHOOK_VERIFY_TOKEN = os.environ.get('META_WEBHOOK_VERIFY_TOKEN', '')
 META_GRAPH_API_VERSION = os.environ.get('META_GRAPH_API_VERSION', 'v24.0')
 
-LOYALTY_VND_PER_POINT = int(os.environ.get('LOYALTY_VND_PER_POINT', '10000'))
 PASSWORD_RESET_CODE_TTL_MINUTES = int(os.environ.get('PASSWORD_RESET_CODE_TTL_MINUTES', '10'))

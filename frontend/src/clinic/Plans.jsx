@@ -65,6 +65,7 @@ export function SessionModal({ plan, session, onClose, onDone }) {
   const [outcome, setOutcome] = useState('');
   const [status, setStatus] = useState('done');
   const [err, setErr] = useState('');
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
     setContent(session?.content || ''); setProcedures(session?.procedures || ''); setParameters(session?.parameters || '');
     setPatientResponse(session?.patient_response || ''); setAdverseReactions(session?.adverse_reactions || '');
@@ -72,6 +73,13 @@ export function SessionModal({ plan, session, onClose, onDone }) {
   }, [session]);
   if (!session) return null;
   const submit = async () => {
+    if (saving) return;
+    if (!content.trim() || (status === 'done' && !outcome.trim())) {
+      setErr('Vui lòng nhập nội dung thực hiện và kết quả buổi; nếu bỏ qua, cần nhập lý do.');
+      return;
+    }
+    setErr('');
+    setSaving(true);
     try {
       const { data } = await api.post(`/clinic/plans/${plan.id}/complete-session/`, {
         session_id: session.id, content, procedures, parameters, patient_response: patientResponse,
@@ -80,9 +88,10 @@ export function SessionModal({ plan, session, onClose, onDone }) {
       onDone(data);
     }
     catch (e) { setErr(errMsg(e)); }
+    finally { setSaving(false); }
   };
   return <Modal open wide portal className="cl-session-record-modal" title={`Ghi nhận buổi ${session.number}/${plan.total_sessions}`} subtitle={`${plan.patient_name || 'Khách hàng'} · ${plan.title}`} onClose={onClose}
-    footer={<><Btn onClick={onClose}>Hủy</Btn><Btn kind="primary" onClick={submit}>Lưu</Btn></>}>
+    footer={<><Btn onClick={onClose}>Hủy</Btn><Btn kind="primary" onClick={submit} disabled={saving}>{saving ? 'Đang lưu…' : 'Lưu'}</Btn></>}>
     {err && <div className="cl-alert error">{err}</div>}
     <div className="cl-session-context">
       <div className="cl-session-context-primary">
@@ -101,8 +110,8 @@ export function SessionModal({ plan, session, onClose, onDone }) {
       <Field label="Thông số điều trị"><textarea rows={3} value={parameters} onChange={(e) => setParameters(e.target.value)} /></Field>
       <Field label="Đáp ứng của khách"><textarea rows={3} value={patientResponse} onChange={(e) => setPatientResponse(e.target.value)} /></Field>
       <Field label="Phản ứng bất lợi"><textarea rows={3} value={adverseReactions} onChange={(e) => setAdverseReactions(e.target.value)} /></Field>
-      <Field label="Kết quả buổi" span="2"><input value={outcome} onChange={(e) => setOutcome(e.target.value)} placeholder="Ví dụ: Đáp ứng tốt, hẹn buổi tiếp theo" /></Field>
-      <Field label="Ghi chú thực hiện / theo dõi sau buổi" span="2"><textarea rows={3} value={content} onChange={(e) => setContent(e.target.value)} /></Field>
+      <Field label="Kết quả buổi" required={status === 'done'} span="2"><input maxLength={120} value={outcome} onChange={(e) => setOutcome(e.target.value)} placeholder="Ví dụ: Đáp ứng tốt, hẹn buổi tiếp theo" /></Field>
+      <Field label={status === 'skipped' ? 'Lý do bỏ qua buổi' : 'Nội dung thực hiện / theo dõi sau buổi'} required span="2"><textarea maxLength={2000} rows={3} value={content} onChange={(e) => setContent(e.target.value)} /></Field>
     </div>
   </Modal>;
 }

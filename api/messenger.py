@@ -3,17 +3,21 @@ import hmac
 import json
 import logging
 from datetime import datetime, timezone as dt_timezone
+from io import BytesIO
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.parse import urlencode, urlparse
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
+from django.core.files.base import ContentFile
 from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
+from PIL import Image, UnidentifiedImageError
 
 from core.models import Conversation, ConversationSession, Message
 
@@ -82,15 +86,86 @@ def _profile(psid):
         return {}
 
 
+def _is_facebook_image_url(url):
+    parsed = urlparse(url)
+    host = (parsed.hostname or '').lower()
+    return (
+        parsed.scheme == 'https' and not parsed.username and not parsed.password
+        and parsed.port in (None, 443)
+        and (host in {'facebook.com', 'fbcdn.net', 'fbsbx.com', 'fbcdn-profile-a.akamaihd.net'}
+             or host.endswith(('.facebook.com', '.fbcdn.net', '.fbsbx.com')))
+    )
+
+
+class _FacebookImageRedirects(HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        if not _is_facebook_image_url(newurl):
+            raise ValueError('Unsupported Facebook image redirect')
+        return super().redirect_request(request, fp, code, msg, headers, newurl)
+
+
+def sync_messenger_avatar(user_id, psid):
+    """Keep a local photo: Facebook's profile_pic URL expires. Run in a worker."""
+    user = User.objects.filter(pk=user_id, username=f'fb_{psid}').first()
+    if user is None or user.avatar:
+        return False
+    try:
+        picture_url = _profile(psid).get('profile_pic') or ''
+        if not picture_url or not _is_facebook_image_url(picture_url):
+            return False
+        limit = 2 * 1024 * 1024
+        opener = build_opener(_FacebookImageRedirects())
+        with opener.open(Request(picture_url), timeout=8) as response:
+            if int(response.headers.get('Content-Length') or 0) > limit:
+                return False
+            content = response.read(limit + 1)
+        if not content or len(content) > limit:
+            return False
+        with Image.open(BytesIO(content)) as image:
+            extension = {'JPEG': 'jpg', 'PNG': 'png', 'WEBP': 'webp', 'GIF': 'gif'}.get(image.format)
+            image.verify()
+        if not extension:
+            return False
+        with transaction.atomic():
+            user = User.objects.select_for_update().get(pk=user_id)
+            if user.avatar:
+                return False
+            user.avatar.save(f'facebook/{user.pk}.{extension}', ContentFile(content), save=True)
+        return True
+    except (HTTPError, URLError, TimeoutError, ValueError, OSError, UnidentifiedImageError):
+        logger.warning('Could not sync Messenger avatar for account %s', user_id)
+        return False
+
+
+def _queue_avatar_sync(user, psid):
+    if user.avatar:
+        return
+
+    def enqueue():
+        from .tasks import sync_messenger_avatar_task
+        key = f'messenger-avatar:{settings.META_PAGE_ID}:{user.pk}'
+        if not cache.add(key, True, timeout=300):
+            return
+        try:
+            sync_messenger_avatar_task.delay(user.pk, psid)
+        except Exception:
+            cache.delete(key)
+            logger.warning('Could not queue Messenger avatar for account %s', user.pk)
+
+    transaction.on_commit(enqueue)
+
+
 def _customer_for_psid(psid):
     username = f'fb_{psid}'
     user = User.objects.filter(username=username).first()
     if user:
+        _queue_avatar_sync(user, psid)
         return user
     profile = _profile(psid)
     user = User(username=username, role=User.Role.CUSTOMER, first_name=(profile.get('first_name') or 'Khách Facebook')[:150], last_name=(profile.get('last_name') or '')[:150])
     user.set_unusable_password()
     user.save()
+    _queue_avatar_sync(user, psid)
     return user
 
 

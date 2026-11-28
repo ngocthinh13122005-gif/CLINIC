@@ -236,7 +236,7 @@ function bookingTypeLabel(booking){
 function bookingCost(booking){
   if(booking.appointment_type==='session')return {label:'Chi phí',value:'Đã nằm trong liệu trình',note:'Buổi này thuộc gói điều trị hiện tại.'};
   if(booking.total>0)return {label:booking.appointment_type==='consult'?'Phí khám':booking.appointment_type==='follow_up'?'Phí tái khám':'Chi phí dự kiến',value:money(booking.total)};
-  if(booking.discount_total>0)return {label:'Cần thanh toán',value:'0đ sau voucher'};
+  if(booking.discount_total>0)return {label:'Cần thanh toán',value:'0đ sau giảm giá'};
   const label=booking.appointment_type==='consult'?'Phí khám':booking.appointment_type==='follow_up'?'Phí tái khám':'Chi phí dự kiến';
   return {label,value:'Phòng khám xác nhận',note:'Mức phí sẽ được phòng khám thông báo trước khi thực hiện.'};
 }

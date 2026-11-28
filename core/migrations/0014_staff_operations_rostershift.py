@@ -3,7 +3,7 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
-    dependencies = [('core', '0013_booking_rewards_voucher_notifications')]
+    dependencies = [('core', '0012_chatbot_agent_automation')]
     operations = [
         migrations.AddField(model_name='staff', name='rating', field=models.DecimalField(decimal_places=1, default=5.0, max_digits=2, verbose_name='Điểm đánh giá')),
         migrations.AddField(model_name='staff', name='experience_years', field=models.PositiveSmallIntegerField(default=0, verbose_name='Số năm kinh nghiệm')),

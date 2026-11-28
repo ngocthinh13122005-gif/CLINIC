@@ -10,22 +10,32 @@ Hệ thống quản lý phòng khám da liễu / spa y tế: đặt lịch onlin
 
 ## Tính năng chính
 
+### Bổ sung dữ liệu trình bày
+
+Sau khi đã có các tài khoản `demoBacSi`, `demoCSKH`, `demoKhachHang`, chạy:
+
+```bash
+python manage.py seed_presentation_demo --customer-email EMAIL_NHAN_THU
+```
+
+Lệnh bổ sung 3 bác sĩ (`demoBacSi`, `demoBacSi2`, `demoBacSi3`), 4 lịch/bác sĩ/ngày từ hôm nay đến hết Chủ nhật tuần sau, hai bệnh án và một hội thoại liên kết với hồ sơ `demoKhachHang`. Hai tài khoản bác sĩ mới dùng mật khẩu `Demo@123`. Lệnh giữ dữ liệu và mật khẩu đã có, không gửi email/SMS; chạy lại không nhân đôi lịch hoặc hoàn tác các thao tác thử nghiệm. Có thể chọn đợt khác bằng `--start YYYY-MM-DD --days 7`.
+
 | Nhóm | Nội dung |
 |---|---|
-| Khách hàng | Xem dịch vụ, đặt lịch, voucher, chat tư vấn, cổng hồ sơ sức khỏe |
+| Khách hàng | Xem dịch vụ, đặt lịch, chat tư vấn, cổng hồ sơ sức khỏe |
 | Tiếp đón & lịch | Lịch hẹn, phân công người thực hiện, tiếp đón trong ngày |
 | Khám bệnh | Bệnh nhân, lượt khám, bệnh án, ICD-10, ảnh tổn thương, kê đơn, phiếu đồng ý |
 | Liệu trình | Gói nhiều buổi, ghi nhận từng buổi, xếp lịch, ủy quyền buổi cho nhân sự |
 | Thu ngân | Hóa đơn, thanh toán, ca thu ngân, đối soát, hoàn tiền, công nợ, bán hàng |
 | Kho thuốc | Thuốc, lô, nhà cung cấp, nhập hàng, kiểm kê, phòng |
 | Chăm sóc | Chăm sóc sau điều trị, hoạt động/công việc, hộp thư tư vấn, chatbot Gemini, Messenger |
-| Quản lý | Dịch vụ & bảng giá, nhân sự, chấm công, nghỉ phép, lương, CRM, voucher, báo cáo |
+| Quản lý | Dịch vụ & bảng giá, nhân sự, chấm công, nghỉ phép, lương, CRM, báo cáo |
 | Tuân thủ | Nhật ký hệ thống, yêu cầu dữ liệu, sự cố, sao lưu |
 
 ## Cấu trúc thư mục
 
 ```
-accounts/   Người dùng, vai trò, điểm thưởng, quên mật khẩu
+accounts/   Người dùng, vai trò, quên mật khẩu
 core/       Dịch vụ, nhân viên, đặt lịch, ca làm, chat, cài đặt, lệnh seed
 clinic/     Bệnh nhân, khám bệnh, kê đơn, liệu trình, thu ngân, kho thuốc, tuân thủ
 api/        Endpoint REST, chatbot, Firebase, Celery tasks, webhook Messenger
@@ -110,7 +120,7 @@ frontend/   Ứng dụng React (Vite)
 
 ### Bệnh nhân / khách hàng (`customer`)
 
-- Xem dịch vụ, đặt và quản lý lịch hẹn của mình, dùng voucher của mình, chat với phòng khám.
+- Xem dịch vụ, đặt và quản lý lịch hẹn của mình, chat với phòng khám.
 - **Hồ sơ sức khỏe:** chỉ thấy dữ liệu của chính mình và chỉ những bệnh án, đơn thuốc, liệu trình đã được phát hành.
 - Không vào được bất kỳ màn hình nhân sự nào.
 
@@ -185,7 +195,7 @@ Sao chép `.env.example` thành `.env` rồi điền. Các nhóm chính:
 | Messenger | `META_*` | Chỉ dùng phía máy chủ |
 | Firebase | `FIREBASE_ENABLED`, `FIREBASE_SERVICE_ACCOUNT_FILE` hoặc `FIREBASE_SERVICE_ACCOUNT_JSON` | `FIREBASE_ENABLED=0` để tắt chat realtime |
 | Ảnh / Email | `CLOUDINARY_URL`, `EMAIL_*`, `DEFAULT_FROM_EMAIL` | |
-| Điểm thưởng | `LOYALTY_VND_PER_POINT`, `PASSWORD_RESET_CODE_TTL_MINUTES` | |
+| Đặt lại mật khẩu | `PASSWORD_RESET_CODE_TTL_MINUTES` | |
 | Demo | `AKINA_DEMO_RESET_ALLOWED` | Cho phép `seed_minimal_demo --reset`; **không bật ở môi trường thật** |
 
 > Không commit file `.env` và file khóa Firebase lên Git.

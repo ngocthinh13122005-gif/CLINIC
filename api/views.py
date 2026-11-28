@@ -12,6 +12,7 @@ from django.db.models import Case, Count, F, IntegerField, OuterRef, Q, Subquery
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import permissions, status, viewsets
+from rest_framework import serializers
 from rest_framework.authtoken.models import Token
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.exceptions import ValidationError
@@ -21,7 +22,7 @@ from rest_framework.views import APIView
 
 from accounts.models import ActivityLog, PasswordResetCode
 from core.availability import slot_collision_error
-from core.models import Attendance, Booking, BookingHistory, Category, Conversation, ConversationSession, LeaveRequest, Message, Notification, Service, Staff, Voucher, VoucherRedemption, WorkingHours, RosterShift, Tag, QuickReply, AgentPresence, ChatSetting, InternalNote, ConversationEvent, ConversationRead, ClinicSettingAudit, ClinicSettingValue, AppointmentWaitlistEntry, AppointmentWaitlistHistory
+from core.models import Attendance, Booking, BookingHistory, Category, Conversation, ConversationSession, LeaveRequest, Message, Notification, Service, Staff, WorkingHours, RosterShift, Tag, QuickReply, AgentPresence, ChatSetting, InternalNote, ConversationEvent, ConversationRead, ClinicSettingAudit, ClinicSettingValue, AppointmentWaitlistEntry, AppointmentWaitlistHistory
 from core.operational_settings import clinic_setting
 from core.role_permissions import view_action_allowed
 from . import chatbot
@@ -32,7 +33,7 @@ from .media import upload_to_cloudinary
 from .permissions import CanCompleteBooking, CanManageAppointmentWaitlist, IsManagerRole, IsStaffRole
 from .serializers import (
     AttendanceSerializer, BookingSerializer, booking_request_fingerprint, ConversationListSerializer, ConversationSerializer, LeaveRequestSerializer,
-    MessageSerializer, NotificationSerializer, ServiceSerializer, StaffSerializer, UserSerializer, VoucherSerializer, WorkingHoursSerializer, RosterShiftSerializer, CategorySerializer, TagSerializer, QuickReplySerializer, InternalNoteSerializer, ConversationEventSerializer, AppointmentWaitlistSerializer,
+    MessageSerializer, NotificationSerializer, ServiceSerializer, StaffSerializer, UserSerializer, WorkingHoursSerializer, RosterShiftSerializer, CategorySerializer, TagSerializer, QuickReplySerializer, InternalNoteSerializer, ConversationEventSerializer, AppointmentWaitlistSerializer,
 )
 
 User = get_user_model()
@@ -57,6 +58,7 @@ class RegisterView(APIView):
         password = request.data.get('password') or ''
         full_name = (request.data.get('full_name') or '').strip()
         email = (request.data.get('email') or '').strip()
+        email = serializers.EmailField(required=False, allow_blank=True).run_validation(email)
         phone = (request.data.get('phone') or '').strip()
         if not username or not password:
             return Response({'detail': 'Thiếu tên đăng nhập hoặc mật khẩu.'}, status=400)
@@ -222,7 +224,8 @@ class StaffViewSet(viewsets.ModelViewSet):
     queryset = Staff.objects.select_related('user').prefetch_related('services').order_by('name')
 
     def get_queryset(self):
-        qs = self.queryset
+        # Clone per request: evaluating the class queryset caches an outdated roster.
+        qs = self.queryset.all()
         if self.request.user.is_authenticated and self.request.user.role in {'manager', 'sysadmin'}:
             return qs
         return qs.filter(is_active=True)
@@ -711,6 +714,45 @@ class BookingViewSet(BookingCalendarMixin, viewsets.ModelViewSet):
         broadcast_dashboard('booking.confirmed', data)
         return Response(self.get_serializer(booking).data)
 
+    @action(detail=True, methods=['get'], url_path='requests', permission_classes=[IsStaffRole])
+    def booking_requests(self, request, pk=None):
+        """Real confirmation / consent-form / invoice data tied to this booking. Nothing is synthesised."""
+        from clinic.models import ConsentForm, Invoice
+        from clinic.views_v2 import InvoiceViewSet
+        from clinic.views_v3 import ConsentViewSet
+        booking = self.get_object()
+        visit = getattr(booking, 'visit', None)
+        consent_view = ConsentViewSet(action='list')
+        invoice_view = InvoiceViewSet(action='list')
+        can_view_forms = all(p.has_permission(request, consent_view) for p in consent_view.get_permissions())
+        can_view_invoices = all(p.has_permission(request, invoice_view) for p in invoice_view.get_permissions())
+        confirm_state = self.get_serializer(booking).get_confirm_state(booking)
+        confirm_events = [
+            {'event': h.event, 'old_status': h.old_status, 'new_status': h.new_status,
+             'actor_name': (h.actor.get_full_name() or h.actor.username) if h.actor else '',
+             'created_at': h.created_at}
+            for h in booking.history.all() if h.event in {'confirmed', 'created', 'cancelled', 'no_show'}
+        ]
+        forms, invoices = [], []
+        if visit and can_view_forms:
+            forms = [{'id': f.pk, 'code': f.code, 'title': f.title, 'kind': f.get_kind_display(),
+                      'status': f.status, 'status_label': f.get_status_display(), 'signed_at': f.signed_at}
+                     for f in ConsentForm.objects.filter(visit=visit)]
+        if visit and can_view_invoices:
+            invoices = [{'id': i.pk, 'code': i.code, 'status': i.status, 'status_label': i.get_status_display(),
+                         'total': i.total, 'paid': i.paid, 'balance': i.balance}
+                        for i in Invoice.objects.filter(visit=visit)]
+        return Response({
+            'confirmation': {
+                'status': booking.status, 'confirm_state': confirm_state,
+                'confirm_state_label': dict(Booking.CONFIRM_STATES).get(confirm_state, ''),
+                'confirm_code': booking.confirm_code, 'events': confirm_events,
+            },
+            'forms': forms, 'invoices': invoices, 'has_visit': bool(visit),
+            'can_view_forms': can_view_forms, 'can_view_invoices': can_view_invoices,
+        })
+
+
     @action(detail=True, methods=['post'], permission_classes=[CanCompleteBooking])
     def complete(self, request, pk=None):
         from django.db import transaction
@@ -740,17 +782,15 @@ class BookingViewSet(BookingCalendarMixin, viewsets.ModelViewSet):
                 }, status=400)
             old_status = booking.status
             booking.status = Booking.COMPLETED
-            from core.loyalty import award_booking_points
-            award_booking_points(booking)
-            booking.save(update_fields=['status', 'loyalty_awarded', 'loyalty_points_earned'])
+            booking.save(update_fields=['status'])
             BookingHistory.objects.create(
                 booking=booking, actor=request.user, event='completed',
                 old_status=old_status, new_status=booking.status,
                 old_appointment=booking.appointment, new_appointment=booking.appointment,
             )
-        data = {'booking_id': booking.pk, 'status': booking.status, 'points': booking.loyalty_points_earned}
+        data = {'booking_id': booking.pk, 'status': booking.status}
         if booking.user:
-            notify_users([booking.user], 'booking.completed', 'Dịch vụ đã hoàn thành', f'Bạn nhận được {booking.loyalty_points_earned} điểm thưởng từ lịch hẹn #{booking.pk}.', data)
+            notify_users([booking.user], 'booking.completed', 'Dịch vụ đã hoàn thành', f'Lịch hẹn #{booking.pk} của bạn đã hoàn thành.', data)
         notify_roles(['manager', 'sysadmin'], 'booking.completed', 'Lịch hẹn hoàn thành', f'Lịch hẹn #{booking.pk} đã hoàn thành.', data)
         broadcast_dashboard('booking.completed', data)
         return Response(self.get_serializer(booking).data)
@@ -806,16 +846,6 @@ class BookingViewSet(BookingCalendarMixin, viewsets.ModelViewSet):
                 old_appointment=booking.appointment, new_appointment=booking.appointment,
                 reason=reason[:255],
             )
-        redemption = getattr(booking, 'voucher_redemption', None)
-        if redemption:
-            redemption.status = VoucherRedemption.AVAILABLE
-            redemption.used_at = None
-            redemption.booking = None
-            redemption.save(update_fields=['status', 'used_at', 'booking'])
-            booking.applied_voucher = None
-            booking.discount_total = 0
-            booking.total = sum(item.price for item in booking.items.all())
-            booking.save(update_fields=['applied_voucher', 'discount_total', 'total'])
         _queue_email(booking, request, 'cancelled')
         data = {'booking_id': booking.pk, 'status': booking.status}
         targets = [booking.user] if booking.user else []
@@ -1092,48 +1122,6 @@ class BookingViewSet(BookingCalendarMixin, viewsets.ModelViewSet):
         return Response(self.get_serializer(booking).data)
 
 
-class VoucherViewSet(viewsets.ModelViewSet):
-    serializer_class = VoucherSerializer
-    queryset = Voucher.objects.all().order_by('-created_at')
-
-    def get_permissions(self):
-        if self.action in {'list', 'retrieve'}:
-            return [permissions.IsAuthenticated()] if self.request.user.is_authenticated else [permissions.AllowAny()]
-        if self.action in {'redeem', 'mine'}:
-            return [permissions.IsAuthenticated()]
-        return [IsManagerRole()]
-
-    def get_queryset(self):
-        qs = Voucher.objects.all().order_by('-created_at')
-        user = self.request.user
-        if not user.is_authenticated or user.role == 'customer':
-            return qs.filter(is_active=True)
-        return qs
-
-    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
-    def redeem(self, request, pk=None):
-        voucher = self.get_object()
-        if request.user.role != 'customer':
-            return Response({'detail': 'Chỉ khách hàng mới có thể đổi voucher.'}, status=403)
-        if request.user.loyalty_points < voucher.points_cost:
-            return Response({'detail': 'Không đủ điểm để đổi voucher.'}, status=400)
-        if voucher.redeemed_by.filter(pk=request.user.pk).exists():
-            return Response({'detail': 'Bạn đã đổi voucher này rồi.'}, status=400)
-        if voucher.is_expired or not voucher.is_active:
-            return Response({'detail': 'Voucher đã hết hiệu lực.'}, status=400)
-        if VoucherRedemption.objects.filter(user=request.user, voucher=voucher).exists():
-            return Response({'detail': 'Bạn đã đổi voucher này rồi.'}, status=400)
-        request.user.loyalty_points -= voucher.points_cost
-        request.user.save(update_fields=['loyalty_points'])
-        voucher.redeemed_by.add(request.user)
-        redemption = VoucherRedemption.objects.create(user=request.user, voucher=voucher)
-        notify_users([request.user], 'voucher.redeemed', 'Đổi voucher thành công', f'Voucher {voucher.code} đã sẵn sàng sử dụng.', {'voucher_id': voucher.pk})
-        return Response({'detail': 'Đổi voucher thành công.', 'loyalty_points': request.user.loyalty_points, 'redemption_id': redemption.pk})
-
-    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
-    def mine(self, request):
-        qs = Voucher.objects.filter(redemptions__user=request.user, redemptions__status=VoucherRedemption.AVAILABLE, is_active=True).distinct()
-        return Response(self.get_serializer(qs, many=True).data)
 
 
 class AttendanceViewSet(viewsets.ModelViewSet):
@@ -1308,7 +1296,10 @@ class ConversationViewSet(viewsets.ModelViewSet):
                 last_type_a=Subquery(last.values('message_type')[:1]),
                 last_att_a=Subquery(last.values('attachment_name')[:1]),
             )
-        return qs.prefetch_related('messages__sender', 'messages__csat_session', 'tags', 'sessions', 'notes__author', 'events__actor')
+        qs = qs.prefetch_related('messages__sender', 'messages__csat_session', 'tags', 'sessions')
+        if self.request.user.role != 'customer':
+            qs = qs.prefetch_related('notes__author', 'events__actor')
+        return qs
 
     def get_queryset(self):
         user = self.request.user
@@ -1847,6 +1838,12 @@ class ConversationViewSet(viewsets.ModelViewSet):
         files = [m for m in msgs if m.attachment_name][:20]
         customers = User.objects.filter(role='customer').filter(Q(first_name__icontains=q)|Q(username__icontains=q)|Q(phone__icontains=q)|Q(email__icontains=q))[:20]
         bookings = Booking.objects.filter(Q(guest_name__icontains=q)|Q(guest_phone__icontains=q)|Q(user__first_name__icontains=q)|Q(user__phone__icontains=q)).order_by('-created_at')[:20]
+        if request.user.role == 'customer':
+            customers = User.objects.filter(pk=request.user.pk).filter(
+                Q(first_name__icontains=q) | Q(username__icontains=q) | Q(phone__icontains=q) | Q(email__icontains=q))[:20]
+            bookings = Booking.objects.filter(user=request.user).filter(
+                Q(guest_name__icontains=q) | Q(guest_phone__icontains=q)
+                | Q(user__first_name__icontains=q) | Q(user__phone__icontains=q)).order_by('-created_at')[:20]
         result = {
             'conversations':[{'id':c.id,'customer_name':c.customer.get_full_name() or c.customer.username,'subject':c.subject,'updated_at':c.updated_at} for c in convs],
             'messages':[{'id':m.id,'conversation_id':m.conversation_id,'customer_name':m.conversation.customer.get_full_name() or m.conversation.customer.username,'text':m.text,'created_at':m.created_at} for m in msgs if m.text],
@@ -2188,14 +2185,12 @@ def crm_directory(request):
         completed = Booking.objects.filter(user=c, status=Booking.COMPLETED)
         spend = completed.aggregate(v=Sum('total'))['v'] or 0
         visits = completed.count()
-        tier = User.loyalty_tier_for_spend(spend)
         history = []
         for b in completed.prefetch_related('items__service').order_by('-appointment')[:8]:
             history.append({'id': b.id, 'appointment': b.appointment, 'total': b.total, 'services': [i.service.name for i in b.items.all()]})
         rows.append({
             'id': c.id, 'name': c.get_full_name() or c.username, 'email': c.email, 'phone': c.phone,
-            'loyalty_points': c.loyalty_points, 'total_spending': spend, 'visits': visits,
-            'tier': c.membership_tier_override or tier['name'], 'tier_override': c.membership_tier_override,
+            'total_spending': spend, 'visits': visits,
             'history': history,
         })
     return Response(rows)
@@ -2236,35 +2231,8 @@ def crm_forecast(request):
                                  'confirmed': sum(1 for x in opportunities if x['stage'] == Booking.CONFIRMED)}})
 
 
-@api_view(['POST'])
-@permission_classes([IsManagerRole])
-def adjust_customer_points(request, user_id):
-    customer = User.objects.filter(pk=user_id, role='customer').first()
-    if not customer:
-        return Response({'detail': 'Không tìm thấy khách hàng.'}, status=404)
-    try:
-        delta = int(request.data.get('delta', 0))
-    except (TypeError, ValueError):
-        return Response({'detail': 'Điểm điều chỉnh không hợp lệ.'}, status=400)
-    customer.loyalty_points = max(0, (customer.loyalty_points or 0) + delta)
-    customer.save(update_fields=['loyalty_points'])
-    notify_users([customer], 'loyalty.adjusted', 'Điểm thưởng đã thay đổi', f'Số dư điểm hiện tại của bạn là {customer.loyalty_points} điểm.', {'delta': delta})
-    return Response({'id': customer.pk, 'loyalty_points': customer.loyalty_points})
 
 
-@api_view(['POST'])
-@permission_classes([IsManagerRole])
-def set_customer_tier(request, user_id):
-    customer = User.objects.filter(pk=user_id, role='customer').first()
-    if not customer:
-        return Response({'detail': 'Không tìm thấy khách hàng.'}, status=404)
-    tier = request.data.get('tier', '')
-    if tier not in {'', 'Bronze', 'Silver', 'Gold', 'Platinum'}:
-        return Response({'detail': 'Hạng thành viên không hợp lệ.'}, status=400)
-    customer.membership_tier_override = tier
-    customer.save(update_fields=['membership_tier_override'])
-    notify_users([customer], 'loyalty.tier', 'Hạng thành viên đã cập nhật', f'Hạng thành viên hiện tại: {tier or "Tự động theo chi tiêu"}.', {'tier': tier})
-    return Response({'id': customer.pk, 'tier': tier})
 
 
 @api_view(['GET'])
@@ -2339,9 +2307,7 @@ def public_ticket(request, code):
         'services': [item.service.name for item in booking.items.all()],
         'subtotal': sum(item.price for item in booking.items.all()),
         'discount_total': booking.discount_total,
-        'applied_voucher_code': booking.applied_voucher.code if booking.applied_voucher else '',
         'total': booking.total,
-        'loyalty_points_earned': booking.loyalty_points_earned,
     })
 
 

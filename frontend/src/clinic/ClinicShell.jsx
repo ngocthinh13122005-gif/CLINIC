@@ -9,11 +9,11 @@ import MedicalServicesRounded from '@mui/icons-material/MedicalServicesRounded';
 import ForumRounded from '@mui/icons-material/ForumRounded';
 import VaccinesRounded from '@mui/icons-material/VaccinesRounded';
 import BadgeRounded from '@mui/icons-material/BadgeRounded';
-import AccessTimeRounded from '@mui/icons-material/AccessTimeRounded';
+
 import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
 import PointOfSaleRounded from '@mui/icons-material/PointOfSaleRounded';
 import MedicationRounded from '@mui/icons-material/MedicationRounded';
-import PaymentsRounded from '@mui/icons-material/PaymentsRounded';
+
 import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded';
 import SearchRounded from '@mui/icons-material/SearchRounded';
 import AddRounded from '@mui/icons-material/AddRounded';
@@ -22,14 +22,14 @@ import MenuRounded from '@mui/icons-material/MenuRounded';
 import KeyboardDoubleArrowLeftRounded from '@mui/icons-material/KeyboardDoubleArrowLeftRounded';
 import AssessmentRounded from '@mui/icons-material/AssessmentRounded';
 import TaskAltRounded from '@mui/icons-material/TaskAltRounded';
-import ShieldRounded from '@mui/icons-material/ShieldRounded';
-import VerifiedUserRounded from '@mui/icons-material/VerifiedUserRounded';
+
+
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
-import ManageAccountsRounded from '@mui/icons-material/ManageAccountsRounded';
+
 import SettingsRounded from '@mui/icons-material/SettingsRounded';
 import HelpOutlineRounded from '@mui/icons-material/HelpOutlineRounded';
-import LocalOfferRounded from '@mui/icons-material/LocalOfferRounded';
-import MarkEmailReadRounded from '@mui/icons-material/MarkEmailReadRounded';
+
+
 import { useAuth } from '../context/AuthContext';
 import { roleLabel } from '../utils/roles';
 import NotificationBell from '../components/NotificationBell';
@@ -60,11 +60,7 @@ const MENUS = {
       { label: 'Dịch vụ & bảng giá', to: '/admin/services', icon: MedicalServicesRounded },
       { label: 'Bán hàng', to: '/ban-hang', icon: PointOfSaleRounded },
     ] },
-    { label: 'Nhân sự & ca làm', icon: BadgeRounded, children: [
-      { label: 'Danh bạ nhân sự', to: '/admin/staff', icon: BadgeRounded },
-      { label: 'Chấm công & nghỉ phép', to: '/admin/attendance', icon: AccessTimeRounded },
-      { label: 'Bảng lương', to: '/admin/payroll', icon: PaymentsRounded },
-    ] },
+    { label: 'Nhân sự & ca làm', to: '/admin/staff', icon: BadgeRounded },
   ],
   doctor: [
     { label: 'Tổng quan', to: '/dashboard', icon: DashboardRounded },
@@ -105,8 +101,8 @@ const MENUS = {
 };
 
 const TITLES = [['/dashboard', 'Tổng quan'], ['/tiep-don', 'Tiếp đón'], ['/lich-hen', 'Lịch hẹn'], ['/lich-hom-nay', 'Lịch hôm nay'], ['/benh-nhan', 'Bệnh nhân'], ['/kham', 'Khám bệnh'], ['/lieu-trinh', 'Liệu trình'], ['/ban-hang', 'Bán hàng'], ['/hoa-don', 'Hóa đơn'],
-  ['/thu-ngan', 'Thu ngân & công nợ'], ['/kho-thuoc', 'Kho & nhập hàng'], ['/cham-soc', 'Chăm sóc sau điều trị'], ['/hoat-dong', 'Hoạt động'], ['/bao-cao', 'Báo cáo quản trị'], ['/nhat-ky', 'Nhật ký hệ thống'], ['/tuan-thu', 'Tuân thủ & bảo mật'], ['/admin/services', 'Dịch vụ & bảng giá'], ['/admin/staff', 'Nhân sự'], ['/admin/attendance', 'Chấm công'],
-  ['/admin/payroll', 'Bảng lương'], ['/admin/crm', 'Khách hàng thành viên'], ['/admin/vouchers', 'Ưu đãi & voucher'], ['/admin/conversations', 'Hộp thư tư vấn'], ['/cskh', 'Hộp thư tư vấn'], ['/bac-si/tu-van', 'Tư vấn'], ['/settings', 'Cài đặt'], ['/profile', 'Hồ sơ cá nhân'], ['/change-password', 'Đổi mật khẩu']];
+  ['/thu-ngan', 'Thu ngân & công nợ'], ['/kho-thuoc', 'Kho & nhập hàng'], ['/cham-soc', 'Chăm sóc sau điều trị'], ['/hoat-dong', 'Hoạt động'], ['/bao-cao', 'Báo cáo quản trị'], ['/nhat-ky', 'Nhật ký hệ thống'], ['/tuan-thu', 'Tuân thủ & bảo mật'], ['/admin/services', 'Dịch vụ & bảng giá'], ['/admin/staff', 'Nhân sự & ca làm'], ['/admin/attendance', 'Chấm công'],
+  ['/admin/payroll', 'Bảng lương'], ['/admin/crm', 'CRM khách hàng'], ['/admin/conversations', 'Hộp thư tư vấn'], ['/cskh', 'Hộp thư tư vấn'], ['/bac-si/tu-van', 'Tư vấn'], ['/settings', 'Cài đặt'], ['/profile', 'Hồ sơ cá nhân'], ['/change-password', 'Đổi mật khẩu']];
 const titleOf = (path) => (TITLES.find(([p]) => path === p || path.startsWith(p + '/')) || [])[1] || '';
 
 function GlobalSearch() {
@@ -166,7 +162,7 @@ export default function ClinicShell() {
   const [open, setOpen] = useState(false);
   const [mini, setMini] = useState(false);
   const [showDate, setShowDate] = useState(true);
-  const [closedGroups, setClosedGroups] = useState({ 'Nhân sự & ca làm': true, 'Dịch vụ & bảng giá': true });
+  const [closedGroups, setClosedGroups] = useState({ 'Dịch vụ & bảng giá': true });
   const [navTooltip, setNavTooltip] = useState(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -301,7 +297,7 @@ export default function ClinicShell() {
   const bookings = loc.pathname.startsWith('/lich-hen');
   return <div className={`cl-app ${mini ? 'mini' : ''}`}>
     <aside className={`cl-side ${open ? 'open' : ''}`}>
-      <NavLink to="/dashboard" className="cl-brand"><span className="cl-brand-mark">A</span><span><strong>AkinaClinic</strong><small>Phòng khám da liễu</small></span></NavLink>
+      <NavLink to="/dashboard" className="cl-brand"><img className="cl-brand-logo" src="/img/mark-navy.png" alt="" aria-hidden="true" /><span><strong>AkinaClinic</strong><small>Phòng khám da liễu</small></span></NavLink>
       <nav>
         {items.map((it, i) => {
           if (it.section) return <div className="cl-nav-section" key={`section-${it.section}`} aria-hidden="true" />;

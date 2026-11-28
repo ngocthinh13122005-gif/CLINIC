@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import CallOutlined from '@mui/icons-material/CallOutlined';
 import CloseRounded from '@mui/icons-material/CloseRounded';
+import WorkOutlineRounded from '@mui/icons-material/WorkOutlineRounded';
 import EventAvailableOutlined from '@mui/icons-material/EventAvailableOutlined';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import LogoutRounded from '@mui/icons-material/LogoutRounded';
@@ -15,26 +16,22 @@ import '../../styles/public-theme.css';
 import '../../styles/akina.css';
 
 const ACCOUNT_LINKS = [
+  { to: '/dashboard', label: 'Hồ sơ của tôi' },
   { to: '/ho-so-suc-khoe', label: 'Hồ sơ sức khỏe' },
   { to: '/bookings', label: 'Lịch hẹn của tôi' },
-  { to: '/my-vouchers', label: 'Voucher & điểm thưởng' },
   { to: '/chat', label: 'Trao đổi với phòng khám' },
   { to: '/profile', label: 'Thông tin tài khoản' },
 ];
 const NAV = [
   { to: '/', label: 'Trang chủ', end: true },
   { to: '/dich-vu', label: 'Dịch vụ' },
-  { to: '/gioi-thieu', label: 'Giới thiệu' },
+  { to: '/doi-ngu-bac-si', label: 'Bác sĩ' },
   { to: '/book', label: 'Đặt lịch' },
   { to: '/contact', label: 'Liên hệ' },
 ];
 
-export function BrandMark({ size = 36 }) {
-  return <svg className="pk-mark" width={size} height={size} viewBox="0 0 36 36" aria-hidden="true">
-    <rect width="36" height="36" rx="9" fill="#007FA3"/>
-    <path d="M18 8.5 10.2 27.5M18 8.5l7.8 19M13 21.5h10" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-    <circle cx="26.5" cy="10" r="2.3" fill="#20A8C5"/>
-  </svg>;
+export function BrandMark({ size = 40, light = false }) {
+  return <img className="pk-mark" src={light ? '/img/mark-white.png' : '/img/mark-navy.png'} height={size} alt="" aria-hidden="true" style={{ height: size, width: 'auto' }}/>;
 }
 
 export function CustomerHeader({ user, onLogout }) {
@@ -45,6 +42,7 @@ export function CustomerHeader({ user, onLogout }) {
   const location = useLocation();
   const customer = user?.role === 'customer';
   const hotline = clinic?.hotline || DEFAULT_HOTLINE;
+  const staff = !!user && !customer;
   const brand = 'AkinaClinic';
   const displayName = (user?.full_name || user?.username || '').trim();
   const closeAll = () => { setOpen(false); setAccountOpen(false); };
@@ -88,14 +86,16 @@ export function CustomerHeader({ user, onLogout }) {
             </button>
             {accountOpen && <div className="pk-menu" role="menu">
               <div className="pk-menu-head"><strong>{displayName}</strong><span>{customer ? 'Tài khoản khách hàng' : 'Tài khoản nhân sự'}</span></div>
-              {!customer && <Link to="/dashboard" role="menuitem" className="pk-menu-item" onClick={closeAll}>Khu vực làm việc</Link>}
+              {!customer && <Link to="/dashboard" role="menuitem" className="pk-menu-item" onClick={closeAll}>Khu làm việc</Link>}
               {customer ? ACCOUNT_LINKS.map(({ to, label }) => <NavLink key={to} to={to} role="menuitem" className={({ isActive }) => `pk-menu-item${isActive ? ' active' : ''}`} onClick={closeAll}>{label}</NavLink>)
                 : <Link to="/profile" role="menuitem" className="pk-menu-item" onClick={closeAll}>Thông tin tài khoản</Link>}
               <button type="button" role="menuitem" className="pk-menu-item out" onClick={() => { closeAll(); onLogout(); }}><LogoutRounded/>Đăng xuất</button>
             </div>}
           </div>
-        </> : <Link to="/login" className="pk-login" onClick={closeAll}><PersonOutlineRounded/><span>Đăng nhập</span></Link>}
-        <Link to="/book" className="pk-cta" onClick={closeAll}><EventAvailableOutlined/><span>Đặt lịch ngay</span></Link>
+        </> : <Link to="/login" className="pk-login" aria-label="Đăng nhập" onClick={closeAll}><PersonOutlineRounded/><span>Đăng nhập</span></Link>}
+        {staff ? <Link to="/dashboard" className="pk-cta work" aria-label="Khu làm việc" onClick={closeAll}><WorkOutlineRounded/><span>Khu làm việc</span></Link>
+          : customer ? <Link to="/dashboard" className="pk-cta" aria-label="Hồ sơ của tôi" onClick={closeAll}><PersonOutlineRounded/><span>Hồ sơ của tôi</span></Link>
+          : <Link to="/book" className="pk-cta" aria-label="Đặt lịch ngay" onClick={closeAll}><EventAvailableOutlined/><span>Đặt lịch ngay</span></Link>}
         <button type="button" className="pk-burger" aria-label={open ? 'Đóng menu' : 'Mở menu'} aria-expanded={open} aria-controls="pk-drawer" onClick={() => setOpen((v) => !v)}>{open ? <CloseRounded/> : <MenuRounded/>}</button>
       </div>
     </div></div>
@@ -104,11 +104,11 @@ export function CustomerHeader({ user, onLogout }) {
         {navLinks('pk-d-link')}
         {customer && <div className="pk-d-sep">Tài khoản</div>}
         {customer && ACCOUNT_LINKS.map(({ to, label }) => <NavLink key={to} to={to} onClick={closeAll} className={({ isActive }) => `pk-d-link sub${isActive ? ' active' : ''}`}>{label}</NavLink>)}
-        {user && !customer && <Link to="/dashboard" onClick={closeAll} className="pk-d-link">Khu vực làm việc</Link>}
       </nav>
       <div className="pk-d-foot">
-        <Link to="/book" className="pk-cta block" onClick={closeAll}><EventAvailableOutlined/>Đặt lịch ngay</Link>
-        <a className="pk-btn-line block" href={telHref(hotline)}><CallOutlined/>Gọi {hotline}</a>
+        {staff ? <Link to="/dashboard" className="pk-cta work block" onClick={closeAll}><WorkOutlineRounded/>Khu làm việc</Link>
+          : customer ? <Link to="/dashboard" className="pk-cta block" onClick={closeAll}><PersonOutlineRounded/>Hồ sơ của tôi</Link>
+          : <Link to="/book" className="pk-cta block" onClick={closeAll}><EventAvailableOutlined/>Đặt lịch ngay</Link>}
         {user ? <button type="button" className="pk-d-out" onClick={() => { closeAll(); onLogout(); }}><LogoutRounded/>Đăng xuất</button> : <Link to="/login" className="pk-d-out" onClick={closeAll}><PersonOutlineRounded/>Đăng nhập / Đăng ký</Link>}
       </div>
     </div>}
@@ -124,11 +124,11 @@ export function CustomerFooter() {
   return <footer className="pk-footer">
     <div className="pk-wrap pk-foot-grid">
       <div className="pk-foot-brand">
-        <Link to="/" className="pk-brand light"><BrandMark/><span className="pk-brand-t"><strong>{brand}</strong><small>Da liễu &amp; Thẩm mỹ</small></span></Link>
+        <Link to="/" className="pk-brand light"><BrandMark light size={46}/><span className="pk-brand-t"><strong>{brand}</strong><small>Da liễu &amp; Thẩm mỹ</small></span></Link>
         <p>Thăm khám, tư vấn và theo dõi điều trị da liễu – thẩm mỹ theo quy trình rõ ràng, lấy người bệnh làm trung tâm.</p>
       </div>
       <div><h3>Khám phá</h3><ul>
-        <li><Link to="/dich-vu">Dịch vụ</Link></li><li><Link to="/gioi-thieu">Giới thiệu</Link></li><li><Link to="/book">Đặt lịch</Link></li><li><Link to="/contact">Liên hệ</Link></li>
+        <li><Link to="/dich-vu">Dịch vụ</Link></li><li><Link to="/doi-ngu-bac-si">Bác sĩ</Link></li><li><Link to="/book">Đặt lịch</Link></li><li><Link to="/contact">Liên hệ</Link></li>
       </ul></div>
       <div><h3>Tài khoản</h3><ul>
         <li><Link to="/login">Đăng nhập</Link></li><li><Link to="/signup">Đăng ký</Link></li><li><Link to="/bookings">Lịch hẹn của tôi</Link></li><li><Link to="/ho-so-suc-khoe">Hồ sơ sức khỏe</Link></li>

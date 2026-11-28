@@ -83,10 +83,6 @@ class ChatbotToolCallAdmin(admin.ModelAdmin):
     readonly_fields = ('session', 'tool_name', 'arguments', 'result', 'success', 'created_at')
 
 
-@admin.register(VoucherRedemption)
-class VoucherRedemptionAdmin(admin.ModelAdmin):
-    list_display = ('user', 'voucher', 'status', 'redeemed_at', 'used_at', 'booking')
-    list_filter = ('status',)
 
 @admin.register(Notification)
 class NotificationAdmin(admin.ModelAdmin):

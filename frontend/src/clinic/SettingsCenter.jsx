@@ -31,7 +31,6 @@ const groups = [
     { id: 'support', label: 'CSKH & AI', icon: ForumRounded, note: 'Giờ hỗ trợ, SLA và nội dung phản hồi dùng trực tiếp trong hộp thư và chatbot' },
     { id: 'billing', label: 'Thu ngân & công nợ', icon: PaymentsRounded, to: '/thu-ngan' },
     { id: 'inventory', label: 'Kho thuốc & vật tư', icon: MedicationRounded, to: '/kho-thuoc' },
-    { id: 'crm', label: 'Khách hàng & tích điểm', icon: PersonOutlineRounded },
     { id: 'marketing', label: 'Marketing & đồng ý nhận tin', icon: MarkEmailReadRounded },
   ] },
   { id: 'system', label: 'Hệ thống', items: [

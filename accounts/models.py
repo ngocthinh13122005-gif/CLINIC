@@ -19,8 +19,6 @@ class User(AbstractUser):
     avatar = models.ImageField('Ảnh đại diện', upload_to='avatars/', blank=True, null=True)
     role = models.CharField('Vai trò', max_length=12, choices=Role.choices, default=Role.CUSTOMER)
     must_change_password = models.BooleanField('Bắt buộc đổi mật khẩu', default=False)
-    loyalty_points = models.PositiveIntegerField('Điểm thưởng', default=0)
-    membership_tier_override = models.CharField('Hạng thành viên chỉ định', max_length=12, blank=True, choices=[('', 'Tự động'), ('Bronze','Bronze'), ('Silver','Silver'), ('Gold','Gold'), ('Platinum','Platinum')])
     created_by = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True,
                                     related_name='created_accounts', verbose_name='Được tạo bởi')
     REQUIRED_FIELDS = ['email']
@@ -28,18 +26,6 @@ class User(AbstractUser):
     def __str__(self):
         return self.get_full_name() or self.username
 
-    LOYALTY_TIERS = [(0, 'Bronze', 'secondary'), (500_000, 'Silver', 'info'),
-                      (2_000_000, 'Gold', 'warning'), (5_000_000, 'Platinum', 'primary')]
-
-    @staticmethod
-    def loyalty_tier_for_spend(spend):
-        """Hạng thành viên dựa trên tổng chi tiêu (VNĐ) các lịch hẹn đã hoàn thành."""
-        spend = spend or 0
-        tier = User.LOYALTY_TIERS[0]
-        for threshold, name, color in User.LOYALTY_TIERS:
-            if spend >= threshold:
-                tier = (threshold, name, color)
-        return {'name': tier[1], 'color': tier[2]}
 
     def save(self, *args, **kwargs):
         # Chỉ Quản lý phòng khám và Quản trị hệ thống được vào Django Admin

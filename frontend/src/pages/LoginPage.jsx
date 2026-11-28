@@ -27,11 +27,11 @@ function PreferredHome({ user, returnTo }) {
   useEffect(() => {
     let active = true;
     api.get('/settings/user/').then(({ data }) => {
-      const fallback = user.role === 'customer' ? '/' : '/dashboard';
+      const fallback = '/dashboard';
       const allowed = data.definitions?.find((item) => item.key === 'ui.default_route')?.choices || [fallback];
       const preferred = data.values?.['ui.default_route'];
       if (active) setTarget(preferred && allowed.includes(preferred) ? preferred : fallback);
-    }).catch(() => { if (active) setTarget(user.role === 'customer' ? '/' : '/dashboard'); });
+    }).catch(() => { if (active) setTarget('/dashboard'); });
     return () => { active = false; };
   }, [user.id, user.role]);
   return target ? <Navigate to={returnTo || target} replace/> : null;

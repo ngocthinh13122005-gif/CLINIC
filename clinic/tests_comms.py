@@ -197,7 +197,7 @@ class ComposerFeatureTests(APITestCase):
 
 
 class PatientSummaryStatsTests(APITestCase):
-    """Dải thống kê cuối hồ sơ khách: summary phải trả stats / finance / loyalty."""
+    """Dải thống kê cuối hồ sơ khách: summary phải trả stats / finance."""
 
     def setUp(self):
         from clinic.models import Invoice, InvoiceItem, Payment
@@ -218,7 +218,6 @@ class PatientSummaryStatsTests(APITestCase):
         self.assertEqual(d['finance']['billed'], 1000000)
         self.assertEqual(d['finance']['paid'], 400000)
         self.assertEqual(d['finance']['outstanding'], 600000)
-        self.assertEqual(d['loyalty']['tier'], 'Bronze')
 
 
 class DayBoardTests(APITestCase):

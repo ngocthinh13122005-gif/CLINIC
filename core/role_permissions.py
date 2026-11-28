@@ -44,7 +44,7 @@ def module_for_view(view, fallback=''):
         return 'billing'
     if any(part in name for part in ('medicine', 'inventory', 'stock', 'supplier', 'purchaseorder', 'lot')):
         return 'inventory'
-    if 'crm' in name or 'loyalty' in name or 'voucher' in name:
+    if 'crm' in name:
         return 'crm'
     return fallback
 

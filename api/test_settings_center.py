@@ -211,21 +211,3 @@ class SettingsCenterApiTests(APITestCase):
             notify_users([user], 'booking.cancelled', 'Lịch hẹn đã hủy')
         self.assertEqual(user.notifications.count(), 1)
         self.assertEqual(user.notifications.first().event_type, 'booking.cancelled')
-
-    def test_loyalty_settings_apply_once_to_newly_completed_transaction(self):
-        from types import SimpleNamespace
-        from core.loyalty import award_booking_points
-        user = self.make_user('settings-loyalty', User.Role.CUSTOMER)
-        ClinicSettingValue.objects.create(scope='clinic', scope_key='default', key='crm.loyalty_enabled', value=True)
-        ClinicSettingValue.objects.create(scope='clinic', scope_key='default', key='crm.vnd_per_point', value=20000)
-        cache.delete('akina_setting:clinic:default:crm.loyalty_enabled')
-        cache.delete('akina_setting:clinic:default:crm.vnd_per_point')
-        booking = SimpleNamespace(user_id=user.pk, user=user, loyalty_awarded=False,
-                                  loyalty_points_earned=0, total=50000)
-        self.assertEqual(award_booking_points(booking), 2)
-        user.refresh_from_db()
-        self.assertEqual(user.loyalty_points, 2)
-        self.assertEqual(award_booking_points(booking), 0)
-        user.refresh_from_db()
-        self.assertEqual(user.loyalty_points, 2)
-

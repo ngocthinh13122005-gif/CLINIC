@@ -53,6 +53,23 @@ export function stepIndex(b) {
   return b.status === 'confirmed' ? 1 : 0;
 }
 
+/** Terminal booking states win; otherwise show the linked visit's actual progress. */
+export function lifecycle(b) {
+  if (b.status === 'cancelled') return ['cancelled', 'Đã hủy'];
+  if (b.status === 'no_show') return ['no_show', 'Vắng mặt'];
+  if (b.status === 'completed' || b.visit_status === 'completed') return ['completed', 'Hoàn thành'];
+  if (b.status === 'in_progress' || b.visit_status === 'in_consult') return ['in_progress', 'Đang khám'];
+  if (b.status === 'checked_in' || b.visit_status === 'waiting' || b.visit_id) return ['checked_in', 'Đã đến'];
+  return b.status === 'confirmed' ? ['confirmed', 'Đã xác nhận'] : ['pending', 'Chờ xác nhận'];
+}
+
+export function matchesCalendarFilters(b, filters) {
+  if (b.status === 'cancelled' && !filters.status.includes('cancelled')) return false;
+  if (filters.status.length && !filters.status.includes(lifecycle(b)[0])) return false;
+  if (filters.confirm.length && !filters.confirm.includes(b.confirm_state)) return false;
+  return !filters.services.length || (b.items || []).some((item) => filters.services.includes(item.service?.id ?? item.service));
+}
+
 /**
  * Bản sao phía giao diện của bộ ràng buộc ở server (core/availability.slot_error) để báo lỗi tức thì khi kéo/thả/đặt lịch.
  * Server vẫn là nơi quyết định cuối cùng. hours: { [staffId]: { [weekday 0=Thứ Hai]: [[startMin, endMin], ...] } } (có thể rỗng).

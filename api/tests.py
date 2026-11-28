@@ -12,7 +12,7 @@ from rest_framework.test import APIClient, APITestCase
 
 from accounts.models import ActivityLog
 from clinic.models import Patient, TreatmentPlan, TreatmentSession, Visit
-from core.models import AppointmentWaitlistEntry, Booking, BookingItem, Category, Conversation, ConversationSession, LeaveRequest, Service, Staff, Voucher, VoucherRedemption, WorkingHours, Message, AgentPresence, ChatSetting
+from core.models import AppointmentWaitlistEntry, Booking, BookingItem, Category, Conversation, ConversationSession, LeaveRequest, Service, Staff, WorkingHours, Message, AgentPresence, ChatSetting
 from core.booking_notifications import send_booking_email
 
 User = get_user_model()
@@ -280,14 +280,14 @@ class AkinaClinicApiIntegrationTests(APITestCase):
         visit.status = Visit.IN_CONSULT
         visit.save(update_fields=['status'])
         self.customer.refresh_from_db()
-        self.assertEqual(self.customer.loyalty_points, 0)
 
         self.auth(doctor_staff.user)
         unfinished_visit = self.client.post(f'/api/clinic/visits/{visit.pk}/complete/')
         self.assertEqual(unfinished_visit.status_code, 400, unfinished_visit.data)
         recorded = self.client.post(
             f'/api/clinic/plans/{plan.pk}/complete-session/',
-            {'session_id': session.pk, 'status': 'done', 'content': 'Đã đánh giá và thực hiện buổi điều trị.'},
+            {'session_id': session.pk, 'status': 'done', 'content': 'Đã đánh giá và thực hiện buổi điều trị.',
+             'outcome': 'Hoàn tất, không ghi nhận phản ứng bất lợi.'},
             format='json',
         )
         self.assertEqual(recorded.status_code, 200, recorded.data)
@@ -404,7 +404,7 @@ class AkinaClinicApiIntegrationTests(APITestCase):
         self.auth(nurse_user)
         completed = self.client.post(
             f'/api/clinic/plans/{plan.pk}/complete-session/',
-            {'session_id': session.pk, 'content': 'Đã thực hiện theo phân công của bác sĩ.'},
+            {'session_id': session.pk, 'content': 'Đã thực hiện theo phân công của bác sĩ.', 'outcome': 'Đáp ứng ổn định.'},
             format='json',
         )
         self.assertEqual(completed.status_code, 200, completed.data)
@@ -1196,36 +1196,13 @@ class AkinaClinicApiIntegrationTests(APITestCase):
         # Nhân viên nghỉ phép không có slot nào khả dụng trong ngày đó.
         self.assertFalse(any(row['slots'] for row in response.data['staff'] if row['staff_id'] == staff.id))
 
-    @patch('api.views._queue_email')
-    def test_voucher_redeem_and_apply_to_booking(self, _email):
-        self.customer.loyalty_points = 500
-        self.customer.save(update_fields=['loyalty_points'])
-        voucher = Voucher.objects.create(code='SAVE50', title='Giảm 50K', points_cost=100, discount_value=50000, min_spend=100000)
-        self.auth(self.customer)
-        redeemed = self.client.post(f'/api/vouchers/{voucher.id}/redeem/')
-        self.assertEqual(redeemed.status_code, 200, redeemed.data)
-        self.service.booking_policy = Service.BOOKING_DIRECT
-        self.service.save(update_fields=['booking_policy'])
-        self.make_staff()
-        appointment = self.slot().isoformat()
-        response = self.client.post('/api/bookings/', {
-            'appointment': appointment,
-            'appointment_type': Booking.APPOINTMENT_TYPE_PROCEDURE,
-            'service_ids': [self.service.id],
-            'voucher_id': voucher.id,
-        }, format='json')
-        self.assertEqual(response.status_code, 201, response.data)
-        booking = Booking.objects.get(pk=response.data['id'])
-        self.assertEqual(booking.discount_total, 50000)
-        self.assertEqual(booking.total, 300000)
-        self.assertEqual(VoucherRedemption.objects.get(user=self.customer, voucher=voucher).status, VoucherRedemption.USED)
 
     @patch('api.views._queue_email')
-    def test_completed_booking_awards_loyalty_only_once(self, _email):
+    def test_completed_booking_is_idempotent(self, _email):
         manager_token, _ = Token.objects.get_or_create(user=self.manager)
         self.client.credentials(HTTP_AUTHORIZATION=f'Token {manager_token.key}')
         patient = Patient.objects.create(
-            full_name='Khách tích điểm',
+            full_name='Khách hoàn thành lịch',
             phone='0900000018',
             user=self.customer,
         )
@@ -1243,11 +1220,11 @@ class AkinaClinicApiIntegrationTests(APITestCase):
         )
         first = self.client.post(f'/api/bookings/{booking.id}/complete/')
         self.assertEqual(first.status_code, 200, first.data)
-        self.customer.refresh_from_db(); points = self.customer.loyalty_points
         second = self.client.post(f'/api/bookings/{booking.id}/complete/')
         self.assertEqual(second.status_code, 200, second.data)
         self.customer.refresh_from_db()
-        self.assertEqual(self.customer.loyalty_points, points)
+        from core.models import BookingHistory
+        self.assertEqual(BookingHistory.objects.filter(booking=booking, event='completed').count(), 1)
 
     def test_consultant_claim_is_exclusive(self):
         agent1 = User.objects.create_user(username='agent1', password='pass12345', role='consultant')
@@ -1347,14 +1324,10 @@ class AkinaClinicApiIntegrationTests(APITestCase):
     @patch.dict('os.environ', {'GEMINI_API_KEY': '', 'GOOGLE_API_KEY': ''})
     def test_chatbot_guest_buttons_use_real_data_and_persist_history(self):
         self.make_staff()
-        from core.models import Voucher
-        Voucher.objects.create(code='HELLO50', title='Giảm 50K', points_cost=10, discount_value=50000, min_spend=200000)
         r = self.client.post('/api/chatbot/message/', {'visitor_key': self.KEY, 'action': 'services'}, format='json')
         self.assertEqual(r.status_code, 200, r.data)
         self.assertIn(self.service.name, r.data['reply']['content'])
         self.assertIn('phút', r.data['reply']['content'])
-        r = self.client.post('/api/chatbot/message/', {'visitor_key': self.KEY, 'action': 'promotions'}, format='json')
-        self.assertIn('HELLO50', r.data['reply']['content'])
         r = self.client.post('/api/chatbot/message/', {'visitor_key': self.KEY, 'action': 'booking'}, format='json')
         self.assertIn('bk:svc:', r.data['reply']['content'])  # bắt đầu quy trình đặt lịch trong chat
         self.assertEqual(r.data['navigate'], '')
@@ -1365,8 +1338,8 @@ class AkinaClinicApiIntegrationTests(APITestCase):
         # Mở lại: lịch sử còn
         r = self.client.get('/api/chatbot/session/', {'visitor_key': self.KEY})
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(len(r.data['messages']), 8)
-        self.assertEqual([a['label'] for a in r.data['actions'][:4]], ['Dịch vụ', 'Đặt lịch', 'Khuyến mãi', 'Gặp tư vấn viên'])
+        self.assertEqual(len(r.data['messages']), 6)
+        self.assertEqual([a['label'] for a in r.data['actions'][:3]], ['Dịch vụ', 'Đặt lịch', 'Gặp tư vấn viên'])
 
     def test_chatbot_human_requires_login_then_opens_conversation(self):
         r = self.client.post('/api/chatbot/message/', {'visitor_key': self.KEY, 'action': 'human'}, format='json')
@@ -1669,10 +1642,7 @@ class AkinaClinicApiIntegrationTests(APITestCase):
     @patch.dict('os.environ', {'GEMINI_API_KEY': '', 'GOOGLE_API_KEY': ''})
     def test_chatbot_account_intents_and_medical_agent_handoff(self):
         self.assertIn('đăng nhập', self._bot(text='lịch của tôi'))
-        self.customer.loyalty_points = 1234
-        self.customer.save(update_fields=['loyalty_points'])
         self.auth(self.customer)
-        self.assertIn('1.234', self._bot(text='điểm thành viên của tôi'))
         self.assertIn('bk:svc:', self._bot(text='giá facial test bao nhiêu'))
         self.assertIn('350.000', self._bot(text='giá facial test bao nhiêu'))
         reply = self._bot(text='tôi bị dị ứng thuốc thì dùng được không')
@@ -1718,3 +1688,22 @@ class AkinaClinicApiIntegrationTests(APITestCase):
         self.assertEqual(row['commission_base'], 800000)
         self.assertEqual(float(row['commission_rate']), 12.5)
         self.assertEqual(row['commission'], 100000)
+
+
+class ProfileFinanceTests(APITestCase):
+    def test_profiles_and_existing_booking_discount_are_preserved(self):
+        User = get_user_model()
+        customer = User.objects.create_user(username='scope-customer', password='Customer@123', role='customer')
+        manager = User.objects.create_user(username='scope-manager', role='manager')
+        from django.utils import timezone
+        booking = Booking.objects.create(user=customer, appointment=timezone.now(),
+                                         discount_total=50000, total=150000)
+        self.client.force_authenticate(customer)
+        profile = self.client.get('/api/auth/me/')
+        self.assertEqual(profile.status_code, 200)
+        self.client.force_authenticate(manager)
+        response = self.client.get(f'/api/bookings/{booking.pk}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['discount_total'], 50000)
+        self.assertEqual(response.data['total'], 150000)
+        self.assertEqual(User.objects.count(), 2)

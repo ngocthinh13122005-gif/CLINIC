@@ -172,9 +172,6 @@ class Booking(models.Model):
     appointment = models.DateTimeField('Thời gian hẹn')
     total = models.PositiveIntegerField('Tổng tiền', default=0)
     discount_total = models.PositiveIntegerField('Giảm giá', default=0)
-    applied_voucher = models.ForeignKey('Voucher', on_delete=models.SET_NULL, null=True, blank=True, related_name='bookings', verbose_name='Voucher đã áp dụng')
-    loyalty_awarded = models.BooleanField('Đã cộng điểm thưởng', default=False)
-    loyalty_points_earned = models.PositiveIntegerField('Điểm thưởng nhận được', default=0)
     note = models.TextField('Ghi chú', blank=True)
     status = models.CharField('Trạng thái', max_length=12, choices=STATUS, default=PENDING)
     running_late = models.BooleanField('Khách đến trễ', default=False)
@@ -226,6 +223,9 @@ class Booking(models.Model):
         total = getattr(self, '_prefetched_duration', None)
         if total is not None:
             return total
+        items = getattr(self, '_prefetched_objects_cache', {}).get('items')
+        if items is not None:
+            return sum(item.service.duration for item in items)
         return sum(self.items.values_list('service__duration', flat=True)) or 0
 
     @property
@@ -648,48 +648,8 @@ class ConversationRead(models.Model):
         unique_together = ('conversation', 'user')
 
 
-class Voucher(models.Model):
-    """Voucher giảm giá đổi bằng điểm thưởng — quản lý bởi Admin, khách hàng dùng điểm để đổi."""
-    code = models.CharField('Mã', max_length=30, unique=True)
-    title = models.CharField('Tiêu đề', max_length=150)
-    description = models.TextField('Mô tả', blank=True)
-    points_cost = models.PositiveIntegerField('Điểm cần đổi')
-    discount_value = models.PositiveIntegerField('Giá trị giảm (VNĐ)')
-    min_spend = models.PositiveIntegerField('Đơn tối thiểu (VNĐ)', default=0)
-    expires_at = models.DateField('Ngày hết hạn', null=True, blank=True)
-    is_active = models.BooleanField('Đang kích hoạt', default=True)
-    redeemed_by = models.ManyToManyField(settings.AUTH_USER_MODEL, blank=True, related_name='redeemed_vouchers',
-                                          verbose_name='Khách đã đổi')
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        verbose_name = 'Voucher'; verbose_name_plural = 'Voucher'; ordering = ['-created_at']
-
-    def __str__(self):
-        return f'{self.code} · {self.title}'
-
-    @property
-    def is_expired(self):
-        from django.utils import timezone
-        return bool(self.expires_at and self.expires_at < timezone.localdate())
 
 
-class VoucherRedemption(models.Model):
-    AVAILABLE, USED = 'available', 'used'
-    STATUS_CHOICES = [(AVAILABLE, 'Chưa sử dụng'), (USED, 'Đã sử dụng')]
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='voucher_redemptions')
-    voucher = models.ForeignKey(Voucher, on_delete=models.CASCADE, related_name='redemptions')
-    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=AVAILABLE)
-    redeemed_at = models.DateTimeField(auto_now_add=True)
-    used_at = models.DateTimeField(null=True, blank=True)
-    booking = models.OneToOneField(Booking, on_delete=models.SET_NULL, null=True, blank=True, related_name='voucher_redemption')
-
-    class Meta:
-        unique_together = ('user', 'voucher')
-        ordering = ['-redeemed_at']
-
-    def __str__(self):
-        return f'{self.user} · {self.voucher.code} · {self.status}'
 
 
 class Notification(models.Model):
@@ -735,7 +695,7 @@ class ChatbotSetting(models.Model):
         'System prompt',
         default=(
             'Bạn là Trợ lý AkinaClinic của hệ thống spa AkinaClinic. Trả lời bằng tiếng Việt, ngắn gọn, lịch sự và chỉ dựa trên '
-            'thông tin AkinaClinic được cung cấp. Không tự bịa giá, voucher, lịch bác sĩ hoặc chính sách. Với câu hỏi sức khỏe '
+            'thông tin AkinaClinic được cung cấp. Không tự bịa giá, lịch bác sĩ hoặc chính sách. Với câu hỏi sức khỏe '
             'hoặc da liễu, chỉ cung cấp thông tin chăm sóc chung; không chẩn đoán bệnh, không kê thuốc và không thay thế '
             'bác sĩ/chuyên viên. Nếu không chắc, hãy nói rõ và đề nghị khách gặp tư vấn viên AkinaClinic.'
         )

@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
 import MedicalServicesOutlined from '@mui/icons-material/MedicalServicesOutlined';
-import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded';
 import SpaOutlined from '@mui/icons-material/SpaOutlined';
 import { bookLabel, bookLink, money, serviceImg, useReveal } from './usePublic';
 
@@ -47,11 +46,11 @@ export function ServiceCard({ s }) {
 
 export function DoctorCard({ d }) {
   return <article className="pk-card pk-doc">
-    <Link to={`/gioi-thieu/${d.id}`} className="pk-doc-media" tabIndex={-1} aria-label={`Hồ sơ ${d.name}`}>
-      <Photo src={d.photo_url} alt={`Bác sĩ ${d.name}`} fallback={<PersonOutlineRounded/>}/>
+    <Link to={`/doi-ngu-bac-si/${d.id}`} className="pk-doc-media" tabIndex={-1} aria-label={`Hồ sơ ${d.name}`}>
+      <Photo src={d.photo_url} alt={`Bác sĩ ${d.name}`} fallback={<span className="pk-initial">{(d.name || 'BS').replace(/^(BS\.?|Bác sĩ)\s*/i, '').trim().split(/\s+/).slice(-2).map((w) => w[0]).join('').toUpperCase() || 'BS'}</span>}/>
     </Link>
     <div className="pk-doc-body">
-      <h3><Link to={`/gioi-thieu/${d.id}`}>{d.name}</Link></h3>
+      <h3><Link to={`/doi-ngu-bac-si/${d.id}`}>{d.name}</Link></h3>
       <p className="pk-doc-pos">{d.position || 'Bác sĩ'}</p>
       {d.service_names?.length > 0 && <p className="pk-doc-sv">{d.service_names.slice(0, 3).join(' · ')}{d.service_names.length > 3 ? ` · +${d.service_names.length - 3}` : ''}</p>}
       <Link to={`/book?staff_id=${d.id}`} className="pk-btn sm block">Đặt lịch</Link>

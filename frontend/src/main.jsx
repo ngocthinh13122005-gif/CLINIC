@@ -7,6 +7,7 @@ import App from './App';
 import { AuthProvider } from './context/AuthContext';
 import { store } from './store';
 import { theme } from './theme';
+import './styles/fonts.css';
 import './styles/public.css';
 import './styles/dashboard.css';
 import './styles/booking.css';

@@ -122,13 +122,15 @@ export default function CalendarPage() {
   const monthDates = Array.from({ length: monthGridLength }, (_, index) => addDays(monthGridStart, index));
   const calendarFrom = calendarScale === 'month' ? monthGridStart : weekStart;
   const calendarTo = calendarScale === 'month' ? monthGridEnd : addDays(weekStart, 6);
-  const staff = useLoad(async () => (await api.get('/staff/')).data, []);
+  const needsLegacyStaff = ['waitlist', 'legacy-calendar', 'legacy-list'].includes(viewMode) || Boolean(location.state?.openCreate || creating);
+  const staff = useLoad(async () => needsLegacyStaff ? (await api.get('/staff/')).data : [], [needsLegacyStaff]);
   const week = useLoad(async () => {
+    if (viewMode !== 'legacy-calendar') return [];
     const { data } = await api.get('/bookings/', { params: { from: calendarFrom, to: calendarTo } });
     return data.results || data;
-  }, [calendarFrom, calendarTo]);
+  }, [calendarFrom, calendarTo, viewMode]);
   const list = useLoad(async () => {
-    if (viewMode !== 'list') return { count: 0, results: [] };
+    if (viewMode !== 'legacy-list') return { count: 0, results: [] };
     const params = { view: 'list', page: listPage, page_size: 20 };
     const status = listStatusParam(listStatus);
     if (status) params.status = status;
@@ -430,7 +432,7 @@ export default function CalendarPage() {
       setCreating({ patient_id: booking.patient, staff: booking.staff || '', date: nextDate, time: fmtTime(booking.appointment), type: booking.appointment_type, service_ids: (booking.items || []).map((item) => item.service).filter(Boolean) });
       setSel(null);
     }} doctors={doctors} staffMembers={staff.data?.results || staff.data || []} />
-    <BookingForm init={creating} doctors={doctors} staffMembers={staff.data?.results || staff.data || []} onClose={() => setCreating(null)} onSaved={() => { setCreating(null); toast('Đã đặt lịch hẹn.'); reload(); }} />
+    {creating && <BookingForm init={creating} doctors={doctors} staffMembers={staff.data?.results || staff.data || []} onClose={() => setCreating(null)} onSaved={() => { setCreating(null); toast('Đã đặt lịch hẹn.'); reload(); }} />}
     {toastNode}
   </div>;
 }

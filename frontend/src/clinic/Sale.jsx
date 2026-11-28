@@ -34,7 +34,7 @@ import SearchRounded from '@mui/icons-material/SearchRounded';
 import ShoppingBagOutlined from '@mui/icons-material/ShoppingBagOutlined';
 import ShoppingCartOutlined from '@mui/icons-material/ShoppingCartOutlined';
 import SmsOutlined from '@mui/icons-material/SmsOutlined';
-import StarsRounded from '@mui/icons-material/StarsRounded';
+
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { PatientFormModal } from './PatientForm';
@@ -118,19 +118,18 @@ const TILES = [
 const PREPAID = [
   { k: 'acct', label: 'Số dư tài khoản', icon: MonetizationOnOutlined, c: 'c-gray', off: 'Sắp có' },
   { k: 'pkg', label: 'Liệu trình trả trước', icon: Inventory2Outlined, c: 'c-gray', off: 'Sắp có' },
-  { k: 'pts', label: 'Điểm thưởng', icon: StarsRounded, c: 'c-gray', off: 'Sắp có' },
-  { k: 'voucher', label: 'Voucher', icon: ConfirmationNumberOutlined, c: 'c-purple', voucher: true },
+  { k: 'discount', label: 'Giảm giá', icon: ConfirmationNumberOutlined, c: 'c-purple', discount: true },
 ];
 
-function PayArea({ due, lines, setLines, onVoucher, banner, onBanner }) {
+function PayArea({ due, lines, setLines, onDiscount, banner, onBanner }) {
   const add = (t) => {
     if (due <= 0) return;
     setLines((ls) => (ls.some((l) => l.k === t.k) ? ls.map((l) => (l.k === t.k ? { ...l, amount: Number(l.amount) + due } : l)) : [...ls, { id: `${t.k}-${Date.now()}`, k: t.k, label: t.label, method: t.method, amount: due, reference: '', ref: !!t.ref }]));
   };
   const Tile = (t) => {
     const sel = lines.some((l) => l.k === t.k); const Icon = t.icon;
-    const disabled = !!t.off || (!t.voucher && due <= 0 && !sel) || (t.voucher && due <= 0);
-    return <button key={t.k} className={`sx-tile ${sel ? 'sel' : ''}`} disabled={disabled} title={t.off} onClick={() => (t.voucher ? onVoucher?.() : add(t))}>
+    const disabled = !!t.off || (!t.discount && due <= 0 && !sel) || (t.discount && due <= 0);
+    return <button key={t.k} className={`sx-tile ${sel ? 'sel' : ''}`} disabled={disabled} title={t.off} onClick={() => (t.discount ? onDiscount?.() : add(t))}>
       <Icon className={t.c} /><span>{t.label}</span>{t.off && <em className="badge">{t.off}</em>}</button>;
   };
   const needRef = lines.filter((l) => l.ref);
@@ -138,7 +137,7 @@ function PayArea({ due, lines, setLines, onVoucher, banner, onBanner }) {
     {banner && <div className="sx-banner"><div><h3>Thanh toán nhanh, an toàn và gọn gàng</h3><p>Chọn phương thức bên dưới. Có thể chia khoản thanh toán thành nhiều phương thức.</p></div><button className="cls" onClick={onBanner} aria-label="Đóng"><CloseRounded /></button></div>}
     <div className="sx-tiles">{TILES.map(Tile)}</div>
     <div className="sx-sub">Trả trước & ưu đãi</div>
-    <div className="sx-tiles">{PREPAID.filter((t) => t.voucher ? onVoucher : true).map(Tile)}</div>
+    <div className="sx-tiles">{PREPAID.filter((t) => t.discount ? onDiscount : true).map(Tile)}</div>
     {!!needRef.length && <div style={{ marginTop: 22 }}>{needRef.map((l) => <div className="sx-ref" key={l.id}><span style={{ minWidth: 190 }}>Mã giao dịch · {l.label}</span>
       <input value={l.reference} placeholder="Không bắt buộc" onChange={(e) => setLines((ls) => ls.map((x) => (x.id === l.id ? { ...x, reference: e.target.value } : x)))} /></div>)}</div>}
   </div>;
@@ -262,7 +261,7 @@ export default function SalePage() {
 
       <div className={`sx-main ${step === 'who' ? 'blur' : ''}`}>
         {step === 'pay'
-          ? <PayArea due={due} lines={lines} setLines={setLines} banner={banner} onBanner={() => setBanner(false)} onVoucher={() => { setDv(String(disc || '')); setDlg('discount'); }} />
+          ? <PayArea due={due} lines={lines} setLines={setLines} banner={banner} onBanner={() => setBanner(false)} onDiscount={() => { setDv(String(disc || '')); setDlg('discount'); }} />
           : <div className="sx-catalog">
             {tab !== 'other' && <>
               <div className="sx-chips"><button className={`sx-chip ${!cat ? 'on' : ''}`} onClick={() => setCat('')}>Tất cả <i>{Object.values(cats).reduce((a, b) => a + b, 0)}</i></button>
@@ -337,7 +336,7 @@ export default function SalePage() {
       {step === 'done' && <DoneScreen done={done} onNew={reset} onClose={() => nav('/thu-ngan')} onNext={() => nav('/lich-hen')} onPay={(id) => nav(`/ban-hang/thu-tien/${id}`)} onPlans={(pid) => nav(`/benh-nhan/${pid}?tab=pkg`)} />}
     </div>
 
-    <Modal open={dlg === 'discount'} title="Giảm giá / Voucher" subtitle="Nhập số tiền giảm cho hóa đơn này." onClose={() => setDlg(null)}
+    <Modal open={dlg === 'discount'} title="Giảm giá" subtitle="Nhập số tiền giảm cho hóa đơn này." onClose={() => setDlg(null)}
       footer={<><Btn onClick={() => setDlg(null)}>Hủy</Btn><Btn kind="primary" onClick={() => { setDiscount(Math.max(Number(dv) || 0, 0)); setDlg(null); }}>Áp dụng</Btn></>}>
       <label className="cl-field"><span>Số tiền giảm (đ)</span><input type="number" min={0} step={1000} autoFocus value={dv} onChange={(e) => setDv(e.target.value)} /></label></Modal>
     <Modal open={dlg === 'note'} title="Ghi chú hóa đơn" onClose={() => setDlg(null)}

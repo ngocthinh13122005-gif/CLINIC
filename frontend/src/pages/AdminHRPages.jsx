@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import BadgeRounded from '@mui/icons-material/BadgeRounded';
 import CalendarMonthRounded from '@mui/icons-material/CalendarMonthRounded';
@@ -57,15 +57,17 @@ function Modal({ open, title, subtitle, onClose, children }) {
   </div>;
 }
 
-function WorkspaceNav({ action }) {
-  const links = [
-    ['/admin/staff', <BadgeRounded key="i" />, 'Hồ sơ nhân sự'],
-    ['/admin/attendance', <WorkHistoryRounded key="i" />, 'Chấm công & nghỉ phép'],
-    ['/admin/payroll', <PaymentsRounded key="i" />, 'Bảng lương'],
-  ];
-  return <div className="hr-workspace-bar"><nav className="hr-workspace-nav" aria-label="Quản trị nguồn nhân lực">
-    {links.map(([to, icon, label]) => <NavLink key={to} to={to} className={({ isActive }) => isActive ? 'active' : ''}>{icon}<span>{label}</span></NavLink>)}
-  </nav>{action && <div className="hr-workspace-actions">{action}</div>}</div>;
+function WorkspaceActions({ action }) {
+  return action ? <div className="hr-workspace-actions">{action}</div> : null;
+}
+
+export function AdminHRPage() {
+  const [params, setParams] = useSearchParams();
+  const section = ['staff', 'attendance', 'payroll'].includes(params.get('section')) ? params.get('section') : 'staff';
+  const sections = [['staff', 'Hồ sơ nhân sự'], ['attendance', 'Chấm công & nghỉ phép'], ['payroll', 'Bảng lương']];
+  return <div className="hr-workspace"><nav className="hr-workspace-nav cl-tabs" aria-label="Nhân sự và ca làm">
+    {sections.map(([id, label]) => <button type="button" key={id} className={section === id ? 'active' : ''} aria-current={section === id ? 'page' : undefined} onClick={() => setParams(id === 'staff' ? {} : { section: id })}>{label}</button>)}
+  </nav>{section === 'staff' ? <AdminStaffPage /> : section === 'attendance' ? <AdminAttendancePage /> : <AdminPayrollPage />}</div>;
 }
 
 function Kpis({ items }) {
@@ -95,7 +97,7 @@ const blankStaff = {
   manual_deduction: 0, payroll_status: 'draft',
 };
 
-export function AdminStaffPage() {
+function AdminStaffPage() {
   const [query, setQuery] = useState('');
   const [role, setRole] = useState('all');
   const [status, setStatus] = useState('active');
@@ -144,7 +146,7 @@ export function AdminStaffPage() {
   const dailyLoad = (person) => (request.data?.bookings || []).filter((booking) => Number(booking.staff) === Number(person.id) && (booking.appointment || '').slice(0, 10) === today && booking.status !== 'cancelled').length;
   return <div className="hr-page">
     <Toast text={toast} onClose={() => setToast('')} />
-    <WorkspaceNav
+    <WorkspaceActions
       action={<button className="hr-btn primary" onClick={() => setModal({ form: { ...blankStaff } })}><AddRounded />Thêm nhân sự</button>} />
     {request.error && <div className="hr-alert">{request.error}</div>}
     <Kpis items={[
@@ -187,7 +189,7 @@ export function AdminStaffPage() {
   </div>;
 }
 
-export function AdminAttendancePage() {
+function AdminAttendancePage() {
   const [mode, setMode] = useState('attendance');
   const [month, setMonth] = useState(currentMonth());
   const [query, setQuery] = useState('');
@@ -207,7 +209,7 @@ export function AdminAttendancePage() {
   const leaves = (request.data?.leaves || []).filter((leave) => `${leave.staff_name} ${leave.reason}`.toLowerCase().includes(query.toLowerCase()) && (status === 'all' || leave.status === status));
   return <div className="hr-page">
     <Toast text={toast} onClose={() => setToast('')} />
-    <WorkspaceNav action={<label className="hr-month"><CalendarMonthRounded /><input type="month" aria-label="Tháng chấm công" value={month} onChange={(e) => setMonth(e.target.value)} /></label>} />
+    <WorkspaceActions action={<label className="hr-month"><CalendarMonthRounded /><input type="month" aria-label="Tháng chấm công" value={month} onChange={(e) => setMonth(e.target.value)} /></label>} />
     <Kpis items={[
       { label: 'Đủ công', value: stats.full_day, note: 'Bản ghi đạt lịch làm việc', icon: <CheckCircleRounded /> },
       { label: 'Đi trễ', value: stats.late, note: 'Cần kiểm tra sai lệch', icon: <WorkHistoryRounded /> },
@@ -225,7 +227,7 @@ export function AdminAttendancePage() {
   </div>;
 }
 
-export function AdminPayrollPage() {
+function AdminPayrollPage() {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
   const [selectedId, setSelectedId] = useState(null);
@@ -242,7 +244,7 @@ export function AdminPayrollPage() {
   const average = rows.length ? rows.reduce((sum, row) => sum + Number(row.net_pay || 0), 0) / rows.length : 0;
   return <div className="hr-page">
     <Toast text={toast} onClose={() => setToast('')} />
-    <WorkspaceNav />
+    <WorkspaceActions />
     <Kpis items={[
       { label: 'Tổng thực nhận', value: money(request.data?.summary?.payroll || 0), note: `${rows.length} bảng lương`, icon: <PaymentsRounded /> },
       { label: 'Chờ duyệt', value: rows.filter((row) => row.status === 'draft').length, note: 'Cần quản lý kiểm tra', icon: <WorkHistoryRounded /> },

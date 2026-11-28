@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import api from '../api/client';
-import { errMsg, initials, money } from './ui';
+import { errMsg, initials, isoDay, money, useLoad } from './ui';
 import { PatientPicker } from './PatientForm';
 import {
-  CONFIRM_STATES, STEPS, TYPES, addDays, addMonths, clock12, dayKey, findConflict, hhmm,
+  CONFIRM_STATES, STEPS, TYPES, addDays, addMonths, clock12, dayKey, findConflict, hhmm, lifecycle,
   mondayOf, parseDay, stepIndex, svcNames, pad,
 } from './calendarKit';
 
@@ -71,14 +71,50 @@ export function DatePopover({ date, onPick, onClose }) {
   </div>;
 }
 
-/* ---------------- Bộ lọc nhân sự ---------------- */
-export function FilterPopover({ doctors, hidden, setHidden, onClose }) {
+/* ---------------- Bộ lọc (Pabau-style: Apply / Reset) ---------------- */
+export const STATUS_FILTERS = [['pending', 'Chờ xác nhận'], ['confirmed', 'Đã xác nhận'], ['checked_in', 'Đã đến'], ['in_progress', 'Đang khám'], ['completed', 'Hoàn thành'], ['no_show', 'Vắng mặt'], ['cancelled', 'Đã hủy']];
+export const EMPTY_FILTERS = { status: [], confirm: [], services: [] };
+export const countFilters = (f, hidden) => f.status.length + f.confirm.length + f.services.length + (hidden.length ? 1 : 0);
+
+function FGroup({ title, children, open: o = false }) {
+  const [open, setOpen] = useState(o);
+  return <div className="pb-fg"><button className="pb-fg-h" onClick={() => setOpen(!open)}><span>{title}</span><i>{open ? '▴' : '▾'}</i></button>{open && <div className="pb-fg-b">{children}</div>}</div>;
+}
+
+export function FilterPopover({ doctors, services, hidden, filters, onApply, onClose }) {
   const ref = useOutside(onClose);
-  const toggle = (id) => setHidden((h) => (h.includes(id) ? h.filter((x) => x !== id) : [...h, id]));
+  const [h, setH] = useState(hidden);
+  const [f, setF] = useState(filters);
+  const tog = (key, v) => setF((x) => ({ ...x, [key]: x[key].includes(v) ? x[key].filter((i) => i !== v) : [...x[key], v] }));
+  const togDoc = (id) => setH((x) => (x.includes(id) ? x.filter((i) => i !== id) : [...x, id]));
+  const reset = () => { setH([]); setF(EMPTY_FILTERS); onApply([], EMPTY_FILTERS); };
   return <div className="pb-filter" ref={ref}>
-    <div className="pb-filter-h"><b>Hiển thị bác sĩ</b><button onClick={() => setHidden([])}>Chọn tất cả</button></div>
-    {doctors.map((d) => <label key={d.id}><input type="checkbox" checked={!hidden.includes(d.id)} onChange={() => toggle(d.id)} /><span className="pb-av sm">{initials(d.name)}</span>{d.name}</label>)}
+    <div className="pb-filter-h"><b>Bộ lọc lịch hẹn</b><button onClick={onClose} aria-label="Đóng">×</button></div>
+    <div className="pb-filter-body">
+      <FGroup title={`Bác sĩ (${doctors.length - h.length}/${doctors.length})`} open>
+        {doctors.map((d) => <label key={d.id}><input type="checkbox" checked={!h.includes(d.id)} onChange={() => togDoc(d.id)} /><span className="pb-av sm">{initials(d.name)}</span>{d.name}</label>)}
+      </FGroup>
+      <FGroup title={`Trạng thái lịch hẹn${f.status.length ? ` (${f.status.length})` : ''}`} open>
+        {STATUS_FILTERS.map(([k, l]) => <label key={k}><input type="checkbox" checked={f.status.includes(k)} onChange={() => tog('status', k)} />{l}</label>)}
+      </FGroup>
+      <FGroup title={`Tình trạng xác nhận${f.confirm.length ? ` (${f.confirm.length})` : ''}`}>
+        {CONFIRM_STATES.map(([k, l]) => <label key={k}><input type="checkbox" checked={f.confirm.includes(k)} onChange={() => tog('confirm', k)} />{l}</label>)}
+      </FGroup>
+      <FGroup title={`Dịch vụ${f.services.length ? ` (${f.services.length})` : ''}`}>
+        {services.map((v) => <label key={v.id}><input type="checkbox" checked={f.services.includes(v.id)} onChange={() => tog('services', v.id)} />{v.name}</label>)}
+      </FGroup>
+    </div>
+    <div className="pb-filter-f"><button className="pb-btn" onClick={reset}>Đặt lại</button><button className="pb-btn blue" onClick={() => { onApply(h, f); onClose(); }}>Áp dụng</button></div>
   </div>;
+}
+
+/* ---------------- Nhãn trạng thái: vòng đời (status) tách biệt với liên hệ (confirm_state) ---------------- */
+export { lifecycle };
+export function StatusBadge({ b, withContact = false }) {
+  const [k, l] = lifecycle(b);
+  const cs = CONFIRM_STATES.find((c) => c[0] === b.confirm_state);
+  return <span className="pb-badges"><span className={`pb-st st-${k}`}>{l}</span>
+    {withContact && cs && <span className={`pb-st cs-${b.confirm_state}`} title="Tình trạng liên hệ">{cs[1]}</span>}</span>;
 }
 
 /* ---------------- Menu Create (ảnh 8) ---------------- */
@@ -243,7 +279,6 @@ export function DetailPopover({ sel: { b, x, y }, canBook, onClose, act }) {
   const cur = stepIndex(b);
   const open = ['pending', 'confirmed'].includes(b.status) && !b.visit_id;
   const started = new Date(b.appointment) <= new Date();
-  const statusLabel = b.status === 'no_show' ? 'Vắng mặt' : b.status === 'cancelled' ? 'Đã hủy' : b.running_late ? 'Đến trễ' : STEPS[cur];
   return <div className="pb-pop" style={{ left: x, top: y }} onMouseDown={(e) => e.stopPropagation()}>
     <div className="pb-pop-h">
       <button className="pb-x" onClick={onClose} aria-label="Đóng"><span className="ak-icon-glyph">×</span></button>
@@ -258,7 +293,7 @@ export function DetailPopover({ sel: { b, x, y }, canBook, onClose, act }) {
         return <button key={s} disabled={!click} title={s} className={i === cur ? 'on' : i < cur ? 'done' : ''}
           onClick={() => act(i === 1 ? 'confirm' : 'arrive', b)}>{i === cur ? s : '✓'}</button>;
       })}</div>
-      <div className="pb-status-row"><b>{statusLabel}</b>
+      <div className="pb-status-row"><StatusBadge b={b} withContact />
         {b.running_late && b.status !== 'no_show' && <span className="pb-tag late">Đến trễ</span>}
         {b.reschedule_count > 0 && <span className="pb-tag">Đã dời {b.reschedule_count} lần</span>}
         <span className="pb-spacer" />
@@ -285,6 +320,7 @@ export function DetailPopover({ sel: { b, x, y }, canBook, onClose, act }) {
       <hr />
       <div className="pb-checkrow">
         <button className="pb-btn blue wide" disabled={!canBook || !b.visit_id} title={b.visit_id ? '' : 'Cần đón bệnh nhân trước'} onClick={() => act('checkout', b)}>Thanh toán</button>
+        <button className="pb-btn" onClick={() => act('requests', b)}>Yêu cầu</button>
         <button className="pb-btn sq" title="Mở chi tiết" onClick={() => act('expand', b)}>⤢</button>
       </div>
     </div>
@@ -292,7 +328,8 @@ export function DetailPopover({ sel: { b, x, y }, canBook, onClose, act }) {
 }
 
 /* ---------------- Ngăn chi tiết bên phải (ảnh 3) ---------------- */
-export function DetailDrawer({ b, canBook, onClose, act }) {
+export function DetailDrawer({ b, canBook, onClose, act, initialTab = 'detail', version = 0 }) {
+  const [tab, setTab] = useState(initialTab);
   const cur = stepIndex(b);
   const open = ['pending', 'confirmed'].includes(b.status) && !b.visit_id;
   const d = new Date(b.appointment);
@@ -309,6 +346,9 @@ export function DetailDrawer({ b, canBook, onClose, act }) {
       <div className="pb-dr-date"><div><small>THÁNG {d.getMonth() + 1}</small><b>{pad(d.getDate())}</b></div>
         <div><h3>{WEEKDAY_FULL[d.getDay()]}, {d.getDate()}/{d.getMonth() + 1}/{d.getFullYear()}</h3><p>{clock12(d)} · {TYPES[b.appointment_type]}</p></div>
         {b.status === 'no_show' && <span className="pb-tag red">Vắng mặt</span>}</div>
+      <div className="pb-tabs dr"><button className={tab === 'detail' ? 'on' : ''} onClick={() => setTab('detail')}>Chi tiết</button><button className={tab === 'requests' ? 'on' : ''} onClick={() => setTab('requests')}>Yêu cầu</button></div>
+      <div className="pb-dr-badges"><StatusBadge b={b} withContact /></div>
+      {tab === 'requests' ? <RequestsTab b={b} version={version} /> : <>
       <div className="pb-dr-status">{chips.map(([l, on, key]) => <button key={l} className={on ? 'on' : ''} disabled={!canBook || !key} onClick={() => act(key, b)}>{l}</button>)}
         <button className="pb-noshow big" disabled={!canBook || !(open && d <= new Date()) && b.status !== 'no_show'} onClick={() => act(b.status === 'no_show' ? 'undo_no_show' : 'no_show', b)}>{b.status === 'no_show' ? 'Bỏ vắng mặt' : 'Vắng mặt'}</button></div>
       <h6>Dịch vụ</h6>
@@ -316,6 +356,7 @@ export function DetailDrawer({ b, canBook, onClose, act }) {
       {(b.items || []).map((i) => <div className="pb-dr-svc" key={i.id}><b>{i.service_name}</b><span>{money(i.price)} · {b.staff_name}</span></div>)}
       <h6>Ghi chú</h6><div className="pb-dr-note">{b.note || 'Không có ghi chú.'}</div>
       <div className="pb-dr-total"><span>Tổng cộng</span><b>{money(b.total)}</b></div>
+      </>}
       <div className="pb-acts">
         <button className="pb-btn" disabled={!canBook || !open} onClick={() => act('edit', b)}>✎ Sửa</button>
         <button className="pb-btn" disabled={!canBook || !open} onClick={() => act('reschedule', b)}>▦ Đổi giờ</button>
@@ -327,28 +368,90 @@ export function DetailDrawer({ b, canBook, onClose, act }) {
   </aside>;
 }
 
-/* ---------------- Tổng quan xác nhận (ảnh 5) ---------------- */
-export function ConfirmDrawer({ date, bookings, doctors, onClose, onOpen, onState, canBook }) {
-  const [filter, setFilter] = useState('');
-  const rows = bookings.filter((b) => !['cancelled', 'no_show', 'completed'].includes(b.status)).sort((a, b) => new Date(a.appointment) - new Date(b.appointment));
-  const count = (k) => rows.filter((b) => b.confirm_state === k).length;
-  const shown = filter ? rows.filter((b) => b.confirm_state === filter) : rows;
+/* ---------------- Quản lý xác nhận (dữ liệu thật từ /bookings/) ---------------- */
+const MGR_TABS = [['pending', 'Chờ xác nhận'], ['confirmed', 'Đã xác nhận'], ['pending,confirmed', 'Tất cả lịch mở']];
+export function ConfirmDrawer({ version, doctors, onClose, onOpen, onConfirm, onState, canBook }) {
+  const [tab, setTab] = useState('pending');
+  const [cstate, setCstate] = useState('');
+  const [q, setQ] = useState('');
+  const [dq, setDq] = useState('');
+  const [busy, setBusy] = useState(null);
+  const [actionError, setActionError] = useState('');
+  const [list, setList] = useState({ data: null, loading: true, error: '' });
+  useEffect(() => { const t = setTimeout(() => setDq(q.trim()), 300); return () => clearTimeout(t); }, [q]);
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    const params = { status: tab };
+    if (dq) params.q = dq;
+    if (tab !== 'pending') params.from = isoDay();
+    setList((previous) => ({ ...previous, loading: true, error: '' }));
+    api.get('/bookings/', { params, signal: controller.signal }).then(({ data }) => {
+      if (active) setList({ data: data.results || data, loading: false, error: '' });
+    }).catch((error) => {
+      if (active) setList((previous) => ({ ...previous, loading: false, error: errMsg(error) }));
+    });
+    return () => { active = false; controller.abort(); };
+  }, [tab, dq, version]);
+  const update = async (b, action) => {
+    setBusy(b.id); setActionError('');
+    try {
+      if (await action() === false) setActionError('Không thể cập nhật lịch. Hãy kiểm tra trạng thái và thử lại.');
+    } catch (error) { setActionError(errMsg(error)); }
+    finally { setBusy(null); }
+  };
+  const rows = (list.data || []).filter((b) => !b.visit_id && (!cstate || b.confirm_state === cstate))
+    .sort((a, b) => new Date(a.appointment) - new Date(b.appointment));
   const docName = (id) => doctors.find((d) => d.id === id)?.name || '';
-  const cards = [['unconfirmed', '!', '#f5a623'], ['waiting_reply', '⌛', '#4db6e8'], ['replied_no', '✕', '#ff5a64'], ['confirmed', '✓', '#35c27f'], ['unable_contact', '☎', '#8b929c']];
-  return <div className="pb-confirm">
-    <div className="pb-confirm-h"><div><b>Tổng quan xác nhận</b><small>{parseDay(date).toLocaleDateString('vi-VN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</small></div><button onClick={onClose}>Đóng</button></div>
-    <div className="pb-confirm-b">
-      <div className="pb-confirm-list">{shown.map((b) => <div className="pb-crow" key={b.id}>
-        <time>{clock12(b.appointment)}</time><span className="pb-av sm">{initials(b.customer_name)}</span>
-        <button className="pb-cname" onClick={() => onOpen(b)}><b>{b.customer_name}</b><small>{svcNames(b)}</small><em>{b.status === 'no_show' ? 'Vắng mặt' : STEPS[stepIndex(b)]}</em></button>
-        <span className="pb-cdoc">{docName(b.staff)}</span>
-        <select className={`pb-cstate s-${b.confirm_state}`} disabled={!canBook || ['completed', 'no_show'].includes(b.status) || !!b.visit_id} value={b.confirm_state} onChange={(e) => onState(b, e.target.value)}>
-          {CONFIRM_STATES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
-        <a className="pb-cico" href={b.customer_phone ? `tel:${b.customer_phone}` : undefined} title="Gọi" aria-disabled={!b.customer_phone}>☎</a>
-      </div>)}{!shown.length && <div className="pb-empty">Không có lịch hẹn.</div>}</div>
-      <div className="pb-confirm-s">{cards.map(([k, ic, c]) => <button key={k} className={filter === k ? 'on' : ''} onClick={() => setFilter(filter === k ? '' : k)}>
-        <i style={{ background: c }}>{ic}</i><span>{CONFIRM_STATES.find((s) => s[0] === k)[1]}</span><b>{count(k)}</b></button>)}</div>
+  return <div className="pb-confirm" role="dialog" aria-label="Quản lý xác nhận">
+    <div className="pb-confirm-h"><div><b>Quản lý xác nhận</b><small>{rows.length} lịch hẹn</small></div><button onClick={onClose}>Đóng</button></div>
+    <div className="pb-confirm-tools">
+      <div className="pb-tabs">{MGR_TABS.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
+      <input className="pb-search" placeholder="Tìm tên, SĐT, mã lịch, dịch vụ…" value={q} onChange={(e) => setQ(e.target.value)} />
+      <select value={cstate} onChange={(e) => setCstate(e.target.value)} aria-label="Tình trạng liên hệ"><option value="">Mọi tình trạng liên hệ</option>
+        {CONFIRM_STATES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
     </div>
+    <div className="pb-confirm-b">
+      {(list.error || actionError) && <div className="pb-alert" role="alert">⚠ {list.error || actionError}</div>}
+      <div className="pb-confirm-list">{rows.map((b) => <div className="pb-crow" key={b.id}>
+        <time>{new Date(b.appointment).toLocaleDateString('vi-VN')}<br />{clock12(b.appointment)}</time>
+        <span className="pb-av sm">{initials(b.customer_name)}</span>
+        <button className="pb-cname" onClick={() => onOpen(b)}><b>{b.customer_name}</b><small>{b.customer_phone || '—'} · {b.confirm_code || `#${b.id}`}</small><small>{svcNames(b)}</small></button>
+        <span className="pb-cdoc">{docName(b.staff) || b.staff_name}</span>
+        <StatusBadge b={b} withContact />
+        <select className={`pb-cstate s-${b.confirm_state}`} aria-label={`Tình trạng liên hệ ${b.customer_name}`} disabled={!canBook || !!b.visit_id || busy !== null || list.loading} value={b.confirm_state} onChange={(e) => { const state = e.target.value; update(b, () => onState(b, state)); }}>
+          {CONFIRM_STATES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+        <button className="pb-btn blue sm" disabled={!canBook || b.status !== 'pending' || busy !== null || list.loading} title={canBook ? '' : 'Bạn không có quyền xác nhận lịch'} onClick={() => update(b, () => onConfirm(b))}>{busy === b.id ? 'Đang lưu…' : 'Xác nhận'}</button>
+        <a className="pb-cico" href={b.customer_phone ? `tel:${b.customer_phone}` : undefined} title="Gọi" aria-disabled={!b.customer_phone}>☎</a>
+      </div>)}{!rows.length && <div className="pb-empty">{list.loading ? 'Đang tải…' : 'Không có lịch hẹn phù hợp.'}</div>}</div>
+    </div>
+  </div>;
+}
+
+/* ---------------- Tab "Yêu cầu": chỉ hiển thị dữ liệu thật ---------------- */
+const EVENT_LABELS = { created: 'Tạo lịch', confirmed: 'Đã xác nhận', cancelled: 'Đã hủy', no_show: 'Vắng mặt' };
+export function RequestsTab({ b, version = 0 }) {
+  const q = useLoad(async () => (await api.get(`/bookings/${b.id}/requests/`)).data, [b.id, b.status, b.confirm_state, version]);
+  if (q.loading && !q.data) return <p className="pb-meta">Đang tải…</p>;
+  if (q.error && !q.data) return <p className="pb-meta">⚠ {q.error}</p>;
+  const d = q.data;
+  return <div className="pb-req">
+    <h6>Xác nhận lịch hẹn</h6>
+    <div className="pb-req-card">
+      <div><small>Trạng thái lịch</small><StatusBadge b={b} /></div>
+      <div><small>Tình trạng liên hệ</small><b>{d.confirmation.confirm_state_label || '—'}</b></div>
+      {d.confirmation.confirm_code && <div><small>Mã lịch</small><b>{d.confirmation.confirm_code}</b></div>}
+      {d.confirmation.events.map((e, i) => <div key={i}><small>{new Date(e.created_at).toLocaleString('vi-VN')}</small><b>{EVENT_LABELS[e.event] || e.event}{e.actor_name ? ` · ${e.actor_name}` : ''}</b></div>)}
+    </div>
+    <h6>Phiếu cam kết / biểu mẫu</h6>
+    {!d.can_view_forms ? <p className="pb-meta">Bạn không có quyền xem phiếu cam kết.</p> : d.forms.length ? d.forms.map((f) => <div className="pb-req-card" key={f.id}><div><small>{f.code} · {f.kind}</small><b>{f.title}</b></div>
+      <div><small>Tình trạng</small><span className={`pb-st ${f.status === 'signed' ? 'st-completed' : f.status === 'revoked' ? 'st-cancelled' : 'st-pending'}`}>{f.status_label}</span></div></div>)
+      : <p className="pb-meta">{d.has_visit ? 'Chưa có phiếu cam kết cho lượt khám này.' : 'Chưa có lượt khám — phiếu cam kết được tạo sau khi đón bệnh nhân.'}</p>}
+    <h6>Hóa đơn</h6>
+    {!d.can_view_invoices ? <p className="pb-meta">Bạn không có quyền xem hóa đơn.</p> : d.invoices.length ? d.invoices.map((i) => <div className="pb-req-card" key={i.id}><div><small>{i.code}</small><b>{money(i.total)}</b></div>
+      <div><small>Thanh toán</small><span className={`pb-st ${i.status === 'paid' ? 'st-completed' : i.status === 'void' ? 'st-cancelled' : 'st-pending'}`}>{i.status_label}</span></div>
+      <div><small>Đã thu / Còn lại</small><b>{money(i.paid)} / {money(i.balance)}</b></div></div>)
+      : <p className="pb-meta">{d.has_visit ? 'Chưa có hóa đơn cho lượt khám này.' : 'Chưa có lượt khám — hóa đơn được tạo sau khi đón bệnh nhân.'}</p>}
   </div>;
 }
 

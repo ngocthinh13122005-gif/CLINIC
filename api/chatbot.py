@@ -1,9 +1,9 @@
 """Trợ lý AkinaClinic: chatbot công khai (khách chưa đăng nhập vẫn dùng được).
 
 Thứ tự xử lý một câu hỏi:
- 1. Nút/ý định nghiệp vụ (dịch vụ, khuyến mãi, đặt lịch, gặp tư vấn viên) -> dữ liệu thật từ DB.
+ 1. Nút/ý định nghiệp vụ (dịch vụ, đặt lịch, gặp tư vấn viên) -> dữ liệu thật từ DB.
  2. FAQ do quản trị cấu hình (khớp từ khóa).
- 3. Gemini cho câu hỏi tự do (có kèm dữ liệu dịch vụ/voucher thật làm ngữ cảnh).
+ 3. Gemini cho câu hỏi tự do (có kèm dữ liệu dịch vụ thật làm ngữ cảnh).
  4. Nếu Gemini lỗi hoặc chưa có key: tin nhắn dự phòng + gợi ý các nút.
 
 Liên kết trong tin nhắn dùng cú pháp  [[link:/duong-dan|Nhãn nút]]  để lịch sử vẫn giữ được nút bấm.
@@ -22,7 +22,7 @@ from django.utils import timezone
 
 from core.models import (
     ChatbotFAQ, ChatbotMessage, ChatbotSession, ChatbotSetting, ChatbotToolCall, ChatSetting,
-    Conversation, Message, Service, Voucher,
+    Conversation, Message, Service,
 )
 from . import ai
 from . import chatbot_booking as bk
@@ -36,12 +36,11 @@ RATE_PER_MINUTE = 20
 ACTIONS = [
     {'key': 'services', 'label': 'Dịch vụ'},
     {'key': 'booking', 'label': 'Đặt lịch'},
-    {'key': 'promotions', 'label': 'Khuyến mãi'},
     {'key': 'human', 'label': 'Gặp tư vấn viên'},
 ]
 ACTION_LABELS = {a['key']: a['label'] for a in ACTIONS}
 AGENT_INTENTS = [
-    'answer', 'booking', 'services', 'promotions', 'my_bookings', 'points', 'my_vouchers',
+    'answer', 'booking', 'services', 'my_bookings',
     'contact', 'human', 'doctor', 'medical',
 ]
 AGENT_SCHEMA = {
@@ -140,23 +139,6 @@ def reply_services():
     return '\n'.join(lines)
 
 
-def reply_promotions():
-    today = timezone.localdate()
-    rows = list(Voucher.objects.filter(is_active=True).filter(Q(expires_at__isnull=True) | Q(expires_at__gte=today))[:6])
-    if not rows:
-        return 'Hiện AkinaClinic chưa có chương trình khuyến mãi đang diễn ra. Bạn theo dõi website để cập nhật sớm nhất nhé.'
-    lines = ['Ưu đãi AkinaClinic đang áp dụng:']
-    for v in rows:
-        parts = [f'giảm {money(v.discount_value)}']
-        if v.min_spend:
-            parts.append(f'đơn từ {money(v.min_spend)}')
-        if v.expires_at:
-            parts.append(f'hết hạn {v.expires_at.strftime("%d/%m/%Y")}')
-        lines.append(f'• {v.title} ({v.code}) — ' + ', '.join(parts))
-    lines.append('')
-    lines.append('Voucher được đổi bằng điểm thưởng trong tài khoản của bạn.')
-    lines.append(link('/my-vouchers', 'Xem & đổi voucher'))
-    return '\n'.join(lines)
 
 
 def reply_booking():
@@ -232,12 +214,6 @@ def detect_intent(text):
         t,
     ):
         return 'my_bookings'
-    if re.search(r'\b(diem (thanh vien|tich luy|thuong|cua toi|cua minh)|bao nhieu diem|hang thanh vien)\b', t):
-        return 'points'
-    if re.search(r'\bvoucher (cua toi|cua minh|dang co|da doi)\b', t):
-        return 'my_vouchers'
-    if re.search(r'\b(khuyen mai|uu dai|voucher|giam gia|ma giam)\b', t):
-        return 'promotions'
     if (re.search(r'\b(dat lich|hen lich|booking|dat hen|muon dat|dat duoc|con lich|con cho|lich trong|con trong)\b', t)
             or (re.search(r'\bdat\b', t) and re.search(r'\b(mai|hom nay|ngay|gio|\d+ ?h)\b', t))):
         return 'booking'
@@ -281,8 +257,6 @@ def match_faq(text):
 # ---------------------------------------------------------------- AI
 def _context():
     services = Service.objects.filter(is_active=True).order_by('name')[:15]
-    today = timezone.localdate()
-    vouchers = Voucher.objects.filter(is_active=True).filter(Q(expires_at__isnull=True) | Q(expires_at__gte=today))[:6]
     support = ChatSetting.load()
     out = [
         'DỮ LIỆU THẬT CỦA AkinaClinic (chỉ dùng thông tin này, không bịa thêm):',
@@ -293,8 +267,6 @@ def _context():
     out += [f'- {branch["city"]}: {branch["address"]}, điện thoại {branch["phone"]}' for branch in CLINIC_BRANCHES]
     out.append('Dịch vụ:')
     out += [f'- {s.name}: {money(s.price)}, {s.duration} phút' for s in services] or ['- (chưa có)']
-    out.append('Voucher đang chạy:')
-    out += [f'- {v.title} ({v.code}): giảm {money(v.discount_value)}, đơn tối thiểu {money(v.min_spend)}' for v in vouchers] or ['- (không có)']
     faqs = ChatbotFAQ.objects.filter(is_active=True)[:10]
     if faqs:
         out.append('FAQ:')
@@ -325,7 +297,7 @@ def ai_decide(session, text, cfg, current_message_id=None):
         'nói rõ là chưa xác nhận được và đề nghị nối CSKH; không suy đoán.\n'
         'Bạn là bộ não điều phối của chatbot agent. Trả JSON đúng schema và chọn đúng một intent:\n'
         '- booking: khách muốn đặt, đổi, hỏi lịch trống hoặc cung cấp dịch vụ/ngày/giờ để đặt lịch.\n'
-        '- services/promotions/my_bookings/points/my_vouchers: cần tra cứu đúng nhóm dữ liệu tương ứng.\n'
+        '- services/my_bookings: cần tra cứu đúng nhóm dữ liệu tương ứng.\n'
         '- contact: hỏi hotline, số điện thoại, địa chỉ, chi nhánh hoặc cách liên hệ.\n'
         '- human: khách khiếu nại, yêu cầu nhân viên hoặc cần hỗ trợ ngoài khả năng.\n'
         '- doctor/medical: khách yêu cầu bác sĩ hoặc hỏi triệu chứng, thuốc, phản ứng sau điều trị, ảnh da, '
@@ -366,14 +338,8 @@ def apply_agent_decision(request, session, text, cfg, decision):
         reply = bk.start_from_text(request, session, text, fresh=not bool(bk.get_state(session)))
     elif intent == 'services':
         reply = bk.reply_price(text) or reply_services()
-    elif intent == 'promotions':
-        reply = reply_promotions()
     elif intent == 'my_bookings':
         reply = bk.reply_my_bookings(request)
-    elif intent == 'points':
-        reply = bk.reply_points(request)
-    elif intent == 'my_vouchers':
-        reply = bk.reply_my_vouchers(request)
     elif intent == 'contact':
         reply = reply_contact(text)
     elif intent in {'doctor', 'medical'}:
@@ -442,14 +408,8 @@ def handle(request, session, text='', action=''):
         reply = bk.start_from_text(request, session, '' if key == 'booking' else user_text, fresh=(intent == 'booking' and not in_flow) or key == 'booking')
     elif intent == 'services':
         reply = (bk.reply_price(user_text) if key != 'services' else None) or reply_services()
-    elif intent == 'promotions':
-        reply = reply_promotions()
     elif intent == 'my_bookings':
         reply = bk.reply_my_bookings(request)
-    elif intent == 'points':
-        reply = bk.reply_points(request)
-    elif intent == 'my_vouchers':
-        reply = bk.reply_my_vouchers(request)
     elif intent == 'contact':
         reply = reply_contact(user_text)
     elif intent == 'doctor':

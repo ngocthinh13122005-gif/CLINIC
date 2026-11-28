@@ -18,8 +18,6 @@ DEFINITIONS = {
                                          'label': 'Thông báo thay đổi hồ sơ'},
         'notification.payroll_updates': {'group': 'personal', 'type': 'boolean', 'default': True,
                                          'label': 'Thông báo bảng lương'},
-        'notification.loyalty_updates': {'group': 'personal', 'type': 'boolean', 'default': True,
-                                         'label': 'Thông báo điểm thưởng và hạng thành viên'},
     },
     'clinic': {
         'clinic.brand_name': {'group': 'clinic-info', 'type': 'text', 'max_length': 120,
@@ -105,11 +103,6 @@ DEFINITIONS = {
         'inventory.require_expiry_date': {'group': 'inventory', 'type': 'boolean', 'default': False,
                                           'label': 'Bắt buộc ghi hạn dùng khi nhập hàng',
                                           'help_text': 'Chặn phiếu nhập mới nếu thiếu hạn dùng; dữ liệu tồn kho cũ không bị sửa.'},
-        'crm.loyalty_enabled': {'group': 'crm', 'type': 'boolean', 'default': True,
-                                'label': 'Tích điểm cho dịch vụ đã hoàn thành',
-                                'help_text': 'Chỉ áp dụng cho lượt hoàn tất từ thời điểm này; không cộng bù giao dịch cũ.'},
-        'crm.vnd_per_point': {'group': 'crm', 'type': 'integer', 'min': 1000, 'max': 1000000,
-                              'default': getattr(settings, 'LOYALTY_VND_PER_POINT', 10000), 'label': 'Chi tiêu để nhận 1 điểm (VNĐ)'},
         'access.restricted_actions': {
             'group': 'access', 'type': 'choice_list', 'default': [], 'label': 'Giới hạn thao tác theo vai trò',
             'help_text': 'Chỉ áp dụng thêm giới hạn. Không thể cấp quyền vượt quá ma trận vai trò và quy tắc bảo vệ bệnh án hiện có.',

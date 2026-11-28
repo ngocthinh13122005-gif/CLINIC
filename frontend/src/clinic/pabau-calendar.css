@@ -208,3 +208,36 @@
 .pb-calendar .pb-modal-f .pb-btn{padding:0 16px}.pb-calendar .pb-modal-f .pb-btn.blue{height:36px}
 .pb-ta{width:100%;border:1px solid var(--line);border-radius:4px;padding:8px 10px;font-family:inherit;font-size:13.5px;resize:vertical}
 .pb-calendar .pb-modal .pb-box{padding:10px}.pb-calendar .pb-modal .pb-box select{margin-top:4px}
+
+/* ===== Bộ lọc, Quản lý xác nhận, tab Yêu cầu, nhãn trạng thái ===== */
+.pb-filter{width:300px;max-height:none;padding:0;display:flex;flex-direction:column}
+.pb-filter-h{padding:10px 12px;border-bottom:1px solid var(--line);margin:0;align-items:center}.pb-filter-h b{font-size:13px}.pb-filter-h button{font-size:18px;color:#6b7280}
+.pb-filter-body{max-height:min(60vh,440px);overflow:auto}
+.pb-fg{border-bottom:1px solid #eef0f3}.pb-fg-h{width:100%;display:flex;justify-content:space-between;padding:9px 12px;background:none;border:0;font-size:12.5px;font-weight:600;color:#374151}
+.pb-fg-b{padding:0 12px 8px}.pb-fg-b label{font-size:12.5px;padding:4px 0}
+.pb-filter-f{display:flex;justify-content:space-between;gap:8px;padding:10px 12px;border-top:1px solid var(--line)}
+.pb-btn.sm{height:28px;padding:0 10px;font-size:12px}
+.pb-pend{border-radius:18px;font-size:12.5px;font-weight:600}.pb-pend.has{border-color:#f5a623;color:#b45309;background:#fff8ec}
+.pb-st{display:inline-block;font-size:11px;font-weight:600;border-radius:10px;padding:2px 8px;white-space:nowrap;background:#eef1f4;color:#555}
+.pb-badges{display:inline-flex;gap:4px;flex-wrap:wrap}
+.pb-st.st-pending{background:#fff3d6;color:#a15c00}.pb-st.st-confirmed{background:#dcecff;color:#0b5cad}.pb-st.st-checked_in{background:#d9f5e5;color:#12703f}
+.pb-st.st-in_progress{background:#cdeedd;color:#0b5a33}.pb-st.st-completed{background:#e6e8ec;color:#4b5563}.pb-st.st-cancelled,.pb-st.st-no_show{background:#ffe3e5;color:#b3202c}
+.pb-st[class*=" cs-"]{background:#fff;border:1px solid #d7dbe0;color:#6b7280;font-weight:500}
+.pb-ev.st-pending{border-left:3px dashed #f5a623}.pb-ev.st-confirmed{border-left:3px solid #1b6ca8}.pb-ev.st-checked_in,.pb-ev.st-in_progress{border-left:3px solid #35c27f}.pb-ev.st-completed{border-left:3px solid #9aa1ab}
+.pb-evst{display:block;text-decoration:none;font-size:9.5px;font-weight:700;opacity:.8}
+.pb-confirm{width:min(1000px,calc(100vw - 48px))}
+.pb-confirm-tools{display:flex;gap:10px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.pb-confirm-tools .pb-tabs{display:flex;gap:4px}.pb-confirm-tools .pb-tabs button{height:30px;padding:0 12px;border:1px solid var(--line);background:#fff;border-radius:15px;font-size:12.5px}.pb-confirm-tools .pb-tabs button.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.pb-tabs.dr{margin:8px 0}
+.pb-search{flex:1;min-width:180px;height:30px;border:1px solid var(--line);border-radius:4px;padding:0 10px;font-size:13px}
+.pb-confirm-tools select{height:30px;border:1px solid var(--line);border-radius:4px;font-size:12.5px}
+.pb-confirm-b{display:flex;flex-direction:column;min-height:0;padding:0;background:#fff}
+.pb-confirm-list{flex:1;min-height:0}
+.pb-crow{grid-template-columns:88px 28px minmax(140px,1fr) minmax(85px,110px) minmax(110px,145px) minmax(130px,150px) 76px 22px;gap:8px;font-size:12.5px;padding:8px 14px}
+.pb-crow>*{min-width:0}.pb-cname{overflow-wrap:anywhere}.pb-crow .pb-btn.sm{height:30px;margin:0}
+.pb-crow small{color:#6b7280;font-size:11.5px}
+.pb-req h6{margin:14px 0 6px}.pb-req-card{border:1px solid #e3e6ea;border-radius:4px;padding:8px 10px;margin-bottom:6px;display:grid;gap:4px}
+.pb-req-card>div{display:flex;justify-content:space-between;gap:10px;font-size:12.5px}.pb-req-card small{color:#6b7280}
+.pb-dr-badges{margin:6px 0}
+@media(max-width:800px){.pb-confirm{inset:64px 8px 8px;width:auto}.pb-crow{grid-template-columns:76px minmax(0,1fr)}.pb-crow>:nth-child(n+3){grid-column:2}.pb-crow .pb-cdoc{display:block}.pb-crow .pb-av,.pb-crow .pb-cico{display:none}.pb-crow .pb-cstate{width:100%}}
+.pb-confirm-tools .pb-tabs button{height:30px;padding:0 12px;border:1px solid var(--line);background:#fff;border-radius:15px;font-size:12.5px;color:#374151}.pb-confirm-tools .pb-tabs button.on{background:var(--blue);border-color:var(--blue);color:#fff}

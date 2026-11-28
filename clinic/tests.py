@@ -201,11 +201,11 @@ class ClinicFlowTests(APITestCase):
         denied = self.client.post(f'/api/clinic/plans/{plan_id}/complete-session/', {'session_id': sid, 'content': 'ok'}, format='json')
         self.assertEqual(denied.status_code, 404, denied.data)
         self.auth(self.doctor)
-        d = self.client.post(f'/api/clinic/plans/{plan_id}/complete-session/', {'session_id': sid, 'content': 'ok'}, format='json')
+        d = self.client.post(f'/api/clinic/plans/{plan_id}/complete-session/', {'session_id': sid, 'content': 'Đã thực hiện', 'outcome': 'Ổn định'}, format='json')
         self.assertEqual(d.data['done_sessions'], 1)
         self.assertEqual(self.client.post(f'/api/clinic/plans/{plan_id}/complete-session/', {'session_id': sid}, format='json').status_code, 400)
         for s in d.data['sessions'][1:]:
-            res = self.client.post(f'/api/clinic/plans/{plan_id}/complete-session/', {'session_id': s['id']}, format='json')
+            res = self.client.post(f'/api/clinic/plans/{plan_id}/complete-session/', {'session_id': s['id'], 'content': 'Đã thực hiện', 'outcome': 'Ổn định'}, format='json')
         self.assertEqual(res.data['status'], 'completed')
         # CSKH không thấy nội dung chuyên môn
         self.auth(self.cskh)

@@ -7,8 +7,6 @@ User = get_user_model()
 OPTIONAL_NOTIFICATION_SETTINGS = {
     'profile.updated': 'notification.profile_updates',
     'payroll.updated': 'notification.payroll_updates',
-    'loyalty.adjusted': 'notification.loyalty_updates',
-    'loyalty.tier': 'notification.loyalty_updates',
 }
 
 

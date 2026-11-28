@@ -10,10 +10,11 @@ from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 from rest_framework import serializers
+from rest_framework.authtoken.models import Token
 
 from core.models import (
     Attendance, Booking, BookingHistory, BookingItem, Category, Conversation, LeaveRequest,
-    Message, Notification, Service, Staff, Voucher, VoucherRedemption, WorkingHours, RosterShift,
+    Message, Notification, Service, Staff, WorkingHours, RosterShift,
     Tag, QuickReply, AgentPresence, ChatSetting, InternalNote, ConversationEvent, ConversationSession,
     AppointmentWaitlistEntry, AppointmentWaitlistHistory,
 )
@@ -25,16 +26,14 @@ User = get_user_model()
 class UserSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
     avatar_url = serializers.SerializerMethodField()
-    loyalty_tier = serializers.SerializerMethodField()
-    total_spending = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = (
             'id', 'username', 'email', 'first_name', 'last_name', 'full_name', 'phone', 'date_of_birth',
-            'avatar', 'avatar_url', 'role', 'loyalty_points', 'loyalty_tier', 'membership_tier_override', 'total_spending', 'must_change_password',
+            'avatar', 'avatar_url', 'role', 'must_change_password',
         )
-        read_only_fields = ('username', 'role', 'loyalty_points', 'membership_tier_override', 'must_change_password', 'avatar_url')
+        read_only_fields = ('username', 'role', 'must_change_password', 'avatar_url')
         extra_kwargs = {'avatar': {'write_only': True, 'required': False}}
 
     def get_full_name(self, obj):
@@ -50,16 +49,7 @@ class UserSerializer(serializers.ModelSerializer):
             return ''
         return request.build_absolute_uri(url) if request else url
 
-    def get_total_spending(self, obj):
-        if obj.role != 'customer':
-            return 0
-        from core.models import Booking
-        return Booking.objects.filter(user=obj, status=Booking.COMPLETED).aggregate(v=Sum('total'))['v'] or 0
 
-    def get_loyalty_tier(self, obj):
-        if obj.role != 'customer':
-            return ''
-        return obj.membership_tier_override or User.loyalty_tier_for_spend(self.get_total_spending(obj))['name']
 
     def update(self, instance, validated_data):
         full_name = self.context.get('request').data.get('full_name') if self.context.get('request') else None
@@ -135,10 +125,10 @@ class StaffSerializer(serializers.ModelSerializer):
         return request.build_absolute_uri(url) if request else url
 
     def get_service_names(self, obj):
-        return list(obj.services.order_by('name').values_list('name', flat=True))
+        return sorted(service.name for service in obj.services.all())
 
     def get_service_ids_current(self, obj):
-        return list(obj.services.values_list('id', flat=True))
+        return [service.pk for service in obj.services.all()]
 
     def validate_username(self, value):
         if value and User.objects.filter(username=value).exists():
@@ -157,7 +147,7 @@ class StaffSerializer(serializers.ModelSerializer):
             user = User.objects.create_user(
                 username=username, email=email, password=password or secrets.token_urlsafe(10),
                 first_name=validated_data.get('name', ''), phone=validated_data.get('phone', ''),
-                role=role, must_change_password=True,
+                role=role, must_change_password=True, is_active=validated_data.get('is_active', True),
             )
         staff = Staff.objects.create(user=user, **validated_data)
         if service_ids:
@@ -170,6 +160,7 @@ class StaffSerializer(serializers.ModelSerializer):
         email = validated_data.pop('email', None)
         role = validated_data.pop('role', None)
         password = validated_data.pop('password', None)
+        account_active = validated_data.get('is_active')
         validated_data.pop('username', None)
         instance = super().update(instance, validated_data)
         if service_ids is not None:
@@ -182,8 +173,13 @@ class StaffSerializer(serializers.ModelSerializer):
                 instance.user.role = role; changed.append('role')
             if password:
                 instance.user.set_password(password); instance.user.must_change_password = True; changed += ['password','must_change_password']
+            if account_active is not None:
+                instance.user.is_active = account_active
+                changed.append('is_active')
             if changed:
                 instance.user.save()
+            if account_active is False or password:
+                Token.objects.filter(user=instance.user).delete()
         return instance
 
 
@@ -245,13 +241,11 @@ class BookingSerializer(serializers.ModelSerializer):
     )
     treatment_session_id = serializers.IntegerField(write_only=True, required=False)
     follow_up_visit_id = serializers.IntegerField(write_only=True, required=False)
-    voucher_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     customer_name = serializers.CharField(read_only=True)
     customer_phone = serializers.CharField(read_only=True)
     customer_email = serializers.CharField(read_only=True)
     staff_name = serializers.CharField(source='staff.name', read_only=True, default='')
     status_label = serializers.CharField(source='get_status_display', read_only=True)
-    applied_voucher_code = serializers.CharField(source='applied_voucher.code', read_only=True, default='')
     subtotal = serializers.SerializerMethodField()
     patient_code = serializers.CharField(source='patient.code', read_only=True, default='')
     appointment_type_label = serializers.CharField(source='get_appointment_type_display', read_only=True)
@@ -276,13 +270,12 @@ class BookingSerializer(serializers.ModelSerializer):
             'staff', 'staff_name', 'appointment', 'subtotal', 'discount_total', 'total', 'note', 'status', 'status_label',
             'running_late', 'cancel_reason', 'confirm_state', 'duration_override', 'rescheduled_from',
             'reschedule_count', 'rebooked_from',
-            'applied_voucher', 'applied_voucher_code', 'loyalty_points_earned', 'loyalty_awarded',
             'created_at', 'customer_name', 'customer_phone', 'customer_email', 'items', 'history',
-            'service_ids', 'voucher_id',
+            'service_ids',
         )
         read_only_fields = (
-            'user', 'confirm_code', 'subtotal', 'discount_total', 'total', 'applied_voucher',
-            'loyalty_points_earned', 'loyalty_awarded', 'created_at', 'running_late',
+            'user', 'confirm_code', 'subtotal', 'discount_total', 'total',
+            'created_at', 'running_late',
             'cancel_reason', 'duration_override', 'rescheduled_from', 'reschedule_count', 'rebooked_from',
         )
 
@@ -448,14 +441,6 @@ class BookingSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 'service_ids': 'Vui lòng chọn dịch vụ cho loại lịch này.',
             })
-        if appointment_type in {
-            Booking.APPOINTMENT_TYPE_SESSION,
-            Booking.APPOINTMENT_TYPE_CONSULT,
-            Booking.APPOINTMENT_TYPE_FOLLOW_UP,
-        } and attrs.get('voucher_id'):
-            raise serializers.ValidationError({
-                'voucher_id': 'Lịch tư vấn, tái khám hoặc buổi liệu trình không áp dụng voucher dịch vụ.',
-            })
         staff = attrs.get('staff')
         if appointment_type == Booking.APPOINTMENT_TYPE_PROCEDURE and service_ids:
             policies = set(Service.objects.filter(pk__in=service_ids).values_list('booking_policy', flat=True))
@@ -486,9 +471,6 @@ class BookingSerializer(serializers.ModelSerializer):
                 candidates = qualified_staff(Staff.objects.all(), service_ids)
                 if not any(not has_conflict(candidate, appointment, duration) for candidate in candidates):
                     raise serializers.ValidationError({'appointment': 'Không còn nhân viên phù hợp ở khung giờ này.'})
-        voucher_id = attrs.get('voucher_id')
-        if voucher_id and (not request or not request.user.is_authenticated or request.user.role != 'customer'):
-            raise serializers.ValidationError({'voucher_id': 'Cần đăng nhập tài khoản khách hàng để sử dụng voucher.'})
         return attrs
 
     def validate_service_ids(self, value):
@@ -503,7 +485,6 @@ class BookingSerializer(serializers.ModelSerializer):
         from django.utils import timezone
         service_ids = validated_data.pop('service_ids', [])
         treatment_session_id = validated_data.pop('treatment_session_id', None)
-        voucher_id = validated_data.pop('voucher_id', None)
         request = self.context.get('request')
         staff_roles = {'consultant', 'manager', 'doctor', 'sysadmin'}
         patient = validated_data.get('patient')
@@ -627,25 +608,10 @@ class BookingSerializer(serializers.ModelSerializer):
                     'appointment': 'Khung giờ vừa được người khác đặt hoặc không còn khả dụng.',
                 })
             validated_data['staff'] = available_staff
-        voucher = None
-        redemption = None
-        discount = 0
-        if voucher_id and request and request.user.is_authenticated:
-            try:
-                redemption = VoucherRedemption.objects.select_for_update().select_related('voucher').get(user=request.user, voucher_id=voucher_id, status=VoucherRedemption.AVAILABLE)
-            except VoucherRedemption.DoesNotExist:
-                raise serializers.ValidationError({'voucher_id': 'Voucher chưa được đổi hoặc đã sử dụng.'})
-            voucher = redemption.voucher
-            if not voucher.is_active or voucher.is_expired:
-                raise serializers.ValidationError({'voucher_id': 'Voucher đã hết hiệu lực.'})
-            if subtotal < voucher.min_spend:
-                raise serializers.ValidationError({'voucher_id': f'Đơn hàng tối thiểu {voucher.min_spend:,}đ để dùng voucher.'})
-            discount = min(voucher.discount_value, subtotal)
         booking = Booking.objects.create(
             **validated_data,
-            applied_voucher=voucher,
-            discount_total=discount,
-            total=max(0, subtotal-discount),
+            discount_total=0,
+            total=subtotal,
             idempotency_key=(
                 request.headers.get('Idempotency-Key', '').strip() or None
                 if request else None
@@ -669,11 +635,6 @@ class BookingSerializer(serializers.ModelSerializer):
                 service=service,
                 price=0 if is_treatment_session or consultation_request else service.price,
             )
-        if redemption:
-            redemption.status = VoucherRedemption.USED
-            redemption.used_at = timezone.now()
-            redemption.booking = booking
-            redemption.save(update_fields=['status', 'used_at', 'booking'])
         return booking
 
 
@@ -752,27 +713,6 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
         return obj.staff.get_full_name() or obj.staff.username
 
 
-class VoucherSerializer(serializers.ModelSerializer):
-    is_expired = serializers.BooleanField(read_only=True)
-    redeemed = serializers.SerializerMethodField()
-    redemption_status = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Voucher
-        fields = ('id', 'code', 'title', 'description', 'points_cost', 'discount_value', 'min_spend', 'expires_at', 'is_active', 'is_expired', 'redeemed', 'redemption_status')
-
-    def _redemption(self, obj):
-        request = self.context.get('request')
-        if not request or not request.user.is_authenticated:
-            return None
-        return VoucherRedemption.objects.filter(user=request.user, voucher=obj).first()
-
-    def get_redeemed(self, obj):
-        return bool(self._redemption(obj))
-
-    def get_redemption_status(self, obj):
-        redemption = self._redemption(obj)
-        return redemption.status if redemption else ''
 
 
 class NotificationSerializer(serializers.ModelSerializer):
@@ -877,8 +817,6 @@ class ConversationSerializer(serializers.ModelSerializer):
     customer_phone = serializers.CharField(source='customer.phone', read_only=True, default='')
     customer_email = serializers.EmailField(source='customer.email', read_only=True, default='')
     customer_avatar_url = serializers.SerializerMethodField()
-    customer_loyalty_points = serializers.IntegerField(source='customer.loyalty_points', read_only=True, default=0)
-    customer_tier = serializers.SerializerMethodField()
     customer_total_spending = serializers.SerializerMethodField()
     customer_last_visit = serializers.SerializerMethodField()
     customer_next_visit = serializers.SerializerMethodField()
@@ -887,8 +825,8 @@ class ConversationSerializer(serializers.ModelSerializer):
     takeover_name = serializers.SerializerMethodField()
     messages = MessageSerializer(many=True, read_only=True)
     tags = TagSerializer(many=True, read_only=True)
-    notes = InternalNoteSerializer(many=True, read_only=True)
-    events = ConversationEventSerializer(many=True, read_only=True)
+    notes = serializers.SerializerMethodField()
+    events = serializers.SerializerMethodField()
     unread_count = serializers.SerializerMethodField()
     last_message = serializers.SerializerMethodField()
     last_message_at = serializers.SerializerMethodField()
@@ -902,11 +840,26 @@ class ConversationSerializer(serializers.ModelSerializer):
     session_number = serializers.SerializerMethodField()
     session_history = ConversationSessionSerializer(source='sessions', many=True, read_only=True)
 
+    def _can_read_internal(self):
+        request = self.context.get('request')
+        return bool(request and request.user.is_authenticated
+                    and request.user.role in {'consultant', 'doctor', 'manager', 'sysadmin'})
+
+    def get_notes(self, obj):
+        if not self._can_read_internal():
+            return []
+        return InternalNoteSerializer(obj.notes.all(), many=True, context=self.context).data
+
+    def get_events(self, obj):
+        if not self._can_read_internal():
+            return []
+        return ConversationEventSerializer(obj.events.all(), many=True, context=self.context).data
+
     class Meta:
         model = Conversation
         fields = (
             'id', 'customer', 'customer_name', 'customer_phone', 'customer_email', 'customer_avatar_url',
-            'customer_loyalty_points', 'customer_tier', 'customer_total_spending', 'customer_last_visit', 'customer_next_visit',
+            'customer_total_spending', 'customer_last_visit', 'customer_next_visit',
             'subject', 'channel', 'assigned_to', 'assigned_name', 'escalated_to', 'escalated_name', 'taken_over_by', 'takeover_name',
             'status', 'priority', 'tags', 'first_response_at', 'resolved_at',
             'csat_score', 'csat_comment', 'csat_invited_at', 'csat_can_invite', 'csat_block_reason',
@@ -957,9 +910,6 @@ class ConversationSerializer(serializers.ModelSerializer):
     def get_customer_next_visit(self, obj):
         return self._visit(obj, upcoming=True)
 
-    def get_customer_tier(self, obj):
-        spend = self.get_customer_total_spending(obj)
-        return obj.customer.membership_tier_override or User.loyalty_tier_for_spend(spend)['name']
 
     def get_assigned_name(self, obj):
         return (obj.assigned_to.get_full_name() or obj.assigned_to.username) if obj.assigned_to else ''

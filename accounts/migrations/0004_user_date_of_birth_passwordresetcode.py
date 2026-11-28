@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [('accounts', '0003_user_loyalty_points')]
+    dependencies = [('accounts', '0002_user_created_by_user_must_change_password_user_role_and_more')]
     operations = [
         migrations.AddField(model_name='user', name='date_of_birth', field=models.DateField(blank=True, null=True, verbose_name='Ngày sinh')),
         migrations.CreateModel(

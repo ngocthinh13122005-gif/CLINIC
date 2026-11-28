@@ -735,8 +735,6 @@ export default function SupportInboxPage() {
                         </div>
                       </div>
                       <div className="cs-facts">
-                        <div><span>Hạng thành viên</span><strong>{active.customer_tier || 'Bronze'}</strong></div>
-                        <div><span>Điểm tích lũy</span><strong>{active.customer_loyalty_points || 0} điểm</strong></div>
                       </div>
                     </section>
 

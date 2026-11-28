@@ -36,7 +36,6 @@ def seed_chatbot(apps, schema_editor):
     actions = [
         ('Dịch vụ', 'message', 'Cho tôi xem các dịch vụ nổi bật của OHIO', 'bi-stars', 10),
         ('Đặt lịch', 'url', '/dat-lich/', 'bi-calendar-check', 20),
-        ('Khuyến mãi', 'message', 'OHIO hiện có khuyến mãi hoặc voucher nào?', 'bi-ticket-perforated', 30),
         ('Gặp tư vấn viên', 'human', '', 'bi-headset', 40),
     ]
     for label, action_type, value, icon, order in actions:

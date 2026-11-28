@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import CalendarMonthRounded from '@mui/icons-material/CalendarMonthRounded';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 import EventAvailableRounded from '@mui/icons-material/EventAvailableRounded';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
-import MedicalInformationRounded from '@mui/icons-material/MedicalInformationRounded';
 import MedicationRounded from '@mui/icons-material/MedicationRounded';
 import RefreshRounded from '@mui/icons-material/RefreshRounded';
 import SpaRounded from '@mui/icons-material/SpaRounded';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { PageTitle } from './portal/portalKit';
 import '../styles/patient-portal.css';
 
 const TABS = [
@@ -29,7 +29,9 @@ const dateTimeText = (value) => value
 export default function PatientPortalPage() {
   const { user } = useAuth();
   const [portal, setPortal] = useState(null);
-  const [tab, setTab] = useState('visits');
+  const [params, setParams] = useSearchParams();
+  const tab = TABS.some((t) => t.id === params.get('tab')) ? params.get('tab') : 'visits';
+  const setTab = (id) => setParams({ tab: id }, { replace: true });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
@@ -51,16 +53,8 @@ export default function PatientPortalPage() {
   const data = portal || { visits: [], care_instructions: [], plans: [], prescriptions: [] };
 
   return <div className="customer-account patient-portal">
-    <section className="pp-hero">
-      <div className="pp-hero-content">
-        <span className="pp-eyebrow"><MedicalInformationRounded/> CỔNG HỒ SƠ BỆNH NHÂN</span>
-        <h1>Hồ sơ sức khỏe của bạn</h1>
-        <p>Xin chào <strong>{portal?.patient_name || user?.full_name || user?.username}</strong>. Theo dõi lịch sử khám, hướng dẫn chăm sóc và kế hoạch điều trị tại AkinaClinic.</p>
-        <Link to="/book" className="pp-book-link">Đặt lịch khám mới <span aria-hidden="true"><span className="ak-icon-glyph">→</span></span></Link>
-      </div>
-      <div className="pp-hero-mark" aria-hidden="true"><MedicalInformationRounded/></div>
-    </section>
-
+    <PageTitle title="Hồ sơ lâm sàng" sub={`Xin chào ${portal?.patient_name || user?.full_name || user?.username}. Theo dõi lịch sử khám, hướng dẫn chăm sóc, liệu trình và đơn thuốc của bạn.`}
+      actions={<Link to="/book" className="cp-btn primary">Đặt lịch khám mới</Link>}/>
     {error && <div className="pp-alert error" role="alert"><span>{error}</span><button type="button" onClick={retry}><RefreshRounded/>Thử lại</button></div>}
 
     {!loading && !error && !portal?.patient_linked && <section className="pp-link-notice">

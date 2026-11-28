@@ -22,7 +22,8 @@ from . import plan_billing
 from .permissions import (CLINICAL_READ, CLINICAL_WRITE, CanReadClinical, CanReception, CanWriteClinical,
                           IsClinicStaff)
 from .serializers import (AddendumSerializer, Icd10Serializer, MedicalRecordSerializer, PatientImageSerializer,
-                          PatientSerializer, RecordSummarySerializer, TreatmentPlanSerializer, VisitSerializer, uname)
+                          PatientSerializer, RecordSummarySerializer, SessionCompletionSerializer,
+                          TreatmentPlanSerializer, VisitSerializer, uname)
 
 User = get_user_model()
 
@@ -297,12 +298,6 @@ class PatientViewSet(viewsets.ModelViewSet):
             paid = sum(i.paid for i in invs)
             data['finance'] = {'billed': billed, 'paid': paid, 'outstanding': sum(i.balance for i in invs),
                                'invoice_count': len(invs), 'credit': 0}
-            tier_name = 'Bronze'
-            if p.user_id:
-                from accounts.models import User
-                tier_name = p.user.membership_tier_override or User.loyalty_tier_for_spend(paid)['name']
-            data['loyalty'] = {'tier': tier_name, 'spend': paid, 'linked': bool(p.user_id),
-                               'points': p.user.loyalty_points if p.user_id else 0}
         if request.user.role in CLINICAL_READ | {'staff'}:
             plans = p.plans.filter(status=TreatmentPlan.ACTIVE)
             data['active_plans'] = [{'id': x.id, 'title': x.title, 'done': x.done_sessions, 'total': x.total_sessions} for x in plans]
@@ -493,12 +488,7 @@ class VisitViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Crea
             old_status = v.booking.status
             if old_status != Booking.COMPLETED:
                 v.booking.status = Booking.COMPLETED
-                update_fields = ['status']
-                from core.loyalty import award_booking_points
-                award_booking_points(v.booking)
-                if v.booking.user_id:
-                    update_fields.extend(['loyalty_awarded', 'loyalty_points_earned'])
-                v.booking.save(update_fields=update_fields)
+                v.booking.save(update_fields=['status'])
                 BookingHistory.objects.create(
                     booking=v.booking,
                     actor=request.user,
@@ -932,12 +922,16 @@ class TreatmentPlanViewSet(viewsets.ModelViewSet):
             return deny('Liệu trình chưa được xác nhận hoặc đã kết thúc.', 400)
         if display_status(plan) == TreatmentPlan.EXPIRED:
             return deny('Gói liệu trình đã hết hạn. Hãy gia hạn trước khi ghi nhận buổi.', 400)
-        s = plan.sessions.select_for_update().filter(pk=request.data.get('session_id')).first()
+        completion = SessionCompletionSerializer(data=request.data)
+        completion.is_valid(raise_exception=True)
+        data = completion.validated_data
+        s = plan.sessions.select_for_update().filter(pk=data['session_id']).first()
         if not s:
             return deny('Không tìm thấy buổi liệu trình.', 404)
         if s.status != TreatmentSession.PENDING:
             return deny('Buổi này đã được ghi nhận.', 400)
-        booking_id = request.data.get('booking')
+        booking_id = data.get('booking')
+        booking = None
         if booking_id:
             booking = Booking.objects.select_for_update().filter(
                 pk=booking_id, patient_id=plan.patient_id
@@ -946,11 +940,6 @@ class TreatmentPlanViewSet(viewsets.ModelViewSet):
                 return deny('Lịch hẹn không thuộc khách hàng của liệu trình.', 400)
             if booking.treatment_session_id not in (None, s.pk):
                 return deny('Lịch hẹn đã liên kết với buổi liệu trình khác.', 400)
-            if s.booking_id and s.booking_id != booking.pk:
-                Booking.objects.filter(pk=s.booking_id, treatment_session=s).update(treatment_session=None)
-            s.booking = booking
-            booking.treatment_session = s
-            booking.save(update_fields=['treatment_session'])
         if request.user.role == 'staff':
             if not s.allow_staff_delegation:
                 return deny('Buổi này yêu cầu bác sĩ phụ trách trực tiếp thực hiện.', 403)
@@ -981,14 +970,20 @@ class TreatmentPlanViewSet(viewsets.ModelViewSet):
             linked_visit = None
         if linked_visit and linked_visit.patient_id != plan.patient_id:
             return deny('Lượt khám không cùng bệnh nhân với liệu trình.', 400)
-        new_status = TreatmentSession.SKIPPED if request.data.get('status') == 'skipped' else TreatmentSession.DONE
+        # Validate and authorize before changing links: HTTP 400/403 does not roll back an atomic block.
+        if booking:
+            if request.user.role == 'staff' and (booking.staff_id != staff_profile.pk
+                    or booking.status not in [Booking.CHECKED_IN, Booking.IN_PROGRESS]):
+                return deny('Lịch hẹn chưa được phân công cho bạn để thực hiện.', 403)
+            if s.booking_id and s.booking_id != booking.pk:
+                Booking.objects.filter(pk=s.booking_id, treatment_session=s).update(treatment_session=None)
+            s.booking = booking
+            booking.treatment_session = s
+            booking.save(update_fields=['treatment_session'])
+        new_status = data['status']
         s.status, s.performed_at, s.performed_by = new_status, timezone.now(), request.user
-        s.content = (request.data.get('content') or '')[:2000]
-        s.procedures = (request.data.get('procedures') or '')[:2000]
-        s.parameters = (request.data.get('parameters') or '')[:2000]
-        s.patient_response = (request.data.get('patient_response') or '')[:2000]
-        s.adverse_reactions = (request.data.get('adverse_reactions') or '')[:2000]
-        s.outcome = (request.data.get('outcome') or '')[:120]
+        for field in ('content', 'procedures', 'parameters', 'patient_response', 'adverse_reactions', 'outcome'):
+            setattr(s, field, data[field])
         s.save()
         if not plan.sessions.filter(status=TreatmentSession.PENDING).exists():
             plan.status = TreatmentPlan.COMPLETED
